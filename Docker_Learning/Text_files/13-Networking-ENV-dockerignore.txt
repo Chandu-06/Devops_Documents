@@ -1,0 +1,165 @@
+========================================
+       NETWORKING, ENV AND .dockerignore
+       Topic 13 - Filling the Gaps
+========================================
+
+
+----------------------------------------
+DOCKER NETWORKING - DEEP DIVE
+----------------------------------------
+
+OVERLAY NETWORKS
+  Bridge networks work on one machine.
+  Overlay networks span multiple machines.
+  Used in Docker Swarm and Kubernetes.
+  Containers on different servers talk
+  as if on same local network.
+
+  docker network create --driver overlay myoverlay
+
+MACVLAN
+  Gives container its own MAC address.
+  Appears as physical device on your LAN.
+  Container gets its own IP on your network.
+  Rare but exists for specific use cases.
+
+NETWORK ALIASES
+  One container reachable by multiple names:
+
+  docker run --network mynet \
+    --network-alias db \
+    --network-alias database \
+    myapp
+  # reachable as "db" OR "database"
+
+CONNECTING ACROSS COMPOSE FILES
+  Two Compose projects sharing a network:
+
+  # Project A -- creates the network
+  networks:
+    shared:
+      name: shared-network
+
+  # Project B -- joins existing network
+  networks:
+    shared:
+      external: true
+      name: shared-network
+
+DNS RESOLUTION INTERNALS
+  Docker runs embedded DNS at 127.0.0.11
+  Container name lookups go through it.
+  Returns current IP of named container.
+  This is why names work as hostnames.
+
+
+----------------------------------------
+ARG VS ENV - THE MOST CONFUSED PAIR
+----------------------------------------
+                ARG                ENV
+-----------     ---------------    ---------------
+Available       Build time only    Build + Runtime
+In final image  No                 Yes
+Override with   --build-arg        -e at docker run
+Use for         Build config       App configuration
+
+ARG BUILD_VERSION=1.0   # only during docker build
+ENV APP_VERSION=1.0     # during build AND runtime
+
+Security trap:
+  ARG does not persist in final image BUT
+  if you use ARG MY_SECRET then
+  RUN curl with it, secret appears in
+  docker history. Use BuildKit secret
+  mounts for build-time secrets.
+
+
+----------------------------------------
+THE .env FILE AND DOCKER COMPOSE
+----------------------------------------
+# .env file -- never commit to git
+DATABASE_URL=postgres://localhost/mydb
+SECRET_KEY=supersecret123
+DEBUG=false
+
+# Compose reads .env automatically
+services:
+  web:
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+    env_file:
+      - .env           # loads entire file
+
+Multiple environments pattern:
+  .env                 base shared values
+  .env.development     dev overrides
+  .env.production      prod overrides
+
+  docker run --env-file .env.production myapp
+
+Always add to .gitignore:
+  .env
+  .env.*
+  !.env.example    # keep example with dummy values
+
+
+----------------------------------------
+.dockerignore - FULL DEPTH
+----------------------------------------
+WHY IT MATTERS
+  Every file in your project gets sent
+  to Docker daemon as build context.
+
+  Without .dockerignore:
+    .git         hundreds of MB
+    node_modules gigabytes
+    test data    bloat
+    .env files   security risk
+
+SYNTAX
+  # Comments
+  .git
+  node_modules
+  __pycache__
+  *.log
+  *.pyc
+  .env
+  .env.*
+  tests/
+  docs/
+  *.md
+  .vscode
+  .idea
+  **/tmp          # nested paths
+  **/*.cache
+
+  tests/                    # ignore folder
+  !tests/fixtures/seed.sql  # but keep this file
+
+The ! prefix is the exception pattern.
+
+PRODUCTION-READY PYTHON .dockerignore
+  .git
+  .gitignore
+  .env
+  .env.*
+  __pycache__
+  *.pyc
+  *.pyo
+  .pytest_cache
+  .coverage
+  htmlcov/
+  tests/
+  docs/
+  *.md
+  .vscode
+  .idea
+  docker-compose*.yml
+  Makefile
+
+SECURITY IMPORTANCE
+  Without .dockerignore a credentials file
+  in your project gets baked into the image.
+  Anyone who pulls can read it with:
+    docker exec myimage cat /app/secrets.txt
+========================================

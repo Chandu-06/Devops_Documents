@@ -1,0 +1,64 @@
+================================================================================
+  KUBERNETES LEARNING SERIES — INDEX AND LEARNING PATH
+  HSBC DevOps Engineering
+================================================================================
+
+Welcome to your complete Kubernetes learning materials. This folder contains
+16 text files, each covering one focused topic — structured to take you from
+complete beginner to job-ready intermediate level.
+
+
+--------------------------------------------------------------------------------
+DOCUMENT INDEX
+--------------------------------------------------------------------------------
+
+  #   | File Name                                | Key Concepts
+  ----|------------------------------------------|------------------------------
+  01  | 01 - What is Kubernetes.txt              | Purpose, history, why K8s
+  02  | 02 - Containers and Docker Basics.txt    | Containers, images, Dockerfile
+  03  | 03 - Kubernetes Architecture.txt         | Control plane, worker nodes
+  04  | 04 - Pods.txt                            | Basic unit, lifecycle, YAML
+  05  | 05 - Deployments.txt                     | ReplicaSet, rolling updates
+  06  | 06 - Services.txt                        | ClusterIP, LoadBalancer, DNS
+  07  | 07 - Namespaces.txt                      | Isolation, organisation
+  08  | 08 - ConfigMaps and Secrets.txt          | Config, sensitive data
+  09  | 09 - Volumes and Persistent Storage.txt  | PV, PVC, storage
+  10  | 10 - Ingress.txt                         | HTTP routing, TLS
+  11  | 11 - Resource Management.txt             | CPU/memory limits, quotas
+  12  | 12 - Health Checks (Probes).txt          | Liveness, readiness, startup
+  13  | 13 - Auto Scaling.txt                    | HPA, VPA, Cluster Autoscaler
+  14  | 14 - RBAC and Security.txt               | Roles, bindings, policies
+  15  | 15 - kubectl Command Reference.txt       | Complete command cheat sheet
+
+
+--------------------------------------------------------------------------------
+RECOMMENDED LEARNING ORDER (DAY BY DAY)
+--------------------------------------------------------------------------------
+
+  Day 1  ->  Files 01, 02  — WHY Kubernetes exists + container foundation
+  Day 2  ->  File  03      — Architecture before working with it
+  Day 3  ->  Files 04, 05, 06  — Core trio: Pods, Deployments, Services
+  Day 4  ->  Files 07, 08, 09  — Organisation and configuration
+  Day 5  ->  Files 10, 11, 12, 13, 14  — Advanced topics
+  Day 6+ ->  File  15      — kubectl reference while doing hands-on practice
+
+
+--------------------------------------------------------------------------------
+TOOLS TO INSTALL FOR PRACTICE
+--------------------------------------------------------------------------------
+
+  kubectl       — The Kubernetes CLI (required for everything)
+  minikube      — Single-node K8s cluster on your laptop (perfect for learning)
+  Docker Desktop — Container runtime with built-in Kubernetes option
+  Lens / k9s    — GUI tools for visualising Kubernetes clusters
+
+  Quick start:
+    1. Install minikube
+    2. Run: minikube start
+    3. Follow File 04 to create your first Pod
+
+
+--------------------------------------------------------------------------------
+  TIP: Read each file, then immediately try the commands on minikube.
+  Reading + doing = 10x better learning than reading alone.
+--------------------------------------------------------------------------------

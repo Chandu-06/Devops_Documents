@@ -1,0 +1,111 @@
+========================================
+       DOCKER REGISTRIES
+       Topic 9 - Sharing Images
+========================================
+
+
+----------------------------------------
+WHAT IS A REGISTRY?
+----------------------------------------
+A server that stores and distributes
+Docker images. Like GitHub but for
+Docker images instead of code.
+
+  Push images  --> from your machine
+  Pull images  --> on servers, teammates
+
+
+----------------------------------------
+DOCKER HUB
+----------------------------------------
+Default public registry.
+When you type FROM python:3.11-slim,
+Docker fetches from:
+  docker.io/library/python:3.11-slim
+
+Official images:
+  Maintained by Docker and vendors.
+  python, postgres, nginx, redis, node.
+  Vetted, regularly updated, safe to use.
+
+User images:
+  Published by anyone.
+  Format: username/imagename:tag
+  Check pull counts and stars first.
+
+
+----------------------------------------
+PUSHING YOUR IMAGE TO DOCKER HUB
+----------------------------------------
+Step 1: Create account at hub.docker.com
+
+Step 2: Login from terminal
+  docker login
+
+Step 3: Tag your image
+  docker tag myapp:1.0 yourname/myapp:1.0
+  docker tag myapp:1.0 yourname/myapp:latest
+
+Step 4: Push
+  docker push yourname/myapp:1.0
+  docker push yourname/myapp:latest
+
+Step 5: Anyone can now pull it
+  docker pull yourname/myapp:1.0
+  docker run yourname/myapp:1.0
+
+
+----------------------------------------
+TAGGING STRATEGY
+----------------------------------------
+docker push yourname/myapp:1.0.0    # exact version
+docker push yourname/myapp:1.0      # minor alias
+docker push yourname/myapp:1        # major alias
+docker push yourname/myapp:latest   # newest stable
+docker push yourname/myapp:abc1234  # git commit hash
+docker push yourname/myapp:main     # latest from main
+
+Git commit hash is the most powerful.
+Ties exact image to exact code commit.
+Makes rollbacks precise and auditable.
+
+
+----------------------------------------
+PRIVATE REGISTRIES
+----------------------------------------
+GitHub Container Registry (ghcr.io):
+  Free for public repos, included with GitHub.
+
+  docker tag myapp:1.0 ghcr.io/yourname/myapp:1.0
+  docker push ghcr.io/yourname/myapp:1.0
+
+AWS ECR:
+  Standard choice for AWS deployments.
+
+  aws ecr get-login-password | docker login \
+    --username AWS \
+    --password-stdin 123456789.dkr.ecr.us-east-1.amazonaws.com
+
+  docker push 123456789.dkr.ecr.us-east-1.amazonaws.com/myapp:1.0
+
+Self-Hosted Registry:
+  docker run -d -p 5000:5000 --name registry registry:2
+  docker tag myapp:1.0 localhost:5000/myapp:1.0
+  docker push localhost:5000/myapp:1.0
+
+Company Nexus Registry:
+  docker login nexus.yourcompany.com:8082
+  docker tag myapp:1.0 nexus.yourcompany.com:8082/myapp:1.0
+  docker push nexus.yourcompany.com:8082/myapp:1.0
+
+
+----------------------------------------
+REGISTRY COMMANDS
+----------------------------------------
+docker login                    # login to Docker Hub
+docker login ghcr.io            # login to GitHub registry
+docker logout                   # logout
+docker push yourname/myapp:1.0  # push image
+docker pull yourname/myapp:1.0  # pull image
+docker search python            # search Docker Hub
+========================================

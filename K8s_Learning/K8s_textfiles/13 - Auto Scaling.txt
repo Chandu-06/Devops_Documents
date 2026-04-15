@@ -1,0 +1,255 @@
+================================================================================
+  KUBERNETES LEARNING SERIES — FILE 13
+  AUTO SCALING — HANDLING VARIABLE LOAD
+  HSBC DevOps Engineering
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. THE SCALING CHALLENGE
+--------------------------------------------------------------------------------
+
+HSBC processes millions of transactions. Traffic patterns are predictable but
+dramatic:
+  - Morning peak: customers check balances and make early payments
+  - Lunchtime spike: mobile banking usage surges
+  - End of month: bulk payments, direct debits, standing orders
+  - Overnight: low traffic, batch jobs running
+
+Manually adjusting replica counts for each surge is impossible at HSBC's scale.
+Kubernetes has three levels of auto scaling that work together.
+
+
+--------------------------------------------------------------------------------
+2. THE THREE TYPES OF AUTO SCALING
+--------------------------------------------------------------------------------
+
+  HPA — Horizontal Pod Autoscaler
+    Adds or removes PODS based on metrics (CPU, memory, custom).
+    "I need more workers to handle this load."
+    Horizontal = wider/more copies.
+
+  VPA — Vertical Pod Autoscaler
+    Makes each POD bigger or smaller (more/less CPU and memory).
+    "Each worker needs more strength to handle this load."
+    Vertical = taller/more powerful.
+
+  Cluster Autoscaler
+    Adds or removes NODES (machines) when the cluster itself runs out of
+    capacity or has too much spare capacity.
+    "We need to open a new branch (node) to accommodate more workers."
+
+
+--------------------------------------------------------------------------------
+3. HORIZONTAL POD AUTOSCALER (HPA)
+--------------------------------------------------------------------------------
+
+HPA watches your Pods' CPU or memory usage and automatically scales the number
+of replicas up or down to maintain a target utilisation level.
+
+HOW IT WORKS:
+  1. You set: target CPU utilisation = 70%
+  2. HPA checks actual CPU every 15 seconds (default)
+  3. If average CPU across all Pods > 70%, HPA increases replicas
+  4. If average CPU across all Pods < 70%, HPA decreases replicas
+  5. New replica count = ceil(current replicas * (current metric / target metric))
+
+ANALOGY: Like a supermarket opening more checkout lanes when queues get long,
+and closing them when it gets quiet.
+
+
+HPA YAML EXAMPLE:
+
+    apiVersion: autoscaling/v2
+    kind: HorizontalPodAutoscaler
+    metadata:
+      name: payment-api-hpa
+      namespace: hsbc-payments
+    spec:
+      scaleTargetRef:
+        apiVersion: apps/v1
+        kind: Deployment
+        name: payment-api-deployment     # Which Deployment to scale
+
+      minReplicas: 2                     # Never go below 2 (high availability)
+      maxReplicas: 20                    # Never go above 20
+
+      metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 70       # Target: 70% CPU utilisation
+
+      - type: Resource
+        resource:
+          name: memory
+          target:
+            type: Utilization
+            averageUtilization: 80       # Also scale on memory if needed
+
+      behavior:                          # How aggressively to scale
+        scaleUp:
+          stabilizationWindowSeconds: 60  # Wait 60s before scaling up again
+          policies:
+          - type: Pods
+            value: 4                     # Add at most 4 Pods at a time
+            periodSeconds: 60
+        scaleDown:
+          stabilizationWindowSeconds: 300 # Wait 5 minutes before scaling down
+          policies:
+          - type: Pods
+            value: 2                     # Remove at most 2 Pods at a time
+            periodSeconds: 60
+
+
+WHY SCALE DOWN IS SLOWER THAN SCALE UP:
+  Scaling up is urgent — users are waiting.
+  Scaling down should be cautious — don't remove capacity too quickly in case
+  load spikes again. The stabilizationWindowSeconds prevents flapping
+  (repeatedly scaling up and down).
+
+PREREQUISITE: HPA requires the Metrics Server to be installed in the cluster.
+The Metrics Server collects CPU and memory metrics from all nodes and pods.
+
+    # Check if Metrics Server is installed
+    kubectl get deployment metrics-server -n kube-system
+
+    # View HPA status
+    kubectl get hpa
+    kubectl describe hpa payment-api-hpa
+
+
+--------------------------------------------------------------------------------
+4. VERTICAL POD AUTOSCALER (VPA)
+--------------------------------------------------------------------------------
+
+VPA adjusts the CPU and memory requests/limits of Pods based on their actual
+historical usage. Instead of adding more Pods, it makes each Pod the right size.
+
+ANALOGY: Instead of hiring more people (HPA), you train each person to be
+more efficient (VPA). Or more accurately: you give each worker the right tools
+for the job — not too little, not too much.
+
+VPA MODES:
+  Off        — VPA calculates recommendations but makes NO changes (read-only)
+  Initial    — VPA sets resources only when a Pod is first created
+  Auto       — VPA automatically updates resources (restarts Pods as needed)
+  Recreate   — Like Auto but always restarts to apply changes
+
+VPA YAML EXAMPLE:
+
+    apiVersion: autoscaling.k8s.io/v1
+    kind: VerticalPodAutoscaler
+    metadata:
+      name: payment-api-vpa
+      namespace: hsbc-payments
+    spec:
+      targetRef:
+        apiVersion: apps/v1
+        kind: Deployment
+        name: payment-api-deployment
+      updatePolicy:
+        updateMode: "Off"              # Start with Off to see recommendations first
+      resourcePolicy:
+        containerPolicies:
+        - containerName: payment-api
+          minAllowed:
+            cpu: 100m
+            memory: 50Mi
+          maxAllowed:
+            cpu: "2"
+            memory: 2Gi
+
+    # After applying in Off mode, check recommendations:
+    kubectl describe vpa payment-api-vpa
+    # Look for 'Recommendation' section showing suggested requests/limits
+
+DO NOT USE HPA AND VPA TOGETHER on CPU metrics — they will conflict.
+  Safe combination: VPA on memory + HPA on CPU, or
+                    HPA on custom metrics + VPA on CPU+memory,
+                    or just use one of them.
+
+
+--------------------------------------------------------------------------------
+5. CLUSTER AUTOSCALER
+--------------------------------------------------------------------------------
+
+When HPA adds more Pods but the cluster has no capacity on any node to
+schedule them, those Pods become PENDING. The Cluster Autoscaler detects
+this and adds a new Node to the cluster.
+
+Conversely, when nodes are underutilised (e.g., after traffic drops and HPA
+scales Pods down), the Cluster Autoscaler removes idle nodes to save cost.
+
+HOW IT WORKS:
+  SCALE UP:
+    1. HPA adds Pods, some become Pending (no node has capacity)
+    2. Cluster Autoscaler detects Pending Pods
+    3. It requests a new node from the cloud provider (AWS/Azure/GCP)
+    4. New node joins the cluster in 2-5 minutes
+    5. Scheduler places Pending Pods on the new node
+
+  SCALE DOWN:
+    1. HPA removes Pods, some nodes become mostly empty
+    2. Cluster Autoscaler checks if idle Pods can fit on other nodes
+    3. If yes: drains the idle node (moves Pods elsewhere), then deletes it
+
+The Cluster Autoscaler is typically installed and configured by the
+infrastructure/platform team, not by individual DevOps engineers.
+
+
+--------------------------------------------------------------------------------
+6. ALL THREE AUTOSCALERS — HOW THEY WORK TOGETHER
+--------------------------------------------------------------------------------
+
+  Traffic increases dramatically:
+    Step 1: HPA detects CPU rising, adds more Pods
+    Step 2: If no node has capacity, Pods go Pending
+    Step 3: Cluster Autoscaler adds a new Node
+    Step 4: New Pods scheduled on new Node
+    Step 5: VPA (if configured) adjusts individual Pod sizes over time
+
+  Traffic decreases:
+    Step 1: HPA detects CPU falling, removes Pods
+    Step 2: Some Nodes become mostly empty
+    Step 3: Cluster Autoscaler removes idle Nodes
+    Step 4: Cost decreases automatically
+
+AUTOSCALER COMPARISON TABLE:
+  Autoscaler        | What It Scales      | Triggered By              | Time Scale
+  ------------------|---------------------|---------------------------|------------
+  HPA               | Pod count           | CPU, memory, custom metrics| Seconds/minutes
+  VPA               | Pod resource size   | Historical usage patterns  | Minutes/hours
+  Cluster Autoscaler| Node count          | Pending Pods / idle Nodes  | Minutes
+
+
+--------------------------------------------------------------------------------
+7. PRACTICAL COMMANDS
+--------------------------------------------------------------------------------
+
+    # View HPA status
+    kubectl get hpa -n hsbc-payments
+    kubectl describe hpa payment-api-hpa
+
+    # Watch HPA in real time
+    kubectl get hpa -w
+
+    # Manually scale a Deployment (overrides HPA temporarily)
+    kubectl scale deployment payment-api-deployment --replicas=10
+
+    # View VPA recommendations
+    kubectl describe vpa payment-api-vpa
+
+    # See resource usage (needed for scaling decisions)
+    kubectl top pods -n hsbc-payments
+    kubectl top nodes
+
+
+--------------------------------------------------------------------------------
+  SUMMARY: HPA is your first line of defence against traffic spikes. Set
+  minReplicas to ensure high availability (at least 2), set maxReplicas to
+  prevent runaway scaling costs, and target 60-70% CPU utilisation to leave
+  headroom for sudden spikes.
+--------------------------------------------------------------------------------

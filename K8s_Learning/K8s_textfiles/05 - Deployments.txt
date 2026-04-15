@@ -1,0 +1,230 @@
+================================================================================
+  KUBERNETES LEARNING SERIES — FILE 05
+  DEPLOYMENTS — MANAGING YOUR PODS
+  HSBC DevOps Engineering
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. WHY DEPLOYMENTS?
+--------------------------------------------------------------------------------
+
+Remember: Pods are temporary — they don't restart themselves if they crash.
+In production, you need something that:
+
+  - Keeps the DESIRED NUMBER of Pods always running
+  - Automatically REPLACES crashed Pods
+  - Allows you to UPDATE your app without downtime
+  - Lets you ROLL BACK to a previous version if something breaks
+
+That is exactly what a DEPLOYMENT does. It is the most commonly used
+Kubernetes object you will work with every day.
+
+ANALOGY: A Deployment is like a staffing contract:
+  "I always need 3 customer service agents on duty. If one leaves or gets
+   sick, hire an immediate replacement. If I want to update the team's
+   training, do it one person at a time so service never stops."
+
+
+--------------------------------------------------------------------------------
+2. THE HIERARCHY: DEPLOYMENT → REPLICASET → PODS
+--------------------------------------------------------------------------------
+
+A Deployment does not directly manage Pods. It creates and manages a
+ReplicaSet, which in turn manages the actual Pods.
+
+  Deployment  →  manages  →  ReplicaSet  →  manages  →  Pods
+
+  DEPLOYMENT:
+    Manages updates, rollbacks, and scaling strategies.
+    You interact with this object directly.
+
+  REPLICASET:
+    Ensures a specific number of identical Pod replicas are running.
+    You rarely interact with this directly — the Deployment manages it.
+    When you do a rolling update, the Deployment creates a NEW ReplicaSet
+    and gradually shifts Pods from the old to the new.
+
+  PODS:
+    The actual running containers.
+    Automatically created and managed by the ReplicaSet.
+
+You tell the Deployment: "I want 3 replicas of this app".
+Deployment creates a ReplicaSet with replicas: 3.
+ReplicaSet creates 3 Pods.
+If one Pod dies, the ReplicaSet immediately creates a replacement.
+
+
+--------------------------------------------------------------------------------
+3. DEPLOYMENT YAML — EXPLAINED LINE BY LINE
+--------------------------------------------------------------------------------
+
+    apiVersion: apps/v1         # Deployments are in the 'apps' API group
+    kind: Deployment
+    metadata:
+      name: payment-api-deployment
+      labels:
+        app: payment-api
+    spec:
+      replicas: 3               # Always keep 3 Pods running
+
+      selector:                 # How the Deployment finds its Pods
+        matchLabels:            # Manages Pods that have these labels
+          app: payment-api      # Must match the labels in template below!
+
+      strategy:                 # How to perform updates (RollingUpdate is default)
+        type: RollingUpdate
+        rollingUpdate:
+          maxUnavailable: 1     # At most 1 Pod can be unavailable during update
+          maxSurge: 1           # At most 1 extra Pod can be created during update
+
+      template:                 # The blueprint for each Pod this Deployment creates
+        metadata:
+          labels:               # Labels applied to every Pod created
+            app: payment-api    # MUST match the selector.matchLabels above
+        spec:
+          containers:
+          - name: payment-api
+            image: nexus.hsbc.internal:8082/payment-api:v1.0
+            ports:
+            - containerPort: 3000
+            resources:          # Always set resource limits in production!
+              requests:
+                memory: "64Mi"
+                cpu: "250m"
+              limits:
+                memory: "128Mi"
+                cpu: "500m"
+
+
+IMPORTANT: The selector.matchLabels MUST match template.metadata.labels.
+This is how the Deployment knows which Pods it owns. If they don't match,
+Kubernetes will return a validation error.
+
+
+--------------------------------------------------------------------------------
+4. ROLLING UPDATES — ZERO DOWNTIME DEPLOYMENTS
+--------------------------------------------------------------------------------
+
+One of Kubernetes' most powerful features. When you update a Deployment's
+container image, Kubernetes performs a rolling update:
+
+  Step 1: Create 1 new Pod with the updated image (v2.0)
+  Step 2: Wait for the new Pod to become Ready (health checks pass)
+  Step 3: Terminate 1 old Pod (v1.0)
+  Step 4: Repeat until all old Pods are replaced with new ones
+
+Throughout this entire process, your application remains available.
+
+ANALOGY: Like replacing staff one at a time on a shift. Service never stops,
+you just gradually swap in new people.
+
+With maxUnavailable: 1 and maxSurge: 1:
+  Before update:  [v1] [v1] [v1]           (3 pods, all v1)
+  During update:  [v1] [v1] [v2]           (3 pods, one upgraded)
+  During update:  [v1] [v2] [v2]           (3 pods, two upgraded)
+  After update:   [v2] [v2] [v2]           (3 pods, all v2 — done!)
+
+
+HOW TO TRIGGER A ROLLING UPDATE:
+
+    # Option 1: Update the image tag in your YAML and apply it
+    kubectl apply -f deployment.yaml
+
+    # Option 2: Set image directly from command line
+    kubectl set image deployment/payment-api-deployment \
+      payment-api=nexus.hsbc.internal:8082/payment-api:v2.0
+
+    # Watch the rollout progress
+    kubectl rollout status deployment/payment-api-deployment
+
+
+--------------------------------------------------------------------------------
+5. ROLLBACK — GOING BACK TO A PREVIOUS VERSION
+--------------------------------------------------------------------------------
+
+If something goes wrong with the new version, you can instantly roll back:
+
+    # Roll back to the previous version
+    kubectl rollout undo deployment/payment-api-deployment
+
+    # Roll back to a specific revision number
+    kubectl rollout undo deployment/payment-api-deployment --to-revision=3
+
+    # See the rollout history
+    kubectl rollout history deployment/payment-api-deployment
+
+    # See details of a specific revision
+    kubectl rollout history deployment/payment-api-deployment --revision=2
+
+HOW ROLLBACK WORKS:
+  Kubernetes keeps the old ReplicaSet around (scaled down to 0 replicas).
+  When you roll back, it simply scales the old ReplicaSet back up and scales
+  the new one down. This is why rollbacks are near-instant.
+
+
+--------------------------------------------------------------------------------
+6. SCALING — CHANGING THE NUMBER OF REPLICAS
+--------------------------------------------------------------------------------
+
+    # Scale to 5 replicas manually
+    kubectl scale deployment payment-api-deployment --replicas=5
+
+    # Scale to 1 (useful during off-hours to save resources)
+    kubectl scale deployment payment-api-deployment --replicas=1
+
+    # Scale to 0 (stops all pods but keeps the Deployment)
+    kubectl scale deployment payment-api-deployment --replicas=0
+
+For automatic scaling based on traffic, see File 13 (Auto Scaling).
+
+
+--------------------------------------------------------------------------------
+7. KEY DEPLOYMENT COMMANDS
+--------------------------------------------------------------------------------
+
+    # Create or update a Deployment from YAML
+    kubectl apply -f deployment.yaml
+
+    # List all Deployments
+    kubectl get deployments
+
+    # Detailed information about a Deployment
+    kubectl describe deployment payment-api-deployment
+
+    # See the Pods created by the Deployment
+    kubectl get pods -l app=payment-api
+
+    # Watch a rolling update in progress
+    kubectl rollout status deployment/payment-api-deployment
+
+    # Pause a rolling update (emergency stop)
+    kubectl rollout pause deployment/payment-api-deployment
+
+    # Resume a paused rollout
+    kubectl rollout resume deployment/payment-api-deployment
+
+    # Delete a Deployment (and all its Pods)
+    kubectl delete deployment payment-api-deployment
+
+
+--------------------------------------------------------------------------------
+8. DEPLOYMENT STATUS — WHAT TO LOOK FOR
+--------------------------------------------------------------------------------
+
+    kubectl get deployments
+
+    NAME                      READY   UP-TO-DATE   AVAILABLE   AGE
+    payment-api-deployment    3/3     3            3           5d
+
+    READY       = how many Pods are running and healthy (current/desired)
+    UP-TO-DATE  = how many Pods have been updated to the latest version
+    AVAILABLE   = how many Pods are available to serve traffic
+
+
+--------------------------------------------------------------------------------
+  SUMMARY: A Deployment is your standard way to run applications in
+  Kubernetes. It ensures your app stays running, updates safely, and can
+  be rolled back instantly if needed. You will use Deployments for
+  almost every application you deploy at HSBC.
+--------------------------------------------------------------------------------

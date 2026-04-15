@@ -1,0 +1,190 @@
+========================================
+       INTRODUCTION TO KUBERNETES
+       Topic 12 - Orchestrating at Scale
+========================================
+
+
+----------------------------------------
+WHY KUBERNETES EXISTS
+----------------------------------------
+Docker runs containers on ONE machine.
+When one machine is not enough:
+
+  Traffic spike    --> need more containers fast
+  Server crashes   --> everything goes down
+  New version      --> manual downtime
+  100s of containers --> impossible to manage manually
+
+Kubernetes is an orchestrator -- manages
+containers across MANY machines automatically.
+
+
+----------------------------------------
+CORE CONCEPTS
+----------------------------------------
+
+POD -- The Smallest Unit
+  In Docker --> container
+  In K8s    --> Pod (wrapper around containers)
+
+  - Shares same network namespace (same IP)
+  - Shares same storage volumes
+  - Always scheduled together on same machine
+  - Usually one container per Pod
+  - Never create Pods directly -- use Deployments
+
+
+NODE -- A Server in the Cluster
+  A single server that runs Pods.
+  K8s decides which Node each Pod runs on.
+
+  Each node runs:
+    kubelet       communicates with control plane
+    container runtime  actually runs containers
+    kube-proxy    handles network rules
+
+
+CLUSTER -- The Whole System
+  All nodes + control plane together.
+
+  Control Plane (Master):
+    Brain. Makes all decisions.
+    Never run your app here.
+    Components: API Server, Scheduler,
+                etcd, Controller Manager
+
+  Worker Nodes:
+    Muscle. Your apps run here.
+
+
+----------------------------------------
+DESIRED STATE -- THE KEY MENTAL SHIFT
+----------------------------------------
+Docker is imperative:
+  "Run this container"
+  "Stop that container"
+
+Kubernetes is declarative:
+  "I want 3 replicas always running"
+  K8s makes reality match your declaration.
+
+  Pod crashes   --> K8s restarts it
+  Node dies     --> K8s moves pods elsewhere
+  Scale to 10   --> K8s spins up more pods
+
+This is the reconciliation loop.
+Runs continuously, forever.
+
+
+----------------------------------------
+DEPLOYMENT
+----------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flask-deployment
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: flask
+  template:
+    metadata:
+      labels:
+        app: flask
+    spec:
+      containers:
+        - name: flask
+          image: yourname/myapp:1.0
+          ports:
+            - containerPort: 5000
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "250m"
+            limits:
+              memory: "128Mi"
+              cpu: "500m"
+
+CPU millicores: 1000m = 1 full core
+requests = minimum guaranteed
+limits = ceiling (exceed memory = killed)
+
+
+----------------------------------------
+SERVICE -- STABLE NETWORK ENDPOINT
+----------------------------------------
+Pod IPs change every restart.
+Service is a stable endpoint in front
+of your Pods.
+
+  ClusterIP    inside cluster only      databases
+  NodePort     outside via node IP      development
+  LoadBalancer outside via cloud LB     production
+
+
+----------------------------------------
+CONFIGMAP AND SECRET
+----------------------------------------
+ConfigMap -- non-sensitive configuration
+Secret    -- sensitive data, base64-encoded
+
+envFrom:
+  - configMapRef:
+      name: flask-config
+  - secretRef:
+      name: flask-secrets
+
+
+----------------------------------------
+kubectl COMMANDS
+----------------------------------------
+kubectl apply -f deployment.yaml       # create/update
+kubectl get pods                       # list pods
+kubectl get pods -o wide               # with node info
+kubectl describe pod flask-pod         # detailed info
+kubectl logs flask-pod                 # pod logs
+kubectl logs -f flask-pod              # follow logs
+kubectl exec -it flask-pod -- bash     # shell into pod
+kubectl scale deployment flask --replicas=5
+kubectl set image deployment/flask flask=myapp:2.0
+kubectl rollout status deployment/flask
+kubectl rollout undo deployment/flask  # rollback
+kubectl delete -f deployment.yaml
+
+
+----------------------------------------
+ROLLING UPDATES -- ZERO DOWNTIME
+----------------------------------------
+When you update an image:
+  1. Start 1 new pod with v2.0
+  2. Wait for it to be healthy
+  3. Stop 1 old pod with v1.0
+  4. Repeat until all pods are v2.0
+  Traffic flows throughout. No downtime.
+
+Rollback instantly:
+  kubectl rollout undo deployment/flask
+
+
+----------------------------------------
+LOCAL KUBERNETES OPTIONS
+----------------------------------------
+Docker Desktop  Settings > Kubernetes > Enable
+Minikube        minikube start
+Kind            kind create cluster
+
+
+----------------------------------------
+DOCKER + KUBERNETES TOGETHER
+----------------------------------------
+Kubernetes does NOT replace Docker.
+It USES Docker.
+
+  Write Dockerfile
+  docker build image
+  docker push to registry
+  Write K8s YAML
+  kubectl apply
+  K8s pulls and runs across many machines
+========================================

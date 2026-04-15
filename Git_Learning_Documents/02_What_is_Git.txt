@@ -1,0 +1,101 @@
+================================================================
+WHAT IS GIT
+================================================================
+
+----------------------------------------------------------------
+DEFINITION
+----------------------------------------------------------------
+
+Git is a free, open-source version control system.
+It was created by Linus Torvalds in 2005.
+It runs entirely on your local machine.
+It works completely offline. No internet needed.
+
+----------------------------------------------------------------
+WHAT GIT DOES
+----------------------------------------------------------------
+
+- Tracks every change you make to every file
+- Stores the complete history of your project locally
+- Lets you go back to any previous version instantly
+- Lets multiple people work on the same project safely
+- Takes snapshots of your project called commits
+
+----------------------------------------------------------------
+WHERE GIT LIVES
+----------------------------------------------------------------
+
+When you initialise Git in a folder, it creates a hidden 
+folder called .git inside your project.
+
+    my-project/
+    ├── .git/          <- Git's hidden folder (never touch this)
+    ├── script.sh
+    └── app.log
+
+The .git folder contains your entire project history.
+Never delete it. Never edit files inside it manually.
+
+----------------------------------------------------------------
+GIT VS GITHUB — THE MOST COMMON CONFUSION
+----------------------------------------------------------------
+
+Git and GitHub are NOT the same thing.
+
+GIT
+    - A tool installed on your laptop
+    - Works offline
+    - Tracks changes locally
+    - Free and open source
+    - The engine
+
+GITHUB
+    - A website (github.com)
+    - Needs internet
+    - Stores your code in the cloud
+    - Adds collaboration features (Pull Requests, reviews)
+    - The garage
+
+Simple rule to remember:
+    Git is the engine. GitHub is the garage.
+    You can use Git without GitHub.
+    You cannot use GitHub without Git.
+
+----------------------------------------------------------------
+HOW TO VERIFY GIT IS INSTALLED
+----------------------------------------------------------------
+
+Open Git Bash and run:
+
+    git --version
+
+Expected output:
+    git version 2.43.0
+
+If you get an error, Git is not installed.
+Download it from: git-scm.com/downloads
+
+----------------------------------------------------------------
+FIRST TIME SETUP — DO THIS ONCE
+----------------------------------------------------------------
+
+After installing Git, tell it who you are.
+Every commit you make will be stamped with this information.
+
+    git config --global user.name "Your Full Name"
+    git config --global user.email "your.email@company.com"
+    git config --global core.editor notepad
+
+Verify it was saved:
+    git config --list
+
+----------------------------------------------------------------
+KEY TAKEAWAY
+----------------------------------------------------------------
+
+Git is just a tool on your laptop that tracks changes.
+It has nothing to do with the internet.
+Everything Git does happens locally first.
+GitHub comes later when you want to share or back up your work.
+
+================================================================

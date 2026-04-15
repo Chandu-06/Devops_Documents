@@ -1,0 +1,304 @@
+================================================================================
+  KUBERNETES LEARNING SERIES — FILE 15
+  KUBECTL — COMPLETE COMMAND REFERENCE
+  HSBC DevOps Engineering
+================================================================================
+
+kubectl (pronounced "cube-control" or "cube-CTL") is the command-line tool
+for interacting with a Kubernetes cluster. Every command sends a request to
+the Kubernetes API Server over HTTPS.
+
+
+================================================================================
+  SECTION 1: GETTING INFORMATION
+================================================================================
+
+    # ── Pods ─────────────────────────────────────────────────────────────────
+    kubectl get pods                          # List pods in current namespace
+    kubectl get pods -n kube-system           # List pods in specific namespace
+    kubectl get pods --all-namespaces         # List pods in ALL namespaces
+    kubectl get pods -A                       # Short form of --all-namespaces
+    kubectl get pods -o wide                  # Extra columns: node, IP
+    kubectl get pods -o yaml                  # Full YAML definition
+    kubectl get pods -o json                  # Full JSON definition
+    kubectl get pods --show-labels            # Show all labels
+    kubectl get pods -l app=payment-api       # Filter by label
+    kubectl get pods -w                       # Watch (live updates)
+
+    # ── Deployments ───────────────────────────────────────────────────────────
+    kubectl get deployments
+    kubectl get deploy                        # Short form
+    kubectl get deployments -n hsbc-payments
+    kubectl get deployments -o wide
+
+    # ── Services ──────────────────────────────────────────────────────────────
+    kubectl get services
+    kubectl get svc                           # Short form
+    kubectl get endpoints                     # See which Pods each Service routes to
+    kubectl get ep                            # Short form of endpoints
+
+    # ── Nodes ─────────────────────────────────────────────────────────────────
+    kubectl get nodes
+    kubectl get nodes -o wide                 # Show roles, internal/external IPs
+    kubectl get node <node-name> -o yaml      # Full node YAML
+
+    # ── Everything ────────────────────────────────────────────────────────────
+    kubectl get all                           # Pods, Deployments, Services, ReplicaSets
+    kubectl get all -n hsbc-payments          # Everything in a namespace
+
+    # ── Other Common Resources ────────────────────────────────────────────────
+    kubectl get namespaces                    # List all namespaces
+    kubectl get ns                            # Short form
+    kubectl get configmaps
+    kubectl get cm                            # Short form
+    kubectl get secrets
+    kubectl get pvc                           # PersistentVolumeClaims
+    kubectl get pv                            # PersistentVolumes
+    kubectl get ingress
+    kubectl get ing                           # Short form
+    kubectl get hpa                           # HorizontalPodAutoscalers
+    kubectl get serviceaccounts
+    kubectl get sa                            # Short form
+    kubectl get roles -n hsbc-payments
+    kubectl get rolebindings -n hsbc-payments
+    kubectl get clusterroles
+    kubectl get events                        # Recent cluster events (great for debugging!)
+    kubectl get events --sort-by='.lastTimestamp'  # Sorted by time
+
+
+================================================================================
+  SECTION 2: DETAILED INFORMATION
+================================================================================
+
+    # Describe shows detailed info + recent Events (essential for debugging!)
+    kubectl describe pod <pod-name>
+    kubectl describe pod <pod-name> -n hsbc-payments
+    kubectl describe deployment <deployment-name>
+    kubectl describe service <service-name>
+    kubectl describe node <node-name>
+    kubectl describe ingress <ingress-name>
+    kubectl describe hpa <hpa-name>
+    kubectl describe pvc <pvc-name>
+
+    # Explain gives documentation for any Kubernetes field
+    kubectl explain pod
+    kubectl explain pod.spec
+    kubectl explain pod.spec.containers
+    kubectl explain deployment.spec.strategy
+
+
+================================================================================
+  SECTION 3: CREATING AND UPDATING RESOURCES
+================================================================================
+
+    # Apply (create if not exists, update if exists) — use this in production
+    kubectl apply -f deployment.yaml
+    kubectl apply -f service.yaml
+    kubectl apply -f .                        # Apply all YAML files in current directory
+    kubectl apply -f ./k8s/                  # Apply all YAML files in a folder
+    kubectl apply -f https://raw.github.../file.yaml  # Apply from URL
+
+    # Create (fails if resource already exists)
+    kubectl create -f deployment.yaml
+    kubectl create namespace hsbc-payments-dev
+    kubectl create configmap app-config --from-literal=LOG_LEVEL=INFO
+    kubectl create secret generic db-creds \
+      --from-literal=username=admin \
+      --from-literal=password=secret
+    kubectl create secret docker-registry nexus-creds \
+      --docker-server=nexus.hsbc.internal:8082 \
+      --docker-username=user \
+      --docker-password=pass
+
+
+================================================================================
+  SECTION 4: DELETING RESOURCES
+================================================================================
+
+    kubectl delete -f deployment.yaml         # Delete using the YAML file
+    kubectl delete pod <pod-name>
+    kubectl delete deployment <name>
+    kubectl delete service <name>
+    kubectl delete namespace <name>           # WARNING: deletes EVERYTHING inside!
+
+    # Delete by label (useful for cleanup)
+    kubectl delete pods -l app=payment-api
+
+    # Force delete a stuck pod (last resort)
+    kubectl delete pod <pod-name> --force --grace-period=0
+
+
+================================================================================
+  SECTION 5: LOGS AND DEBUGGING
+================================================================================
+
+    # View container logs
+    kubectl logs <pod-name>                   # Logs from the container
+    kubectl logs <pod-name> -f                # Follow (stream) logs in real time
+    kubectl logs <pod-name> --tail=100        # Last 100 lines only
+    kubectl logs <pod-name> --since=1h        # Logs from the last 1 hour
+    kubectl logs <pod-name> --previous        # Logs from PREVIOUS crashed container
+    kubectl logs <pod-name> -c <container>    # Specific container in multi-container pod
+
+    # Execute commands inside a running container
+    kubectl exec -it <pod-name> -- /bin/sh    # Open shell (Alpine Linux)
+    kubectl exec -it <pod-name> -- /bin/bash  # Open bash (Debian/Ubuntu based)
+    kubectl exec <pod-name> -- ls /app        # Run a single command
+    kubectl exec <pod-name> -- env            # See all environment variables
+    kubectl exec <pod-name> -- cat /etc/config/LOG_LEVEL  # Read a config file
+
+    # Copy files to/from containers
+    kubectl cp <pod-name>:/app/logs/error.log ./error.log   # Copy FROM pod
+    kubectl cp ./config.json <pod-name>:/app/config.json    # Copy TO pod
+
+    # Port forward (access a Pod directly from your laptop — great for debugging)
+    kubectl port-forward pod/<pod-name> 8080:3000           # localhost:8080 → pod:3000
+    kubectl port-forward service/<svc-name> 8080:80         # Via Service instead
+
+    # Resource usage
+    kubectl top pods
+    kubectl top pods -n hsbc-payments
+    kubectl top nodes
+
+
+================================================================================
+  SECTION 6: SCALING AND ROLLOUTS
+================================================================================
+
+    # Manual scaling
+    kubectl scale deployment payment-api --replicas=5
+    kubectl scale deployment payment-api --replicas=0     # Stop all pods
+
+    # Update image (triggers rolling update)
+    kubectl set image deployment/payment-api \
+      payment-api=nexus.hsbc.internal:8082/payment-api:v2.0
+
+    # Watch rolling update progress
+    kubectl rollout status deployment/payment-api
+
+    # View rollout history
+    kubectl rollout history deployment/payment-api
+    kubectl rollout history deployment/payment-api --revision=3  # Specific revision
+
+    # Roll back to previous version
+    kubectl rollout undo deployment/payment-api
+
+    # Roll back to a specific revision
+    kubectl rollout undo deployment/payment-api --to-revision=2
+
+    # Pause a rolling update
+    kubectl rollout pause deployment/payment-api
+
+    # Resume a paused rollout
+    kubectl rollout resume deployment/payment-api
+
+    # Restart all pods in a deployment (zero downtime — rolling restart)
+    kubectl rollout restart deployment/payment-api
+
+
+================================================================================
+  SECTION 7: CONTEXT AND NAMESPACE MANAGEMENT
+================================================================================
+
+    # View all configured clusters and contexts
+    kubectl config get-contexts
+
+    # Switch to a different cluster
+    kubectl config use-context <context-name>
+
+    # See current context
+    kubectl config current-context
+
+    # Set default namespace for current context (so you don't type -n every time)
+    kubectl config set-context --current --namespace=hsbc-payments-dev
+
+    # View kubeconfig
+    kubectl config view
+
+
+================================================================================
+  SECTION 8: USEFUL SHORTCUTS AND TIPS
+================================================================================
+
+RESOURCE SHORT NAMES:
+    pods           → po
+    services       → svc
+    deployments    → deploy
+    namespaces     → ns
+    configmaps     → cm
+    persistentvolumeclaims → pvc
+    persistentvolumes → pv
+    ingresses      → ing
+    horizontalpodautoscalers → hpa
+    serviceaccounts → sa
+    replicasets    → rs
+
+OUTPUT FORMAT FLAGS:
+    -o wide          # Extra columns
+    -o yaml          # Full YAML definition
+    -o json          # Full JSON definition
+    -o name          # Just the resource name (useful in scripts)
+    -o jsonpath='{.status.phase}'  # Extract specific field
+
+COMMONLY USED FLAG COMBINATIONS:
+    kubectl get pods -o wide -n hsbc-payments   # Pods with node/IP info
+    kubectl get pods -w                          # Watch continuously
+    kubectl get events --sort-by='.lastTimestamp' -n hsbc-payments  # Recent events
+    kubectl describe pod <name> | grep -A5 Events:  # Just the events section
+
+QUICK DEBUGGING WORKFLOW:
+    # 1. Check what's running
+    kubectl get pods -n <namespace>
+
+    # 2. If a pod is not Running, describe it
+    kubectl describe pod <pod-name> -n <namespace>
+    # Look at the 'Events' section at the bottom!
+
+    # 3. Check logs
+    kubectl logs <pod-name> -n <namespace>
+
+    # 4. If pod keeps crashing, check previous logs
+    kubectl logs <pod-name> --previous -n <namespace>
+
+    # 5. Check recent cluster events
+    kubectl get events -n <namespace> --sort-by='.lastTimestamp'
+
+
+================================================================================
+  SECTION 9: AUTHENTICATION — CHECK YOUR OWN PERMISSIONS
+================================================================================
+
+    # Check if YOU can perform an action
+    kubectl auth can-i get pods -n hsbc-payments-dev
+    kubectl auth can-i delete deployments -n hsbc-payments-prod
+
+    # Check what a specific user can do
+    kubectl auth can-i get pods --as=alice@hsbc.com -n hsbc-payments-dev
+
+    # List all your permissions in a namespace
+    kubectl auth can-i --list -n hsbc-payments-dev
+
+
+================================================================================
+  SECTION 10: DRY RUN — TEST BEFORE APPLYING
+================================================================================
+
+    # See what would happen WITHOUT actually making changes
+    kubectl apply -f deployment.yaml --dry-run=client
+
+    # Validate YAML syntax
+    kubectl apply -f deployment.yaml --dry-run=client --validate=true
+
+    # Generate YAML for a resource (useful for templates)
+    kubectl create deployment payment-api \
+      --image=nexus.hsbc.internal:8082/payment-api:v1.0 \
+      --dry-run=client -o yaml
+
+
+================================================================================
+  REMEMBER: When something is wrong in Kubernetes, the first two commands
+  to run are almost always:
+    1. kubectl describe pod <pod-name>   — look at the Events section
+    2. kubectl logs <pod-name>           — look at the application output
+  These two commands solve 80% of issues you will encounter.
+================================================================================

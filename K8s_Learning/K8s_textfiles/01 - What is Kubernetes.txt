@@ -1,0 +1,126 @@
+================================================================================
+  KUBERNETES LEARNING SERIES — FILE 01
+  WHAT IS KUBERNETES?
+  HSBC DevOps Engineering
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. INTRODUCTION
+--------------------------------------------------------------------------------
+
+Welcome to your Kubernetes journey! Before we dive into technical details,
+let's understand what Kubernetes is and WHY it exists. Think of this as your
+very first chapter — the foundation everything else builds on.
+
+NOTE: Kubernetes is often written as K8s (because there are 8 letters between
+      K and s). You will see both names used everywhere!
+
+
+--------------------------------------------------------------------------------
+2. THE PROBLEM KUBERNETES SOLVES
+--------------------------------------------------------------------------------
+
+REAL-WORLD ANALOGY — THE RESTAURANT
+-------------------------------------
+Imagine you run a restaurant. On normal days, 5 chefs are enough. But on
+weekends, you need 15 chefs. On a festival day, you might need 50. Now imagine
+you had to manually hire and fire chefs every day based on demand. Chaotic!
+
+Software applications face the same problem:
+  - When traffic is high, you need more instances of your app running
+  - When traffic is low, running too many wastes money
+  - Doing this manually is slow, error-prone, and exhausting
+
+
+BEFORE KUBERNETES — THE OLD WAY
+---------------------------------
+  - Developers wrote applications and handed them to operations teams
+  - Operations teams manually set up servers, installed the app, configured
+    everything
+  - If an app crashed, someone had to manually restart it (sometimes at 3am!)
+  - Scaling up meant ordering new physical servers — which took weeks
+  - Different apps on the same server would interfere with each other
+  - "It works on my machine!" was a constant complaint
+
+
+--------------------------------------------------------------------------------
+3. WHAT IS KUBERNETES?
+--------------------------------------------------------------------------------
+
+Kubernetes is an open-source CONTAINER ORCHESTRATION PLATFORM — a system that
+automatically manages the deployment, scaling, and operation of containerised
+applications.
+
+In simple words: Kubernetes is like a very smart manager for your applications.
+You tell it "I want 5 copies of my app running at all times", and Kubernetes
+makes sure that ALWAYS happens — automatically.
+
+HISTORICAL NOTE:
+  Kubernetes was originally created by Google (based on their internal system
+  called 'Borg') and donated to the Cloud Native Computing Foundation (CNCF)
+  in 2014. Today it is the industry standard for container orchestration.
+
+
+WHAT KUBERNETES DOES AUTOMATICALLY
+------------------------------------
+  - Starts and stops application containers based on demand
+  - Restarts containers that crash (self-healing)
+  - Scales up (more copies) when load is high, scales down when load is low
+  - Distributes traffic across multiple running copies (load balancing)
+  - Rolls out new versions of your app WITHOUT any downtime
+  - Manages secrets (passwords, API keys) safely
+  - Ensures your app runs on healthy machines only
+
+
+--------------------------------------------------------------------------------
+4. QUICK COMPARISON: WITHOUT vs WITH KUBERNETES
+--------------------------------------------------------------------------------
+
+  Feature              | Without Kubernetes             | With Kubernetes
+  ---------------------|--------------------------------|----------------------
+  App Crash Recovery   | Manual restart by engineer     | Automatic in seconds
+  Scaling              | Manual server setup (days)     | Automatic in seconds
+  Deployment           | Manual, risky, causes downtime | Zero-downtime updates
+  Resource Usage       | Over-provisioned (wasteful)    | Optimised automatically
+  Consistency          | Works on my machine but not prod| Same environment always
+  Monitoring           | Manual checks                  | Built-in health checks
+
+
+--------------------------------------------------------------------------------
+5. WHY HSBC USES KUBERNETES
+--------------------------------------------------------------------------------
+
+HSBC, like most large financial institutions, runs hundreds of microservices —
+small, independent applications that work together. Managing all of them
+manually would require an army of engineers working around the clock.
+
+Kubernetes makes this manageable, reliable, and efficient:
+
+  HIGH AVAILABILITY
+    Banking systems cannot go down. Kubernetes ensures apps keep running by
+    automatically restarting failed containers and redistributing workloads
+    when a machine fails.
+
+  SECURITY
+    Kubernetes provides network policies, secret management, and role-based
+    access control — all essential for a regulated financial institution.
+
+  SPEED
+    New features can be deployed quickly and safely using rolling updates,
+    with the ability to instantly roll back if anything goes wrong.
+
+  COST EFFICIENCY
+    Resources are allocated only when needed. No more paying for idle servers
+    24/7 — Kubernetes scales down during quiet periods automatically.
+
+  COMPLIANCE
+    Kubernetes provides audit logs, access controls, and immutable
+    infrastructure — supporting FCA and internal HSBC compliance requirements.
+
+
+--------------------------------------------------------------------------------
+  SUMMARY: Kubernetes is your automated operations team. It keeps your
+  applications running, healthy, and efficient — 24 hours a day, 7 days a
+  week, without human intervention.
+--------------------------------------------------------------------------------

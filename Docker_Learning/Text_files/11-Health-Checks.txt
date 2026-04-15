@@ -1,0 +1,116 @@
+========================================
+       DOCKER HEALTH CHECKS
+       Topic 11 - Making Containers Self-Aware
+========================================
+
+
+----------------------------------------
+THE PROBLEM
+----------------------------------------
+A container can be "running" but the
+app inside can be:
+  - Deadlocked
+  - Out of memory
+  - Stuck waiting for database
+  - Returning 500 errors every request
+
+Docker has no way to know this
+without a health check.
+
+
+----------------------------------------
+DEFINING A HEALTH CHECK IN DOCKERFILE
+----------------------------------------
+HEALTHCHECK --interval=30s \
+            --timeout=10s \
+            --start-period=20s \
+            --retries=3 \
+  CMD curl -f http://localhost:5000/health || exit 1
+
+Options:
+  --interval      how often to run the check   (default 30s)
+  --timeout       if check takes longer = fail  (default 30s)
+  --start-period  grace period at startup       (default 0s)
+  --retries       failures before unhealthy     (default 3)
+
+Exit codes:
+  0 --> healthy
+  1 --> unhealthy
+
+curl -f: exits non-zero if response is
+4xx or 5xx status code.
+
+
+----------------------------------------
+THE /health ENDPOINT IN YOUR APP
+----------------------------------------
+@app.route("/health")
+def health():
+    try:
+        db.session.execute("SELECT 1")  # verify DB
+        return {"status": "healthy"}, 200
+    except Exception:
+        return {"status": "unhealthy"}, 500
+
+A good health check verifies what
+the app actually depends on -- not just
+"is process alive" but "can it work".
+
+
+----------------------------------------
+CHECKING HEALTH STATUS
+----------------------------------------
+docker ps
+# STATUS shows:
+#   Up 2 minutes (healthy)
+#   Up 2 minutes (unhealthy)
+#   Up 2 minutes (health: starting)
+
+docker inspect --format='{{.State.Health.Status}}' myapp
+docker inspect --format='{{json .State.Health}}' myapp
+
+
+----------------------------------------
+HEALTH CHECKS IN DOCKER COMPOSE
+----------------------------------------
+services:
+  web:
+    build: .
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  db:
+    image: postgres:15
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web-service:
+    depends_on:
+      db:
+        condition: service_healthy  # waits until DB actually ready
+
+NOTE: condition: service_healthy is the
+proper solution to depends_on. Web will
+not start until DB passes health check --
+not just until container starts.
+
+
+----------------------------------------
+WHY HEALTH CHECKS MATTER IN PRODUCTION
+----------------------------------------
+- Kubernetes routes traffic only to
+  healthy pods
+- Docker Swarm restarts unhealthy services
+- Load balancers skip unhealthy instances
+- Without: broken containers silently
+  serve errors
+- With: broken containers automatically
+  replaced
+========================================

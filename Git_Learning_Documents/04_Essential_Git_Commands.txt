@@ -1,0 +1,259 @@
+================================================================
+ESSENTIAL GIT COMMANDS
+================================================================
+
+----------------------------------------------------------------
+SETUP COMMANDS
+----------------------------------------------------------------
+
+git init
+    Initialises a brand new Git repository in the current folder.
+    Creates the hidden .git folder.
+    Run this once when starting a new project.
+
+    Example:
+        mkdir my-project
+        cd my-project
+        git init
+
+git clone <url>
+    Downloads a full copy of a remote repository to your machine.
+    Includes all files, all branches, and all history.
+
+    Example:
+        git clone https://github.com/username/repo.git
+
+git config --global user.name "Your Name"
+    Sets your name for all commits on this machine.
+    Do this once after installing Git.
+
+git config --global user.email "email@company.com"
+    Sets your email for all commits on this machine.
+    Do this once after installing Git.
+
+----------------------------------------------------------------
+CHECKING STATUS
+----------------------------------------------------------------
+
+git status
+    Shows what is going on right now.
+    - Which branch you are on
+    - Which files have changed but are not staged
+    - Which files are staged and ready to commit
+    - Which files are not tracked by Git at all
+    
+    Run this constantly. Before and after every action.
+
+git log
+    Shows the full commit history.
+    Each entry shows the hash, author, date, and message.
+
+git log --oneline
+    Shows the commit history in compact format.
+    One line per commit. Much easier to read.
+
+    Example output:
+        a3f9c2b feat: add summary report generation
+        b552c3b feat: add WARNING log detection
+        c8cfb05 refactor: move files into log-project folder
+
+git diff
+    Shows exactly what lines changed in unstaged files.
+    Lines starting with + are added.
+    Lines starting with - are removed.
+
+git diff --staged
+    Same as git diff but for staged files.
+
+----------------------------------------------------------------
+STAGING AND COMMITTING
+----------------------------------------------------------------
+
+git add <filename>
+    Stages a specific file.
+    
+    Example:
+        git add script.sh
+
+git add .
+    Stages ALL changed files in the current folder and subfolders.
+    Be careful -- this stages everything including files you 
+    might not want to commit yet.
+    Always run git status first to see what will be staged.
+
+git commit -m "message"
+    Saves all staged files as a commit with a message.
+    
+    Example:
+        git commit -m "feat: add error log detection"
+    
+    Always write a clear, descriptive message.
+    Use conventional commit format: feat, fix, docs, refactor, chore
+
+git commit -am "message"
+    Shortcut that stages all tracked files AND commits in one step.
+    Does NOT stage new (untracked) files.
+
+----------------------------------------------------------------
+BRANCHING
+----------------------------------------------------------------
+
+git branch
+    Lists all local branches.
+    The branch with * is your current branch.
+
+git branch -a
+    Lists all branches including remote branches.
+
+git branch <name>
+    Creates a new branch but does NOT switch to it.
+    
+    Example:
+        git branch feature/warning-logs
+
+git checkout -b <name>
+    Creates a new branch AND switches to it immediately.
+    This is the command you will use most.
+    
+    Example:
+        git checkout -b feature/warning-logs
+
+git checkout <name>
+    Switches to an existing branch.
+    
+    Example:
+        git checkout develop
+
+git branch -d <name>
+    Deletes a local branch.
+    Only works if the branch has been merged already.
+    
+    Example:
+        git branch -d feature/warning-logs
+
+git branch -D <name>
+    Force deletes a local branch even if not merged.
+    Use with caution.
+
+----------------------------------------------------------------
+MERGING
+----------------------------------------------------------------
+
+git merge <branchname>
+    Merges the named branch into your CURRENT branch.
+    Always switch to the target branch first.
+    
+    Example (merging feature into develop):
+        git checkout develop
+        git merge feature/warning-logs
+
+git merge --abort
+    Cancels a merge that is in progress.
+    Use this if you started a merge and want to undo it.
+    Returns to the state before the merge started.
+
+----------------------------------------------------------------
+REMOTE COMMANDS
+----------------------------------------------------------------
+
+git remote add origin <url>
+    Connects your local repo to a remote repo on GitHub.
+    Run this once when setting up a new project.
+    
+    Example:
+        git remote add origin https://github.com/user/repo.git
+
+git remote -v
+    Shows the remote connections for your repo.
+
+git push origin <branchname>
+    Uploads your local commits to GitHub.
+    
+    Example:
+        git push origin develop
+        git push origin feature/warning-logs
+
+git push -u origin <branchname>
+    Same as above but sets the upstream tracking.
+    After this you can just use git push without the branch name.
+
+git pull origin <branchname>
+    Downloads latest changes from GitHub and merges them locally.
+    
+    Example:
+        git pull origin develop
+    
+    IMPORTANT: Always run this before starting new work.
+
+git fetch
+    Downloads changes from GitHub but does NOT merge them.
+    Safer than pull -- you can inspect before merging.
+
+git push origin --delete <branchname>
+    Deletes a branch on the remote (GitHub).
+    
+    Example:
+        git push origin --delete feature/warning-logs
+
+----------------------------------------------------------------
+UNDOING THINGS
+----------------------------------------------------------------
+
+git restore <filename>
+    Throws away uncommitted changes in a file.
+    Goes back to the last committed version.
+    
+    Example:
+        git restore script.sh
+
+git reset HEAD <filename>
+    Unstages a file (removes it from staging area).
+    The changes in the file are kept.
+
+git revert <commit-id>
+    Creates a NEW commit that undoes a previous commit.
+    Safe for shared branches because it does not rewrite history.
+    
+    Example:
+        git revert a3f9c2b
+
+git reset --hard <commit-id>
+    Goes back to a specific commit.
+    DELETES all changes after that commit.
+    DANGER: Only use on local work you have not pushed.
+
+----------------------------------------------------------------
+USEFUL EXTRAS
+----------------------------------------------------------------
+
+git stash
+    Temporarily saves unfinished changes.
+    Use when you need to switch branches but are not ready to commit.
+
+git stash pop
+    Brings back the stashed changes.
+
+git remote prune origin
+    Cleans up stale remote branch references.
+    Run this when git branch -a shows branches that no longer exist.
+
+git blame <filename>
+    Shows who last edited each line of a file and when.
+    Useful for finding who introduced a bug.
+
+----------------------------------------------------------------
+KEY TAKEAWAY
+----------------------------------------------------------------
+
+The commands you will use 90% of the time:
+    git status
+    git add .
+    git commit -m "message"
+    git push origin <branch>
+    git pull origin <branch>
+    git checkout -b <branch>
+    git merge <branch>
+
+Learn these seven first. Everything else comes naturally.
+
+================================================================

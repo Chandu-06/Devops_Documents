@@ -1,0 +1,224 @@
+================================================================================
+  KUBERNETES LEARNING SERIES — FILE 04
+  PODS — THE BASIC BUILDING BLOCK
+  HSBC DevOps Engineering
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. WHAT IS A POD?
+--------------------------------------------------------------------------------
+
+A Pod is the smallest and simplest deployable unit in Kubernetes. It is a
+wrapper around one or more containers that share the same network and storage.
+
+ANALOGY: Think of a Pod like a single apartment in an apartment building.
+  - The apartment (Pod) can have one or more rooms (containers)
+  - All rooms share the same address (IP address)
+  - All rooms share the common areas (storage volumes)
+  - If the apartment is demolished, all rooms inside are gone together
+
+Most of the time, a Pod contains exactly ONE container. Occasionally you need
+a main container plus a helper "sidecar" container — both go in the same Pod.
+
+
+SIDECAR EXAMPLE:
+  Main container:    Your payment API application
+  Sidecar container: A log-shipping agent that reads logs and sends to Splunk
+  They share the same filesystem, so the sidecar can read the main app's logs.
+
+
+--------------------------------------------------------------------------------
+2. WHY PODS INSTEAD OF BARE CONTAINERS?
+--------------------------------------------------------------------------------
+
+Kubernetes does not manage individual containers directly. It manages Pods.
+This design choice allows:
+
+  SHARED NETWORKING
+    All containers in a Pod share ONE IP address. They can communicate with
+    each other using localhost (127.0.0.1). To the outside world, the Pod
+    looks like a single machine.
+
+  SHARED STORAGE
+    Containers in a Pod can share files through mounted volumes. A sidecar
+    can write files that the main container reads, or vice versa.
+
+  ATOMIC LIFECYCLE
+    All containers in a Pod start and stop together. They are scheduled to
+    the same node. You never have half a Pod on two different machines.
+
+  SIMPLER ORCHESTRATION
+    It is easier to schedule, monitor, and manage a Pod (one unit) than to
+    track relationships between individual containers.
+
+
+--------------------------------------------------------------------------------
+3. POD YAML — YOUR FIRST KUBERNETES FILE
+--------------------------------------------------------------------------------
+
+In Kubernetes, you describe what you want using YAML files. Kubernetes reads
+these files and makes the cluster match what you described.
+
+Here is the simplest possible Pod definition:
+
+    apiVersion: v1            # Which Kubernetes API version to use
+    kind: Pod                 # The type of object we are creating
+    metadata:                 # Information ABOUT this Pod
+      name: my-first-pod      # The Pod's name (must be unique in namespace)
+      labels:                 # Key-value tags to identify/group this Pod
+        app: my-app           # Label: app=my-app
+        environment: dev      # Label: environment=dev
+    spec:                     # What we WANT inside the Pod
+      containers:             # List of containers in this Pod
+      - name: my-container    # Container name
+        image: nginx:1.21     # Docker image to use (from registry)
+        ports:
+        - containerPort: 80   # Port the container listens on
+
+
+YAML RULES TO REMEMBER:
+  - Indentation matters! Always use SPACES, never tabs
+  - Each level of indentation = 2 spaces (conventionally)
+  - Lists start with a dash (-)
+  - key: value pairs with a space after the colon
+
+
+--------------------------------------------------------------------------------
+4. POD LIFECYCLE — THE PHASES
+--------------------------------------------------------------------------------
+
+A Pod goes through several phases during its life:
+
+  PENDING
+    The Pod has been accepted by the cluster but the container(s) have not
+    started yet. Possible reasons:
+      - Image is being downloaded from the registry
+      - Scheduler hasn't assigned it to a node yet
+      - Waiting for resources to become available
+
+  RUNNING
+    The Pod has been assigned to a node, and at least one container is running.
+    This does NOT mean the application is healthy — just that the container
+    process started.
+
+  SUCCEEDED
+    All containers in the Pod have completed successfully and exited with
+    code 0. Used for batch jobs that run once and finish.
+
+  FAILED
+    All containers have stopped, and at least one container exited with a
+    non-zero exit code (indicating an error).
+
+  UNKNOWN
+    The state of the Pod cannot be determined. Usually means the node running
+    the Pod lost communication with the control plane.
+
+  CRASHLOOPBACKOFF (common error state)
+    Not technically a phase, but you will see this often. It means a container
+    is repeatedly crashing. Kubernetes backs off the restart time exponentially
+    (1s, 2s, 4s, 8s...) to avoid thrashing.
+
+
+--------------------------------------------------------------------------------
+5. COMMON POD COMMANDS
+--------------------------------------------------------------------------------
+
+    # Create a Pod from a YAML file
+    kubectl apply -f pod.yaml
+
+    # List all Pods in the current namespace
+    kubectl get pods
+
+    # List Pods with more detail (IP, node assignment)
+    kubectl get pods -o wide
+
+    # Watch Pods in real time (updates automatically)
+    kubectl get pods -w
+
+    # Get detailed information about a specific Pod
+    kubectl describe pod my-first-pod
+
+    # See the logs from a Pod's container
+    kubectl logs my-first-pod
+
+    # Follow logs in real time
+    kubectl logs -f my-first-pod
+
+    # See logs from a PREVIOUS crashed container
+    kubectl logs my-first-pod --previous
+
+    # Open a shell INSIDE the running Pod
+    kubectl exec -it my-first-pod -- /bin/sh
+
+    # Run a single command inside the Pod
+    kubectl exec my-first-pod -- ls /app
+
+    # Delete a Pod
+    kubectl delete pod my-first-pod
+
+    # Delete a Pod from its YAML file
+    kubectl delete -f pod.yaml
+
+
+--------------------------------------------------------------------------------
+6. MULTI-CONTAINER POD EXAMPLE
+--------------------------------------------------------------------------------
+
+When you have multiple containers, specify the container name in commands:
+
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: payment-pod
+    spec:
+      containers:
+      - name: payment-api          # Main container
+        image: payment-api:v1.0
+        ports:
+        - containerPort: 3000
+
+      - name: log-shipper          # Sidecar container
+        image: fluent-bit:latest
+        volumeMounts:
+        - name: logs
+          mountPath: /logs
+
+      volumes:
+      - name: logs
+        emptyDir: {}               # Shared storage between both containers
+
+
+    # For multi-container Pods, specify which container you want:
+    kubectl logs payment-pod -c payment-api
+    kubectl logs payment-pod -c log-shipper
+    kubectl exec -it payment-pod -c payment-api -- /bin/sh
+
+
+--------------------------------------------------------------------------------
+7. IMPORTANT: PODS ARE EPHEMERAL
+--------------------------------------------------------------------------------
+
+This is one of the most important concepts to understand:
+
+Pods are designed to be TEMPORARY. If a Pod is deleted or its node crashes,
+the Pod is GONE. It does NOT automatically come back by itself.
+
+Each time a Pod is created (even as a replacement), it gets:
+  - A new name (with a random suffix)
+  - A new IP address
+  - An empty filesystem (data from the previous Pod is lost)
+
+This is why we use higher-level objects like Deployments (next topic) — they
+manage Pods and ensure the right number is always running.
+
+DIRECT POD CREATION is almost never done in real production work. You will
+always use Deployments, StatefulSets, or other controllers that manage Pods
+for you. Those controllers automatically replace Pods if they crash.
+
+
+--------------------------------------------------------------------------------
+  REMEMBER: In real production, you almost never create Pods directly.
+  Create Deployments instead — they create and manage Pods for you,
+  automatically replacing any that crash.
+--------------------------------------------------------------------------------

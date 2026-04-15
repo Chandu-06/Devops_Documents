@@ -1,0 +1,229 @@
+================================================================================
+  KUBERNETES LEARNING SERIES — FILE 09
+  VOLUMES AND PERSISTENT STORAGE
+  HSBC DevOps Engineering
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. THE STORAGE PROBLEM
+--------------------------------------------------------------------------------
+
+Containers are ephemeral (temporary) by design. When a container is stopped,
+deleted, or replaced, ALL DATA INSIDE IT IS LOST. This is intentional and
+actually desirable for stateless applications.
+
+But some applications MUST persist data:
+  - Databases (PostgreSQL, MySQL, MongoDB)
+  - File uploads
+  - Application logs that must survive restarts
+  - Session data
+
+ANALOGY: Writing important notes on a whiteboard. Every time the cleaning
+staff comes (container restart), they wipe it clean. You need a notebook
+(persistent storage) that survives even when you change desks.
+
+
+--------------------------------------------------------------------------------
+2. VOLUMES — STORAGE ATTACHED TO A POD
+--------------------------------------------------------------------------------
+
+A Volume is a storage location that can be mounted into a container.
+Unlike container storage (which is deleted with the container), volumes
+have their own lifecycle.
+
+Key point: A Volume's lifecycle is tied to its POD, not to a single container.
+If a container restarts, the volume data survives. But if the Pod is deleted,
+most volume types are deleted too (except PersistentVolumes — see below).
+
+VOLUMES ARE DEFINED IN TWO PLACES IN YOUR POD/DEPLOYMENT YAML:
+  1. spec.volumes — Define the volume (what type it is, what it connects to)
+  2. spec.containers.volumeMounts — Mount the volume into the container
+
+
+--------------------------------------------------------------------------------
+3. TYPES OF VOLUMES
+--------------------------------------------------------------------------------
+
+  TYPE 1: emptyDir
+  -----------------
+  Temporary storage created when the Pod starts. Lives as long as the Pod lives.
+  All containers in the Pod can share it. Deleted when the Pod is removed.
+
+  Use case: Sharing files between containers in the same Pod (e.g., main app
+  writes logs, sidecar reads and ships them).
+
+    volumes:
+    - name: shared-logs
+      emptyDir: {}              # {} means use default (disk-backed) storage
+
+    containers:
+    - name: my-app
+      volumeMounts:
+      - name: shared-logs
+        mountPath: /var/log/app
+
+
+  TYPE 2: hostPath
+  -----------------
+  Mounts a directory from the HOST NODE's filesystem into the container.
+  Survives container restarts. But data is tied to a specific node.
+
+  Use case: Development/testing. Reading node-level information.
+  WARNING: Not recommended for production — creates dependency on a specific node.
+  If the Pod moves to another node, the data is not there.
+
+    volumes:
+    - name: host-data
+      hostPath:
+        path: /data/my-app      # Directory on the host node
+        type: DirectoryOrCreate # Create it if it doesn't exist
+
+
+  TYPE 3: ConfigMap / Secret as Volume
+  --------------------------------------
+  Mount a ConfigMap or Secret as files inside the container.
+  Covered in File 08. Each key becomes a file.
+
+    volumes:
+    - name: config-files
+      configMap:
+        name: my-app-config
+
+
+  TYPE 4: PersistentVolumeClaim (PVC) — PRODUCTION STANDARD
+  -----------------------------------------------------------
+  The standard way to use persistent storage in production.
+  Survives Pod deletion. Can be reattached to a new Pod.
+  Covered in detail below.
+
+
+--------------------------------------------------------------------------------
+4. PERSISTENTVOLUME (PV) AND PERSISTENTVOLUMECLAIM (PVC)
+--------------------------------------------------------------------------------
+
+This is the main mechanism for persistent storage in Kubernetes.
+It has two separate objects:
+
+  PERSISTENTVOLUME (PV):
+    A piece of storage in the cluster provisioned by an administrator or
+    dynamically. It is a cluster resource — independent of any Pod.
+    Think of it as a available storage unit that exists in the building.
+
+  PERSISTENTVOLUMECLAIM (PVC):
+    A REQUEST for storage by a user or application.
+    Think of it as signing a contract to rent one of those storage units.
+    Kubernetes finds a PV that matches the claim and binds them together.
+
+ANALOGY:
+  PV  = Available apartments in a building (various sizes, types)
+  PVC = Your rental application ("I need a 10GB apartment with read-write access")
+  Kubernetes = The letting agent that matches your request to an available apartment
+
+
+CREATING A PVC (the part you write as a DevOps engineer):
+
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: postgres-data-claim
+      namespace: hsbc-payments-dev
+    spec:
+      accessModes:
+      - ReadWriteOnce               # One node can read AND write at a time
+      resources:
+        requests:
+          storage: 20Gi             # Request 20 gigabytes
+      storageClassName: standard    # Which type of storage (fast SSD, HDD, etc.)
+
+
+ACCESS MODES EXPLAINED:
+  ReadWriteOnce (RWO)   — One node can mount read-write. Most common.
+  ReadOnlyMany (ROX)    — Multiple nodes can mount read-only.
+  ReadWriteMany (RWX)   — Multiple nodes can mount read-write. (NFS, Ceph, etc.)
+
+
+USING THE PVC IN A POD:
+
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:14
+        env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: password
+        volumeMounts:
+        - mountPath: /var/lib/postgresql/data    # Where data is stored in container
+          name: postgres-storage
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-data-claim         # References the PVC above
+
+
+--------------------------------------------------------------------------------
+5. STORAGE CLASSES — TYPES OF STORAGE
+--------------------------------------------------------------------------------
+
+A StorageClass defines the type of storage (fast SSD, magnetic HDD, network
+storage) and enables DYNAMIC PROVISIONING — automatically creating PVs when
+a PVC is created, without an admin needing to manually provision storage.
+
+    apiVersion: storage.k8s.io/v1
+    kind: StorageClass
+    metadata:
+      name: fast-ssd
+    provisioner: kubernetes.io/aws-ebs     # AWS Elastic Block Store
+    parameters:
+      type: gp3                            # SSD type
+      encrypted: "true"                   # Encryption at rest (important for HSBC!)
+    reclaimPolicy: Retain                 # Keep data when PVC is deleted
+
+
+RECLAIM POLICIES:
+  Delete  — Automatically deletes the PV (and underlying storage) when PVC deleted
+  Retain  — Keeps the PV when PVC is deleted. Data must be manually cleaned up.
+            (Use Retain for production databases — safety net against accidental deletion)
+
+
+--------------------------------------------------------------------------------
+6. VOLUME COMMANDS
+--------------------------------------------------------------------------------
+
+    # List PersistentVolumeClaims
+    kubectl get pvc
+    kubectl get pvc -n hsbc-payments-dev
+
+    # Detailed PVC info (shows status: Bound/Pending/Released)
+    kubectl describe pvc postgres-data-claim
+
+    # List PersistentVolumes (cluster-wide, not namespaced)
+    kubectl get pv
+
+    # List StorageClasses
+    kubectl get storageclass
+    kubectl get sc                         # short form
+
+
+--------------------------------------------------------------------------------
+7. PVC STATUS — WHAT YOU WILL SEE
+--------------------------------------------------------------------------------
+
+  STATUS      | MEANING
+  ------------|---------------------------------------------------------------
+  Pending     | PVC created but no matching PV found yet. Waiting for storage.
+  Bound       | PVC has been matched to a PV. Ready to use.
+  Released    | The PVC was deleted but the PV still has data. Not yet available
+              | for a new claim.
+  Failed      | Automatic reclamation failed. Manual intervention needed.
+
+
+--------------------------------------------------------------------------------
+  REMEMBER: Databases and any stateful applications NEED persistent storage.
+  For everything else (web servers, APIs), use the container's own storage —
+  it keeps things simple and stateless. Stateless apps are much easier to
+  scale and update in Kubernetes.
+--------------------------------------------------------------------------------

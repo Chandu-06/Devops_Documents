@@ -1,0 +1,173 @@
+================================================================
+CORE GIT CONCEPTS
+================================================================
+
+----------------------------------------------------------------
+1. REPOSITORY (REPO)
+----------------------------------------------------------------
+
+A repository is your project folder that Git is tracking.
+It contains all your files AND the complete history of every 
+change ever made.
+
+There are two types:
+    Local repo  -> on your laptop
+    Remote repo -> on GitHub (online)
+
+Example:
+    my-project/       <- This is your repository
+    ├── .git/         <- Git's history folder (auto-created)
+    ├── script.sh
+    └── app.log
+
+----------------------------------------------------------------
+2. COMMIT
+----------------------------------------------------------------
+
+A commit is a saved snapshot of your project at a specific 
+moment in time.
+
+Every commit contains:
+    - A unique ID (called a hash, like a3f9c2b)
+    - A message you write describing what changed
+    - The actual changes (lines added or removed)
+    - Author name, email, and timestamp
+
+Think of it like a checkpoint in a video game.
+Even if you break things later, you can always come back 
+to any commit.
+
+Good commit message example:
+    feat: add WARNING log detection to processor
+
+Bad commit message examples:
+    fix
+    update
+    changes
+    wip
+
+----------------------------------------------------------------
+3. STAGING AREA (INDEX)
+----------------------------------------------------------------
+
+Before you commit, you choose WHICH changes to include.
+This choosing happens in the staging area.
+
+The staging area is like a waiting room.
+You put files in the waiting room first.
+Then when you are ready, you commit everything in it.
+
+Why this matters:
+    You changed 3 files.
+    You only want to commit 2 of them.
+    Stage those 2. Leave the 3rd for later.
+
+    git add script.sh      <- stage this file
+    git add app.log        <- stage this file
+    (notes.txt not staged) <- stays out of this commit
+
+----------------------------------------------------------------
+4. BRANCH
+----------------------------------------------------------------
+
+A branch is a parallel version of your code.
+
+Imagine your project is a road.
+The main road is your master/develop branch.
+When you want to try something new, you build a side road.
+You experiment on the side road.
+The main road is untouched.
+When you are happy, you connect the side road back.
+
+The default branch is called master or main.
+
+Why use branches:
+    - Work on new features without breaking the main code
+    - Multiple people work on different features simultaneously
+    - If the feature fails, just delete the branch
+
+----------------------------------------------------------------
+5. MERGE
+----------------------------------------------------------------
+
+Merging brings changes from one branch into another.
+
+When your feature branch is ready, you merge it into develop.
+Git combines both sets of changes into one.
+
+There are two types of merge:
+
+FAST-FORWARD MERGE
+    The simplest case.
+    Your main branch had no new commits since you branched.
+    Git simply moves the pointer forward.
+    No merge commit is created.
+
+THREE-WAY MERGE
+    Your main branch had new commits while you were working.
+    Git finds the common point and combines both sets of changes.
+    Creates a merge commit.
+
+----------------------------------------------------------------
+6. HEAD
+----------------------------------------------------------------
+
+HEAD is a pointer that tells Git where you currently are.
+
+It always points to the latest commit on your current branch.
+When you make a new commit, HEAD moves forward automatically.
+When you switch branches, HEAD moves to that branch.
+
+Think of HEAD as your current position on the map.
+
+----------------------------------------------------------------
+7. ORIGIN
+----------------------------------------------------------------
+
+Origin is just a nickname for the URL of your remote 
+repository on GitHub.
+
+Instead of typing the full URL every time:
+    https://github.com/username/repo.git
+
+You just say:
+    origin
+
+This nickname is set automatically when you clone a repo.
+You can verify it with:
+    git remote -v
+
+----------------------------------------------------------------
+8. WORKING DIRECTORY, STAGING, REPOSITORY
+----------------------------------------------------------------
+
+There are three places your files can be at any time:
+
+WORKING DIRECTORY
+    Where you edit files.
+    Changes here are not tracked yet.
+
+STAGING AREA
+    Files you have run git add on.
+    Ready to be committed.
+
+LOCAL REPOSITORY
+    Files that have been committed.
+    Permanently saved in Git history.
+
+Flow:
+    Edit file -> git add -> git commit
+    (working)    (staging)  (repository)
+
+----------------------------------------------------------------
+KEY TAKEAWAY
+----------------------------------------------------------------
+
+These concepts connect to each other:
+    You work in the working directory.
+    You stage changes with git add.
+    You save them permanently with git commit.
+    You do all of this on a branch.
+    HEAD tells you which branch and commit you are on.
+
+================================================================

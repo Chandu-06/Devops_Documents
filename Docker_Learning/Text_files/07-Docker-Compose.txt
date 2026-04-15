@@ -1,0 +1,149 @@
+========================================
+       DOCKER COMPOSE
+       Topic 7 - Running Multi-Service Apps
+========================================
+
+
+----------------------------------------
+WHAT IS DOCKER COMPOSE?
+----------------------------------------
+Lets you define your entire application
+stack in a single YAML file.
+
+  One command starts everything.
+  One command tears it all down.
+
+Handles automatically:
+  - Network creation
+  - Volume creation
+  - Startup ordering
+  - Container naming
+
+
+----------------------------------------
+COMPLETE docker-compose.yml EXAMPLE
+----------------------------------------
+version: '3.8'
+
+services:
+
+  web:
+    build: .
+    container_name: flask-web
+    ports:
+      - "5000:5000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:secret@db:5432/myapp
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - .:/app
+    networks:
+      - appnetwork
+
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: myapp
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - appnetwork
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - appnetwork
+
+networks:
+  appnetwork:
+    driver: bridge
+
+volumes:
+  postgres_data:
+
+
+----------------------------------------
+KEY CONCEPTS EXPLAINED
+----------------------------------------
+
+services:
+  Each key is one container.
+  The name becomes the DNS hostname
+  other services use to reach it.
+  This is why DATABASE_URL uses "db"
+  as the hostname.
+
+build vs image:
+  build: .          --> build from Dockerfile
+  image: postgres:15 --> use pre-built image
+
+ports:
+  Same as -p in docker run.
+  Format: "host:container"
+  Only expose ports that need to be
+  reachable from your machine.
+
+depends_on:
+  Controls startup order.
+  Waits for container to START.
+  Does NOT wait for service to be READY.
+  Use health checks for proper readiness.
+
+volumes (service level):
+  .:/app                    --> bind mount, live code
+  postgres_data:/var/lib/.. --> named volume, persistent
+
+volumes (top level):
+  Declares named volumes Compose manages.
+  Required before using in services.
+
+
+----------------------------------------
+ESSENTIAL COMPOSE COMMANDS
+----------------------------------------
+docker compose up               # start everything
+docker compose up -d            # start in background
+docker compose up --build       # force rebuild first
+docker compose down             # stop and remove
+docker compose down -v          # also remove volumes!
+docker compose ps               # status of all services
+docker compose logs             # logs from all services
+docker compose logs -f web      # follow one service
+docker compose exec web bash    # shell into service
+docker compose restart web      # restart one service
+docker compose stop             # stop without removing
+docker compose up --scale web=3 # run 3 instances
+
+
+----------------------------------------
+DOCKERFILE VS DOCKER-COMPOSE.YML
+----------------------------------------
+                Dockerfile          docker-compose.yml
+-----------     ---------------     -------------------
+Defines         One image           Multiple containers
+Scope           Single service      Entire app stack
+Command         docker build        docker compose up
+Contains        FROM,RUN,COPY..     services,networks..
+Analogy         One ingredient      Full meal recipe
+
+
+----------------------------------------
+DEVELOPMENT SUPERPOWER
+----------------------------------------
+services:
+  web:
+    build: .
+    volumes:
+      - .:/app           # live code sync
+    environment:
+      - FLASK_DEBUG=1    # auto reload
+
+Workflow:
+  docker compose up -d   # start once
+  Edit code on machine   # changes live instantly
+  No rebuild needed      # for code changes
+========================================

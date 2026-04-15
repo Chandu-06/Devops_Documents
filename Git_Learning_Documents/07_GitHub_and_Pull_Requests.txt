@@ -1,0 +1,217 @@
+================================================================
+GITHUB AND PULL REQUESTS
+================================================================
+
+----------------------------------------------------------------
+WHAT IS GITHUB
+----------------------------------------------------------------
+
+GitHub is a website that hosts Git repositories online.
+
+It adds collaboration features on top of Git:
+    - Pull Requests (code review before merging)
+    - Issues (bug tracking and task management)
+    - Actions (automated testing and deployment)
+    - Access control (who can read or write)
+
+GitHub URL: github.com
+This team uses a private company instance.
+
+----------------------------------------------------------------
+KEY GITHUB FEATURES
+----------------------------------------------------------------
+
+REPOSITORIES
+    Your project lives here.
+    Contains all files, all branches, and all commit history.
+    Click on a file to see its content.
+    Click on a commit to see exactly what changed.
+
+BRANCHES TAB
+    Shows all branches in the repo.
+    You can see which branches are active and when they were 
+    last updated.
+
+COMMITS TAB
+    Shows the full commit history on the selected branch.
+    Click any commit to see the diff (what changed).
+
+PULL REQUESTS TAB
+    Shows all open and merged PRs.
+    Each PR has a description, file changes, and discussion.
+
+ISSUES TAB
+    Bug reports and feature requests.
+    Used to track work items.
+
+README
+    The front page of your repo.
+    GitHub automatically renders README.md as a formatted page.
+
+----------------------------------------------------------------
+WHAT IS A PULL REQUEST (PR)
+----------------------------------------------------------------
+
+A Pull Request is a formal request to merge your branch 
+into another branch.
+
+It is NOT about pulling. The name is confusing.
+Think of it as: "I have changes ready. Please review and merge."
+
+A PR gives your team a chance to:
+    - Review your code before it merges
+    - Catch bugs you might have missed
+    - Suggest better approaches
+    - Ask questions about your changes
+
+In this team: every merge goes through a PR.
+Nobody pushes directly to develop or master.
+
+----------------------------------------------------------------
+HOW TO OPEN A PULL REQUEST
+----------------------------------------------------------------
+
+STEP 1 -- Push your feature branch to GitHub
+    git push origin feature/warning-logs
+
+STEP 2 -- Go to GitHub in your browser
+    You will see a yellow banner:
+    "feature/warning-logs had recent pushes -- Compare & pull request"
+    Click "Compare & pull request"
+
+STEP 3 -- Fill in the PR form
+
+    BASE BRANCH: develop     <- Where you want to merge INTO
+    COMPARE:     feature/warning-logs  <- Your branch
+
+    TITLE: feat: add WARNING log detection to processor
+
+    DESCRIPTION:
+        ## What this PR does
+        - Added WARNING detection to log_processor.sh
+        - Script now saves WARNING lines to warning.log
+        - WARNING count included in summary report
+
+        ## How to test
+        Run: ./log_processor.sh app.log
+        Check that warning.log is created
+
+STEP 4 -- Click "Create pull request"
+
+----------------------------------------------------------------
+WHAT A GOOD PR DESCRIPTION LOOKS LIKE
+----------------------------------------------------------------
+
+Bad description:
+    "fixed stuff"
+
+Good description:
+    ## What this PR does
+    - Added WARNING log detection to the processor script
+    - Script now extracts WARNING lines from the input file
+    - Saves them to warning.log automatically
+    - Includes WARNING count in the summary report
+
+    ## Files changed
+    - log_processor.sh -- added WARNING grep section
+    - app.log -- added sample WARNING lines for testing
+
+    ## How to verify
+    Run ./log_processor.sh app.log
+    Check that warning.log is created with WARNING entries
+
+Rule: The reviewer should understand WHAT you did and WHY
+without having to open a single file.
+
+----------------------------------------------------------------
+HOW TO MERGE A PR ON GITHUB
+----------------------------------------------------------------
+
+After review and approval:
+
+STEP 1 -- Scroll to the bottom of the PR page
+STEP 2 -- Click the green "Merge pull request" button
+STEP 3 -- Click "Confirm merge"
+STEP 4 -- Click "Delete branch" (GitHub offers this right after)
+
+You will see: "Pull request successfully merged and closed"
+
+----------------------------------------------------------------
+AFTER MERGING -- SYNC YOUR LOCAL
+----------------------------------------------------------------
+
+After the PR is merged on GitHub, your local develop 
+does not know about it yet.
+
+Pull the changes down:
+    git checkout develop
+    git pull origin develop
+
+Now your local develop is up to date.
+
+Then delete the local feature branch:
+    git branch -d feature/warning-logs
+
+----------------------------------------------------------------
+FORK
+----------------------------------------------------------------
+
+Forking creates your own copy of someone else's repository 
+in your GitHub account.
+
+Used when contributing to open-source projects.
+You do not have write access to the original.
+So you fork it, make changes in your copy, then open a PR 
+to the original.
+
+This is different from branching.
+    Branch -> same repo, different line of development
+    Fork   -> completely separate copy of the repo
+
+----------------------------------------------------------------
+CLONE VS FORK
+----------------------------------------------------------------
+
+CLONE
+    Downloads a repo to your local machine.
+    You still push to the SAME remote origin.
+    Used when you have access to the repo.
+
+    git clone https://github.com/org/repo.git
+
+FORK
+    Creates a copy of the repo in YOUR GitHub account.
+    You push to YOUR copy.
+    You open a PR from YOUR copy to the original.
+    Used when contributing to someone else's project.
+
+----------------------------------------------------------------
+GITHUB ACTIONS (AWARENESS LEVEL)
+----------------------------------------------------------------
+
+GitHub Actions automates tasks when certain events happen.
+
+Examples:
+    When you push to any branch -> run tests automatically
+    When you merge to develop   -> build the application
+    When you merge to master    -> deploy to production
+
+Actions are configured in YAML files stored in the repo:
+    .github/workflows/ci.yml
+
+If an Action fails, your PR is blocked from merging.
+This is the safety net that catches broken code automatically.
+
+Ask your team lead which Actions are configured on your repo.
+
+----------------------------------------------------------------
+KEY TAKEAWAY
+----------------------------------------------------------------
+
+GitHub is where the team works together.
+Every piece of code goes through a PR before merging.
+A good PR has a clear title, a clear description, 
+and passes any automated checks.
+Always pull locally after a PR is merged.
+
+================================================================

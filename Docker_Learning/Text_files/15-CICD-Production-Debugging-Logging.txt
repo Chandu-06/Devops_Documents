@@ -1,0 +1,194 @@
+========================================
+       CI/CD, PRODUCTION COMPOSE,
+       DEBUGGING AND LOGGING
+       Topic 15 - Real World Operations
+========================================
+
+
+----------------------------------------
+CI/CD WITH DOCKER
+----------------------------------------
+
+THE AUTOMATED FLOW
+  1. Developer pushes code to GitHub
+  2. GitHub Actions pipeline triggers
+  3. Run tests inside a container
+  4. docker build the image
+  5. docker push to registry (git SHA tag)
+  6. Deploy to server or Kubernetes
+  7. New version live -- zero human work
+
+GITHUB ACTIONS WORKFLOW
+  # .github/workflows/deploy.yml
+  name: Build and Deploy
+  on:
+    push:
+      branches: [main]
+
+  jobs:
+    build-and-push:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+
+        - name: Login to Docker Hub
+          uses: docker/login-action@v3
+          with:
+            username: ${{ secrets.DOCKERHUB_USERNAME }}
+            password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+        - name: Build and push
+          uses: docker/build-push-action@v5
+          with:
+            push: true
+            tags: |
+              yourname/myapp:latest
+              yourname/myapp:${{ github.sha }}
+            cache-from: type=registry,ref=yourname/myapp:latest
+            cache-to: type=inline
+
+        - name: Deploy
+          run: |
+            ssh user@server \
+              "docker pull yourname/myapp:${{ github.sha }} && \
+               docker stop myapp && \
+               docker run -d --name myapp -p 80:5000 \
+               yourname/myapp:${{ github.sha }}"
+
+KEY POINTS
+  github.sha    tags image with exact git commit
+                every build is traceable
+                rollback = run previous SHA image
+
+  cache-from    uses last pushed image as cache
+                CI has no local cache between runs
+                keeps builds fast on fresh machines
+
+  secrets.*     credentials in GitHub vault
+                never in code
+
+
+----------------------------------------
+COMPOSE FOR PRODUCTION
+----------------------------------------
+
+THE OVERRIDE PATTERN
+  docker-compose.yml          base shared config
+  docker-compose.override.yml auto-applied in dev
+  docker-compose.prod.yml     production config
+
+  Development:
+    docker compose up           # auto-applies override
+
+  Production:
+    docker compose \
+      -f docker-compose.yml \
+      -f docker-compose.prod.yml up -d
+
+WHAT GOES WHERE
+  # base
+  services:
+    web:
+      image: yourname/myapp:${TAG:-latest}
+
+  # override.yml (dev)
+  services:
+    web:
+      build: .
+      volumes:
+        - .:/app
+      environment:
+        - FLASK_DEBUG=1
+
+  # prod.yml
+  services:
+    web:
+      restart: always
+      deploy:
+        resources:
+          limits:
+            memory: 512M
+
+PROFILES -- OPTIONAL SERVICES
+  services:
+    web:
+      image: myapp
+    pgadmin:
+      image: dpage/pgadmin4
+      profiles:
+        - tools      # only when tools profile active
+
+  docker compose up                   # web only
+  docker compose --profile tools up   # web + pgadmin
+
+
+----------------------------------------
+DEBUGGING
+----------------------------------------
+
+CONTAINER CRASHES IMMEDIATELY
+  docker ps -a                        # see exit code
+  docker logs myapp                   # read crash output
+  docker run -it --entrypoint bash myapp:1.0  # get shell
+  docker run -it --entrypoint sh myapp:1.0    # if no bash
+
+COMMON ERRORS AND FIXES
+  exec format error      wrong CPU arch    use multi-platform build
+  port already in use    host port taken   use different host port
+  no such file/dir       CMD file missing  check paths with shell
+  permission denied      non-root cant write  chown in Dockerfile
+  connection refused     wrong port/not ready  check logs and -p flag
+
+THE CORE DEBUGGING SEQUENCE
+  1. docker logs myapp           what happened
+  2. docker inspect myapp        what is its config
+  3. docker exec -it myapp bash  explore from inside
+  4. docker run -it --entrypoint bash myapp  if wont start
+
+IMAGE IS HUGE
+  docker history myapp:1.0 --no-trunc   see every layer
+  dive myapp:1.0                         interactive explorer
+
+
+----------------------------------------
+LOGGING STRATEGIES
+----------------------------------------
+
+LOCAL DEVELOPMENT
+  docker logs myapp              all output
+  docker logs -f myapp           follow live
+  docker logs --tail 50 myapp    last 50 lines
+  docker compose logs -f web     follow one service
+
+LOG DRIVERS
+  Default is json-file -- logs stored on host.
+  In production ship logs elsewhere:
+
+  docker run --log-driver fluentd myapp    # Fluentd
+  docker run --log-driver awslogs myapp    # CloudWatch
+  docker run --log-driver syslog myapp     # system syslog
+
+PRODUCTION -- CENTRALIZED LOGGING
+  Many containers across many servers.
+  You cannot SSH into each one.
+  Ship all logs to one central system.
+
+  Common stacks:
+    ELK Stack    Elasticsearch + Logstash + Kibana
+    Datadog      commercial, very comprehensive
+    CloudWatch   managed, tight AWS integration
+    Grafana Loki lightweight, designed for Kubernetes
+
+  The pattern:
+    Container emits logs to stdout/stderr
+    Log driver or agent ships to central system
+    Query all logs in one place
+
+BEST PRACTICE
+  Always log to stdout and stderr.
+  Never log to files inside containers.
+  This is the 12-factor app methodology.
+  Makes log collection simple.
+  Works with all log drivers.
+  Keeps container filesystem clean.
+========================================

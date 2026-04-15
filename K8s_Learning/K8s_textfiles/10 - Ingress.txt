@@ -1,0 +1,236 @@
+================================================================================
+  KUBERNETES LEARNING SERIES — FILE 10
+  INGRESS — SMART TRAFFIC ROUTING
+  HSBC DevOps Engineering
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. WHY INGRESS? THE PROBLEM WITH LOADBALANCER SERVICES
+--------------------------------------------------------------------------------
+
+If you have 10 microservices and each one uses a LoadBalancer Service:
+  - You get 10 separate cloud load balancers
+  - Each load balancer costs money (typically $15-25/month on AWS)
+  - You get 10 different public IP addresses for users to remember
+  - You cannot do URL-based routing (e.g., /payments vs /accounts)
+  - You cannot centralise TLS/HTTPS certificates
+
+Ingress solves all of these problems with a SINGLE entry point.
+
+ANALOGY: A large hotel. Instead of every guest calling different phone
+numbers for Room Service, Housekeeping, and Maintenance separately, the
+hotel has ONE receptionist (Ingress) who receives ALL calls and routes them
+to the right department based on what the caller needs.
+
+
+--------------------------------------------------------------------------------
+2. WHAT IS INGRESS?
+--------------------------------------------------------------------------------
+
+Ingress is a Kubernetes object that manages EXTERNAL HTTP/HTTPS access to
+Services inside the cluster. It acts as a smart reverse proxy/router that
+sits in front of your Services.
+
+Ingress can:
+  - PATH-BASED ROUTING:   /payments → payments-service, /accounts → accounts-service
+  - HOST-BASED ROUTING:   api.hsbc.com → api-service, web.hsbc.com → web-service
+  - TLS/SSL TERMINATION:  Handle HTTPS encryption centrally
+  - LOAD BALANCING:       Distribute traffic across Service replicas
+  - RATE LIMITING:        Limit requests per second (with some controllers)
+  - AUTHENTICATION:       Centralise authentication (with some controllers)
+
+IMPORTANT: Ingress is just a CONFIGURATION OBJECT. On its own it does nothing.
+You need an INGRESS CONTROLLER to actually process the rules.
+
+
+--------------------------------------------------------------------------------
+3. INGRESS CONTROLLER
+--------------------------------------------------------------------------------
+
+An Ingress Controller is a running application (usually a reverse proxy) that
+reads your Ingress objects and configures itself to route traffic accordingly.
+
+Popular Ingress Controllers:
+  - NGINX Ingress Controller   — Most widely used, battle-tested
+  - Traefik                    — Modern, auto-discovers services, good for microservices
+  - HAProxy                    — High performance, used in financial services
+  - AWS ALB Ingress Controller — Uses AWS Application Load Balancer natively
+  - Kong                       — API gateway with rich plugin ecosystem
+
+At HSBC, you will likely use NGINX or a cloud-native controller. The Ingress
+YAML you write looks the same regardless of which controller is used — the
+controller reads the same Kubernetes Ingress objects.
+
+
+--------------------------------------------------------------------------------
+4. INGRESS YAML — EXAMPLES
+--------------------------------------------------------------------------------
+
+EXAMPLE 1: PATH-BASED ROUTING
+(api.hsbc.internal → different services based on the URL path)
+
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    metadata:
+      name: hsbc-api-ingress
+      namespace: hsbc-payments
+      annotations:
+        nginx.ingress.kubernetes.io/rewrite-target: /    # Strip the path prefix
+    spec:
+      ingressClassName: nginx                            # Which controller to use
+      rules:
+      - host: api.hsbc.internal                         # This hostname
+        http:
+          paths:
+          - path: /payments                              # Requests to /payments
+            pathType: Prefix
+            backend:
+              service:
+                name: payments-service                   # Go to this Service
+                port:
+                  number: 80
+          - path: /accounts                             # Requests to /accounts
+            pathType: Prefix
+            backend:
+              service:
+                name: accounts-service                   # Go to this Service
+                port:
+                  number: 80
+          - path: /                                     # Everything else
+            pathType: Prefix
+            backend:
+              service:
+                name: default-web-service
+                port:
+                  number: 80
+
+
+EXAMPLE 2: HOST-BASED ROUTING
+(Different subdomains → different services)
+
+    spec:
+      rules:
+      - host: payments.hsbc.internal        # Subdomain for payments
+        http:
+          paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: payments-service
+                port:
+                  number: 80
+
+      - host: accounts.hsbc.internal        # Subdomain for accounts
+        http:
+          paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: accounts-service
+                port:
+                  number: 80
+
+
+EXAMPLE 3: HTTPS WITH TLS TERMINATION
+(Secure HTTPS access, certificate managed centrally)
+
+    spec:
+      tls:
+      - hosts:
+        - api.hsbc.internal
+        secretName: hsbc-tls-certificate    # Secret containing TLS cert + key
+      rules:
+      - host: api.hsbc.internal
+        http:
+          paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api-service
+                port:
+                  number: 80
+    # HTTPS terminates at the Ingress Controller
+    # Traffic from controller to Services is plain HTTP internally
+    # This is the standard pattern in most clusters
+
+
+--------------------------------------------------------------------------------
+5. PATH TYPES EXPLAINED
+--------------------------------------------------------------------------------
+
+  pathType: Exact
+    Matches the exact URL path only.
+    /payments matches /payments but NOT /payments/transfer
+
+  pathType: Prefix
+    Matches the path and anything after it.
+    /payments matches /payments, /payments/transfer, /payments/history
+
+  pathType: ImplementationSpecific
+    Behaviour depends on the Ingress Controller implementation.
+
+
+--------------------------------------------------------------------------------
+6. TLS SECRET FOR INGRESS
+--------------------------------------------------------------------------------
+
+To use HTTPS, you need a Secret containing your TLS certificate and key:
+
+    # Create from existing certificate files
+    kubectl create secret tls hsbc-tls-certificate \
+      --cert=path/to/certificate.crt \
+      --key=path/to/private.key \
+      -n hsbc-payments
+
+    # Or using cert-manager (automatic certificate management)
+    # cert-manager automatically obtains and renews TLS certificates
+    # from Let's Encrypt or your internal PKI
+
+
+--------------------------------------------------------------------------------
+7. INGRESS COMMANDS
+--------------------------------------------------------------------------------
+
+    # Apply Ingress rules
+    kubectl apply -f ingress.yaml
+
+    # List all Ingress objects
+    kubectl get ingress
+    kubectl get ing               # short form
+
+    # Detailed information (shows rules and backend services)
+    kubectl describe ingress hsbc-api-ingress
+
+    # Delete an Ingress
+    kubectl delete ingress hsbc-api-ingress
+
+
+--------------------------------------------------------------------------------
+8. INGRESS vs SERVICE — DECISION GUIDE
+--------------------------------------------------------------------------------
+
+  USE ClusterIP SERVICE WHEN:
+    Internal microservice-to-microservice communication only.
+    No external access needed at all.
+
+  USE LoadBalancer SERVICE WHEN:
+    You have ONE service to expose externally and cost is not a concern.
+    Simple setup needed quickly.
+
+  USE INGRESS WHEN:
+    Multiple services need external exposure.
+    You need URL or hostname-based routing.
+    You need centralised TLS termination.
+    You want a single external IP for all services.
+    (This is the standard for production microservices at HSBC)
+
+
+--------------------------------------------------------------------------------
+  SUMMARY: Ingress is the standard way to expose multiple microservices
+  externally at HSBC. One Ingress controller, many routing rules, one
+  external IP, centralised TLS — clean, cost-effective, and manageable.
+--------------------------------------------------------------------------------

@@ -1,0 +1,121 @@
+========================================
+       IMAGES VS CONTAINERS
+       Topic 1 - The Core Mental Model
+========================================
+
+
+----------------------------------------
+WHAT IS DOCKER?
+----------------------------------------
+Docker is a platform that packages your
+application along with everything it
+needs to run -- the language runtime,
+libraries, configuration -- into a
+single portable unit called a container.
+
+The problem it solves:
+"It works on my machine" -- code that
+behaves differently across machines due
+to different environments.
+
+
+----------------------------------------
+WHAT IS AN IMAGE?
+----------------------------------------
+An image is a read-only blueprint.
+A frozen snapshot that contains:
+
+  - A base operating system
+  - The language runtime (Python, Node..)
+  - All libraries and dependencies
+  - Your application code
+  - Instructions to start the app
+
+Images are immutable -- once built they
+never change. Same image always produces
+the same result on any machine.
+
+Analogies:
+  - Cookie cutter  (image) vs cookie (container)
+  - Recipe         (image) vs cooked meal (container)
+  - Class in code  (image) vs object/instance (container)
+
+
+----------------------------------------
+WHAT IS A CONTAINER?
+----------------------------------------
+A container is a running instance of
+an image. It is the actual live thing --
+a process running in an isolated
+environment, using CPU and memory.
+
+When Docker runs a container:
+  - Takes the image (frozen blueprint)
+  - Adds a thin writable layer on top
+  - Image stays completely untouched
+  - Container writes to writable layer
+
+Key facts:
+  - One image --> many containers
+  - Each container is isolated
+  - Deleting a container does not
+    damage the image
+  - All containers from same image
+    start from identical state
+
+
+----------------------------------------
+IMAGE VS CONTAINER COMPARISON
+----------------------------------------
+Aspect          Image              Container
+-----------     ---------------    ---------------
+What is it?     Blueprint          Running instance
+State           Frozen, read-only  Live, writable layer
+Can you run it? No                 Yes
+How many?       One on disk        Many from one image
+When deleted?   Image stays safe   Writable layer gone
+
+
+----------------------------------------
+CONTAINERS VS VIRTUAL MACHINES
+----------------------------------------
+Virtual Machine:
+  - Full separate OS (kernel, drivers)
+  - Starts in minutes
+  - Uses gigabytes of RAM
+  - Uses gigabytes of disk
+
+Docker Container:
+  - Shares host OS kernel
+  - Starts in under 1 second
+  - Uses megabytes of RAM
+  - Uses megabytes of disk
+
+
+----------------------------------------
+THE WRITABLE LAYER - COPY ON WRITE
+----------------------------------------
+When a container writes a file:
+
+  New file     --> written into writable layer
+  Modify file  --> Docker copies it up from
+                   image layer, modifies copy.
+                   Original image untouched.
+  Delete file  --> whiteout marker added.
+                   Original still in image
+                   but hidden from container.
+
+When container is deleted:
+  Writable layer is destroyed.
+  All data written inside is gone.
+  This is why Volumes exist.
+
+
+----------------------------------------
+KEY COMMANDS
+----------------------------------------
+docker images          # list all local images
+docker run python:3.11 # create and start container
+docker ps              # list running containers
+docker ps -a           # list ALL containers
+========================================

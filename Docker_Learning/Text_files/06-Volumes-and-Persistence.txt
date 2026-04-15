@@ -1,0 +1,125 @@
+========================================
+       VOLUMES AND DATA PERSISTENCE
+       Topic 6 - Making Data Survive Containers
+========================================
+
+
+----------------------------------------
+THE CORE PROBLEM
+----------------------------------------
+Containers are ephemeral -- temporary
+by design. When a container is deleted,
+everything written inside it is gone
+permanently.
+
+For stateless apps --> fine
+For databases, files, user data --> catastrophic
+
+A volume is a directory that lives
+OUTSIDE the container, managed by Docker,
+but mounted inside the container at a
+specific path. Data survives the entire
+container lifecycle.
+
+
+----------------------------------------
+THREE TYPES OF DOCKER STORAGE
+----------------------------------------
+
+1. NAMED VOLUMES (Recommended)
+   Docker manages the storage location.
+   You just give it a name.
+
+   docker volume create mydata
+   docker run -v mydata:/var/lib/postgresql/data postgres:15
+
+   Data lives at:
+   /var/lib/docker/volumes/mydata/_data
+
+   Delete container --> data stays.
+   New container with same volume --> data is there.
+   Best for: databases, persistent app data.
+
+2. BIND MOUNTS (Development)
+   Maps a specific folder on your machine
+   directly into a container. Changes in
+   either direction reflected instantly.
+
+   docker run -v $(pwd):/app myapp:1.0
+
+   Edit code on your machine -->
+   container sees it immediately.
+   No rebuild needed.
+   Best for: development, syncing source code.
+
+3. TMPFS MOUNTS (Linux Only)
+   Stores data in host machine memory.
+   Fast but completely gone when container stops.
+   For sensitive temporary data.
+
+   docker run --tmpfs /tmp myapp
+
+
+----------------------------------------
+NAMED VOLUME VS BIND MOUNT
+----------------------------------------
+Aspect          Named Volume         Bind Mount
+-----------     -------------------  -------------------
+Managed by      Docker               You
+Path on host    Docker chooses       You specify
+Best for        Databases, data      Dev, code sync
+Portability     High                 Low
+Performance     Docker optimized     Direct OS access
+
+
+----------------------------------------
+COMPLETE POSTGRES EXAMPLE
+----------------------------------------
+docker volume create postgres_data
+
+docker run -d \
+  --name my-postgres \
+  -e POSTGRES_PASSWORD=secret \
+  -e POSTGRES_DB=myapp \
+  -p 5432:5432 \
+  -v postgres_data:/var/lib/postgresql/data \
+  postgres:15
+
+Add 10,000 rows.
+Stop container. Delete container.
+Run brand new container with same volume.
+All 10,000 rows still there.
+
+
+----------------------------------------
+READ-ONLY MOUNTS
+----------------------------------------
+Container can read but cannot write:
+
+  docker run -v $(pwd)/config:/app/config:ro myapp
+
+
+----------------------------------------
+VOLUME COMMANDS
+----------------------------------------
+docker volume create mydata          # create named volume
+docker volume ls                     # list all volumes
+docker volume inspect mydata         # see host path
+docker volume rm mydata              # remove volume
+docker volume prune                  # remove ALL unused (data loss!)
+
+
+----------------------------------------
+VOLUMES IN DOCKER COMPOSE
+----------------------------------------
+services:
+  web:
+    volumes:
+      - .:/app                       # bind mount for dev
+  db:
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:                     # declare at top level
+========================================

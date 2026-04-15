@@ -1,0 +1,140 @@
+========================================
+       LAYERS AND CACHING
+       Topic 3 - Making Docker Builds Fast
+========================================
+
+
+----------------------------------------
+WHAT IS A LAYER?
+----------------------------------------
+Every instruction in your Dockerfile
+that changes the filesystem creates a
+new layer. A layer is a snapshot of
+exactly what changed at that step --
+a diff from the previous state.
+
+The final image is all diffs stacked
+on top of each other.
+
+
+----------------------------------------
+WHICH INSTRUCTIONS CREATE LAYERS?
+----------------------------------------
+Instruction    Creates Layer?   Reason
+-----------    --------------   ----------------------
+FROM           Yes              Imports base image layers
+RUN            Yes              Executes commands, changes files
+COPY           Yes              Adds files to filesystem
+ADD            Yes              Adds files to filesystem
+WORKDIR        Yes              Creates directory if not exists
+ENV            No               Metadata only
+LABEL          No               Metadata only
+EXPOSE         No               Documentation only
+USER           No               Metadata only
+CMD            No               Metadata only
+
+
+----------------------------------------
+THE BUILD CACHE
+----------------------------------------
+For each instruction Docker asks:
+"Have I seen this exact instruction
+with these exact inputs before?"
+
+  YES --> use cached layer instantly
+  NO  --> run instruction, cache result
+
+THE CRITICAL RULE:
+  If a layer's cache is invalidated,
+  ALL layers after it are also
+  invalidated -- even if those later
+  instructions have not changed.
+
+
+----------------------------------------
+CACHE IN ACTION
+----------------------------------------
+First build:
+  Step 1: FROM python:3.11-slim   --> Cached
+  Step 2: WORKDIR /app            --> Cached
+  Step 3: COPY requirements.txt . --> Cached
+  Step 4: RUN pip install flask   --> Cached
+  Step 5: COPY . .                --> Cached
+  Total time: 45 seconds
+
+After editing app.py:
+  Step 1: FROM python:3.11-slim   --> Using cache
+  Step 2: WORKDIR /app            --> Using cache
+  Step 3: COPY requirements.txt . --> Using cache
+  Step 4: RUN pip install flask   --> Using cache
+  Step 5: COPY . .                --> CACHE MISS
+  Total time: 2 seconds
+
+
+----------------------------------------
+THE GOLDEN RULE OF LAYER ORDERING
+----------------------------------------
+Order from LEAST to MOST frequently
+changing:
+
+  FROM python:3.11-slim        <-- never changes
+  WORKDIR /app                 <-- never changes
+  COPY requirements.txt .      <-- rarely changes
+  RUN pip install ...          <-- rarely changes
+  COPY . .                     <-- changes often
+  CMD ["python", "app.py"]     <-- rarely changes
+
+This turns a 45-second rebuild into
+a 2-second rebuild.
+
+
+----------------------------------------
+HOW DOCKER DETECTS CACHE MISSES
+----------------------------------------
+RUN instructions:
+  Compares the instruction string.
+  One character change = cache miss.
+
+COPY and ADD:
+  Checks file checksums.
+  Any byte change = cache miss.
+
+FROM:
+  Checks if base image has changed.
+  Pinned tags almost never change.
+
+
+----------------------------------------
+LAYER SHARING
+----------------------------------------
+Layers are shared across all images
+and containers on your machine.
+
+10 Python apps using FROM python:3.11-slim
+--> Docker stores that base layer ONCE.
+    All 10 images share it.
+
+100 containers from same image
+--> All share the same read-only layers.
+    Only writable layer is unique per container.
+
+
+----------------------------------------
+THE DELETE-IN-SEPARATE-RUN TRAP
+----------------------------------------
+WRONG:
+  RUN apt-get install -y curl    # +50MB layer
+  RUN rm -rf /var/cache/apt      # files hidden but still in image!
+
+CORRECT:
+  RUN apt-get install -y curl && rm -rf /var/cache/apt/lists/*
+  # cleanup happens in SAME layer
+
+
+----------------------------------------
+USEFUL COMMANDS
+----------------------------------------
+docker history myapp:1.0           # see all layers and sizes
+docker history --no-trunc myapp    # show full commands
+docker build --no-cache -t myapp . # ignore cache, build fresh
+========================================

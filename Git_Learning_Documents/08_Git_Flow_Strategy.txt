@@ -1,0 +1,219 @@
+================================================================
+GIT FLOW -- BRANCHING STRATEGY
+================================================================
+
+----------------------------------------------------------------
+WHAT IS GIT FLOW
+----------------------------------------------------------------
+
+Git Flow is a set of rules about how branches are named 
+and used in a team.
+
+It tells you:
+    - What branches to create
+    - When to create them
+    - Where to merge them
+    - When to delete them
+
+The goal: master is ALWAYS stable and production-ready.
+No surprises. No broken code in production.
+
+----------------------------------------------------------------
+THE FIVE BRANCH TYPES
+----------------------------------------------------------------
+
+1. MASTER
+    What it is: Production. What is live and running.
+    Rule: Never touch directly. Ever.
+    Only thing that merges here: release/* and hotfix/*
+    Every commit here is tagged with a version number.
+
+2. DEVELOP
+    What it is: Integration branch. Where all features land.
+    Rule: Never commit directly. Use PRs only.
+    All feature branches merge into develop.
+    Think of it as the "testing room" before production.
+
+3. FEATURE/*
+    What it is: One branch per feature or fix.
+    Created from: develop
+    Merges back to: develop (via Pull Request)
+    Lifetime: Short. Created for one job, deleted after merge.
+
+    Naming examples:
+        feature/warning-log-detection
+        feature/summary-report-generation
+        feature/fix-null-check
+
+4. RELEASE/*
+    What it is: Final preparation before going to master.
+    Created from: develop (when it is ready for a release)
+    Merges into: BOTH master AND develop
+    Only allowed: Bug fixes. No new features.
+    
+    Naming examples:
+        release/v1.0.0
+        release/v1.2.0
+
+5. HOTFIX/*
+    What it is: Emergency fix for something broken in production.
+    Created from: master (not develop)
+    Merges into: BOTH master AND develop
+    Used when: Production is broken and cannot wait for next release.
+    
+    Naming examples:
+        hotfix/fix-login-crash
+        hotfix/fix-payment-timeout
+
+----------------------------------------------------------------
+THE FLOW -- HOW CODE MOVES
+----------------------------------------------------------------
+
+NORMAL FEATURE FLOW:
+
+    develop
+       |
+       |-- create feature branch
+       |
+    feature/my-feature
+       |
+       |-- write code
+       |-- commit
+       |-- push
+       |-- open PR
+       |
+    develop (after PR merge)
+       |
+       |-- (more features land on develop)
+       |
+    release/v1.0
+       |
+       |-- final testing
+       |-- bug fixes only
+       |
+    master (release merged here)
+       |
+       tag: v1.0.0
+
+HOTFIX FLOW:
+
+    master (production is broken!)
+       |
+       |-- create hotfix branch
+       |
+    hotfix/fix-crash
+       |
+       |-- fix the bug
+       |-- commit
+       |
+    master (hotfix merged here)
+       |
+    develop (hotfix also merged here)
+       |
+       tag: v1.0.1
+
+----------------------------------------------------------------
+THE GOLDEN RULES
+----------------------------------------------------------------
+
+1. NEVER commit directly to master or develop
+   Always use a branch. Always open a PR.
+
+2. ALWAYS create a feature branch for every piece of work
+   No exceptions. Even a one-line change.
+
+3. ALWAYS pull develop before creating a feature branch
+   git checkout develop
+   git pull origin develop
+   git checkout -b feature/your-name
+
+4. ALWAYS delete branches after they are merged
+   git branch -d feature/your-name
+   git push origin --delete feature/your-name
+
+5. ALWAYS base pull requests on develop
+   Not on master. Not on another feature branch.
+   Unless specifically directed otherwise.
+
+----------------------------------------------------------------
+WHY THESE RULES EXIST
+----------------------------------------------------------------
+
+MASTER IS PROTECTED
+    If master is always clean, production is always stable.
+    A broken build in develop does not affect real users.
+
+CODE IS REVIEWED
+    PRs ensure every change is seen by at least one other person.
+    Catches bugs, improves quality, spreads knowledge.
+
+PARALLEL WORK IS SAFE
+    Two developers can work on different features simultaneously.
+    Their branches never interfere with each other.
+
+HISTORY IS CLEAN
+    Following Git Flow makes the commit history readable.
+    Anyone can understand what was built and in what order.
+
+----------------------------------------------------------------
+REAL EXAMPLE -- THIS PROJECT
+----------------------------------------------------------------
+
+What happened in the Log Processor project:
+
+    master     <- Initial commit. Never touched again directly.
+    |
+    develop    <- Base for all work
+    |
+    feature/warning-logs
+        Added WARNING detection
+        Merged into develop via PR #1
+        Branch deleted
+    |
+    feature/summary-report
+        Added summary.log generation
+        Merged into develop via PR #2
+        Branch deleted
+    |
+    feature/log-cleanup
+        Added version and author metadata
+        Merged into develop
+        Branch deleted
+    |
+    release/v1.0  <- PENDING
+        Final checks
+        Will merge into master AND develop
+        Will be tagged v1.0.0
+
+----------------------------------------------------------------
+COMPARISON WITH OTHER STRATEGIES
+----------------------------------------------------------------
+
+GITHUB FLOW (simpler)
+    Only two branches: main and feature/*
+    No develop, no release branches
+    Used by smaller teams or products that deploy continuously
+    Every PR merges directly to main
+
+TRUNK-BASED DEVELOPMENT (most minimal)
+    Everyone commits to one branch (main/trunk)
+    Uses feature flags to hide unfinished work
+    Used by large companies like Google
+    Requires strong automated testing
+
+GIT FLOW (what this team uses)
+    Five branch types
+    Explicit release cycle
+    Best for teams with planned release windows
+    More process but more control
+
+----------------------------------------------------------------
+KEY TAKEAWAY
+----------------------------------------------------------------
+
+Git Flow is not complicated. It is just discipline.
+The core rule: master is sacred.
+Every change takes a predictable path:
+    feature/* -> develop -> release/* -> master
+
+================================================================

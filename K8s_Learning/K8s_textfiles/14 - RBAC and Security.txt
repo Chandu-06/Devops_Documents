@@ -1,0 +1,308 @@
+================================================================================
+  KUBERNETES LEARNING SERIES — FILE 14
+  RBAC AND SECURITY IN KUBERNETES
+  HSBC DevOps Engineering
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. WHY SECURITY MATTERS — ESPECIALLY AT HSBC
+--------------------------------------------------------------------------------
+
+In a bank, security is not optional. Kubernetes clusters can contain:
+  - Access credentials to payment systems
+  - Database connection strings
+  - TLS private keys
+  - Application code that processes financial transactions
+
+Without proper security controls:
+  - A junior developer could accidentally delete a production database
+  - A compromised application could access secrets from other namespaces
+  - Malicious code could exfiltrate customer data
+
+Kubernetes has a layered security model. RBAC is the primary access control
+mechanism.
+
+
+--------------------------------------------------------------------------------
+2. WHAT IS RBAC?
+--------------------------------------------------------------------------------
+
+RBAC = Role-Based Access Control
+
+RBAC answers: WHO can do WHAT on WHICH resources?
+
+  WHO   = Subject (User, Group, or ServiceAccount)
+  WHAT  = Verbs (get, list, create, update, delete, watch, patch)
+  WHICH = Resources (pods, deployments, secrets, services, etc.)
+
+Example policy expressed in plain English:
+  "Alice can GET and LIST pods in the hsbc-payments-dev namespace,
+   but cannot CREATE or DELETE them."
+
+RBAC objects in Kubernetes:
+  Role              — Defines permissions within ONE namespace
+  ClusterRole       — Defines permissions cluster-wide (or reusable across namespaces)
+  RoleBinding       — Assigns a Role to a Subject within one namespace
+  ClusterRoleBinding — Assigns a ClusterRole to a Subject cluster-wide
+
+
+--------------------------------------------------------------------------------
+3. SUBJECTS — WHO CAN BE GRANTED PERMISSIONS
+--------------------------------------------------------------------------------
+
+  USER
+    A human user authenticated by the cluster (via certificates, OIDC, etc.)
+    Kubernetes does not manage users directly — they come from external systems
+    (LDAP, Active Directory, Google, etc.)
+    At HSBC: your HSBC AD account/email is your Kubernetes user identity.
+
+  GROUP
+    A collection of users. Grant permissions to the group and all members inherit.
+    Example: Grant the 'hsbc-payments-developers' group access to the dev namespace.
+
+  SERVICEACCOUNT
+    An identity for PROCESSES (Pods) running inside the cluster.
+    Unlike Users (humans), ServiceAccounts are Kubernetes objects you create.
+    Every Pod runs as a ServiceAccount (default if not specified).
+    Use ServiceAccounts when your application needs to call the Kubernetes API.
+
+    # Create a ServiceAccount
+    kubectl create serviceaccount payment-api-sa -n hsbc-payments-dev
+
+
+--------------------------------------------------------------------------------
+4. VERBS — WHAT ACTIONS CAN BE ALLOWED
+--------------------------------------------------------------------------------
+
+  VERB      | HTTP METHOD | DESCRIPTION
+  ----------|-------------|-----------------------------------------------
+  get       | GET         | Read a specific resource by name
+  list      | GET         | List all resources of a type
+  watch     | GET         | Stream changes to resources in real time
+  create    | POST        | Create a new resource
+  update    | PUT         | Replace an existing resource entirely
+  patch     | PATCH       | Partially update an existing resource
+  delete    | DELETE      | Delete a specific resource
+  deletecollection | DELETE | Delete all resources matching criteria
+
+SAFE (read-only) operations: get, list, watch
+DANGEROUS operations: create, update, patch, delete
+
+
+--------------------------------------------------------------------------------
+5. ROLE — NAMESPACE-SCOPED PERMISSIONS
+--------------------------------------------------------------------------------
+
+A Role defines a set of permissions within a SINGLE namespace.
+
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      name: pod-reader
+      namespace: hsbc-payments-dev        # Only applies in this namespace
+    rules:
+    - apiGroups: [""]                     # "" = core API group (pods, services, etc.)
+      resources: ["pods", "pods/log"]     # Which resources
+      verbs: ["get", "list", "watch"]     # Only read operations
+
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      name: deployment-manager
+      namespace: hsbc-payments-dev
+    rules:
+    - apiGroups: ["apps"]                 # Deployments are in the apps group
+      resources: ["deployments"]
+      verbs: ["get", "list", "create", "update", "patch", "delete"]
+    - apiGroups: [""]
+      resources: ["pods"]
+      verbs: ["get", "list"]
+
+
+--------------------------------------------------------------------------------
+6. ROLEBINDING — ASSIGNING ROLES TO SUBJECTS
+--------------------------------------------------------------------------------
+
+A RoleBinding assigns a Role to a Subject within a specific namespace.
+
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: alice-pod-reader-binding
+      namespace: hsbc-payments-dev
+    subjects:                              # WHO gets the permissions
+    - kind: User
+      name: alice@hsbc.com               # Must match exactly how the user authenticates
+      apiGroup: rbac.authorization.k8s.io
+    roleRef:                               # WHICH role they get
+      kind: Role
+      name: pod-reader
+      apiGroup: rbac.authorization.k8s.io
+
+    ---
+    # Grant a Group access:
+    subjects:
+    - kind: Group
+      name: hsbc-payments-developers
+      apiGroup: rbac.authorization.k8s.io
+
+    # Grant a ServiceAccount access:
+    subjects:
+    - kind: ServiceAccount
+      name: payment-api-sa
+      namespace: hsbc-payments-dev
+
+
+--------------------------------------------------------------------------------
+7. CLUSTERROLE AND CLUSTERROLEBINDING — CLUSTER-WIDE PERMISSIONS
+--------------------------------------------------------------------------------
+
+Use ClusterRole when you need:
+  - Permissions that apply across ALL namespaces
+  - Access to non-namespaced resources (Nodes, PersistentVolumes)
+  - A role that can be reused across many namespaces via RoleBinding
+
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: cluster-node-reader
+    rules:
+    - apiGroups: [""]
+      resources: ["nodes"]               # Nodes are not namespaced
+      verbs: ["get", "list", "watch"]
+
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: cluster-node-reader-binding
+    subjects:
+    - kind: Group
+      name: platform-team@hsbc.com
+      apiGroup: rbac.authorization.k8s.io
+    roleRef:
+      kind: ClusterRole
+      name: cluster-node-reader
+      apiGroup: rbac.authorization.k8s.io
+
+
+NOTE: You can bind a ClusterRole with a regular RoleBinding to limit it to
+one namespace. This is a common pattern — define the Role once as a
+ClusterRole, then use RoleBindings per namespace to assign it.
+
+
+--------------------------------------------------------------------------------
+8. NETWORK POLICIES — FIREWALL BETWEEN PODS
+--------------------------------------------------------------------------------
+
+By default, all Pods can communicate with all other Pods in the cluster.
+NetworkPolicies restrict this — acting as a firewall between Pods.
+
+EXAMPLE: Payment API can only communicate with the database and the cache.
+It should not be able to talk to the monitoring service or UI.
+
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: payment-api-network-policy
+      namespace: hsbc-payments
+    spec:
+      podSelector:
+        matchLabels:
+          app: payment-api              # This policy applies to payment-api pods
+
+      policyTypes:
+      - Ingress                         # Control incoming traffic
+      - Egress                          # Control outgoing traffic
+
+      ingress:
+      - from:                           # Allow incoming ONLY from ingress-controller
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        ports:
+        - protocol: TCP
+          port: 3000
+
+      egress:
+      - to:                             # Allow outgoing ONLY to database
+        - podSelector:
+            matchLabels:
+              app: postgresql
+        ports:
+        - protocol: TCP
+          port: 5432
+      - to:                             # Also allow outgoing to Redis cache
+        - podSelector:
+            matchLabels:
+              app: redis
+        ports:
+        - protocol: TCP
+          port: 6379
+      - ports:                          # Allow DNS resolution (always needed!)
+        - protocol: UDP
+          port: 53
+
+
+IMPORTANT: NetworkPolicies require a CNI plugin that supports them
+(Calico, Cilium, Weave). The default kubenet CNI does not enforce them.
+
+
+--------------------------------------------------------------------------------
+9. SECURITY BEST PRACTICES — CHECKLIST
+--------------------------------------------------------------------------------
+
+  CONTAINERS:
+    [ ] Never run as root — use USER directive in Dockerfile
+    [ ] Use read-only root filesystem where possible
+    [ ] Scan images for CVEs before deployment
+    [ ] Use minimal base images (Alpine, distroless)
+    [ ] Never store secrets in images
+
+  RBAC:
+    [ ] Apply principle of least privilege — only necessary permissions
+    [ ] Never use cluster-admin for application ServiceAccounts
+    [ ] Separate roles for read vs write operations
+    [ ] Review and audit RBAC bindings regularly
+
+  SECRETS:
+    [ ] Use Secrets, not ConfigMaps, for sensitive data
+    [ ] Enable encryption at rest for etcd
+    [ ] Consider external secret managers (Vault, AWS Secrets Manager)
+    [ ] Rotate secrets regularly
+    [ ] Never commit secrets to Git
+
+  NETWORK:
+    [ ] Apply NetworkPolicies — start with deny-all, then allow explicitly
+    [ ] Use TLS for all service-to-service communication
+    [ ] Restrict egress to only required external endpoints
+
+
+--------------------------------------------------------------------------------
+10. RBAC COMMANDS
+--------------------------------------------------------------------------------
+
+    kubectl get roles -n hsbc-payments-dev
+    kubectl get rolebindings -n hsbc-payments-dev
+    kubectl get clusterroles
+    kubectl get clusterrolebindings
+
+    kubectl describe role pod-reader -n hsbc-payments-dev
+    kubectl describe rolebinding alice-pod-reader-binding -n hsbc-payments-dev
+
+    # Check what permissions a user/serviceaccount has
+    kubectl auth can-i get pods --as=alice@hsbc.com -n hsbc-payments-dev
+    kubectl auth can-i delete deployments --as=alice@hsbc.com -n hsbc-payments-dev
+
+    # List ALL permissions for the current user
+    kubectl auth can-i --list -n hsbc-payments-dev
+
+
+--------------------------------------------------------------------------------
+  REMEMBER: At HSBC, production namespaces should have strict RBAC.
+  Most developers should have read-only access to production and full
+  access only to development namespaces. The principle: you cannot break
+  what you cannot change.
+--------------------------------------------------------------------------------

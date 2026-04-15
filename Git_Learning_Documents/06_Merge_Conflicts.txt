@@ -1,0 +1,236 @@
+================================================================
+MERGE CONFLICTS
+================================================================
+
+----------------------------------------------------------------
+WHAT IS A MERGE CONFLICT
+----------------------------------------------------------------
+
+A merge conflict happens when two branches changed the SAME 
+line in the SAME file differently.
+
+Git does not know which version to keep.
+So it stops, marks the conflict inside the file, and asks 
+YOU to decide.
+
+This is completely normal. Every developer faces conflicts.
+Once you understand what is happening they are easy to resolve.
+
+----------------------------------------------------------------
+WHEN DOES A CONFLICT HAPPEN
+----------------------------------------------------------------
+
+Scenario:
+    Both you and your teammate started from the same code.
+    The file had this line:
+        echo "Application started"
+
+    You changed it to:
+        echo "== HSBC Log Processor v1.0 =="
+
+    Your teammate changed it to:
+        echo "*** Log Processor | $(date) ***"
+
+    When you try to merge both changes, Git says:
+        I cannot decide. Both changed the same line. You choose.
+
+----------------------------------------------------------------
+WHAT GIT SHOWS YOU
+----------------------------------------------------------------
+
+Git stops the merge and writes conflict markers into the file.
+
+This is what you will see inside the conflicting file:
+
+    <<<<<<< HEAD
+    echo "== HSBC Log Processor v1.0 =="
+    =======
+    echo "*** Log Processor | $(date) ***"
+    >>>>>>> feature/log-timestamp
+
+Breaking it down:
+
+    <<<<<<< HEAD
+        Start of YOUR version (what your current branch has).
+        Everything between here and ======= is your code.
+
+    =======
+        The divider line.
+        Separates your version from the incoming version.
+
+    >>>>>>> feature/log-timestamp
+        End of INCOMING version (what the other branch has).
+        Everything between ======= and here is their code.
+
+----------------------------------------------------------------
+HOW TO FIND CONFLICTS
+----------------------------------------------------------------
+
+After a failed merge, run:
+    git status
+
+You will see:
+    You have unmerged paths.
+
+    Unmerged paths:
+        both modified:   log-project/log_processor.sh
+
+Every file listed under "both modified" has a conflict.
+You need to resolve all of them.
+
+----------------------------------------------------------------
+HOW TO RESOLVE A CONFLICT -- STEP BY STEP
+----------------------------------------------------------------
+
+STEP 1 -- Open the conflicting file
+    notepad log-project/log_processor.sh
+
+STEP 2 -- Find the conflict markers
+    Look for <<<<<<< in the file.
+
+STEP 3 -- Decide what to keep
+
+    You have four choices:
+
+    Option 1 -- Keep YOUR version:
+        Delete the ======= line
+        Delete the >>>>>>> line and everything after it
+        Keep your code
+
+    Option 2 -- Keep THEIR version:
+        Delete the <<<<<<< line and everything before =======
+        Delete the ======= line
+        Delete the >>>>>>> line
+        Keep their code
+
+    Option 3 -- Keep BOTH:
+        Delete all three marker lines
+        Keep both blocks of code
+
+    Option 4 -- Write something completely new:
+        Delete all three marker lines
+        Delete both versions
+        Write a brand new line
+
+STEP 4 -- Delete ALL conflict markers
+    The file must not contain <<<<<<< or ======= or >>>>>>>
+    These are not valid code. They will break your application.
+
+STEP 5 -- Verify no markers remain
+    Run this to check:
+        grep -n "<<<<<<\|=======\|>>>>>>" log_processor.sh
+
+    Expected output: (nothing -- silence means clean)
+
+STEP 6 -- Stage the resolved file
+    git add log_processor.sh
+
+STEP 7 -- Commit the resolution
+    git commit -m "fix: resolve merge conflict in log_processor.sh"
+
+----------------------------------------------------------------
+EXAMPLE -- FULL RESOLUTION
+----------------------------------------------------------------
+
+BEFORE (what you see in the file):
+    <<<<<<< HEAD
+    echo "== HSBC Log Processor v1.0 =="
+    =======
+    echo "*** Log Processor | $(date) ***"
+    >>>>>>> feature/log-timestamp
+
+DECISION: Keep the branded header (your version).
+
+AFTER (what the file should look like):
+    echo "== HSBC Log Processor v1.0 =="
+
+Then:
+    git add log_processor.sh
+    git commit -m "fix: resolve merge conflict - keep branded header"
+
+----------------------------------------------------------------
+MULTIPLE CONFLICTS IN ONE FILE
+----------------------------------------------------------------
+
+A single file can have more than one conflict block.
+
+    <<<<<<< HEAD
+    color: green;
+    =======
+    color: red;
+    >>>>>>> feature/colours
+
+    (more code...)
+
+    <<<<<<< HEAD
+    font-size: 16px;
+    =======
+    font-size: 18px;
+    >>>>>>> feature/colours
+
+You must resolve EVERY conflict block in the file.
+If you leave even one set of markers, your code is broken.
+
+----------------------------------------------------------------
+ABORTING A MERGE
+----------------------------------------------------------------
+
+If you started a merge and want to cancel completely:
+    git merge --abort
+
+This returns everything to the state before the merge started.
+Use this when you need more time to discuss with your teammate
+before resolving.
+
+----------------------------------------------------------------
+RESOLVING CONFLICTS IN VS CODE
+----------------------------------------------------------------
+
+VS Code shows conflicts with colour highlighting.
+It also shows four clickable buttons above each conflict:
+
+    Accept Current Change   -> Keep YOUR version
+    Accept Incoming Change  -> Keep THEIR version  
+    Accept Both Changes     -> Keep both
+    Compare Changes         -> See a side-by-side view
+
+This is safer than editing manually because you cannot 
+accidentally leave conflict markers in the file.
+
+----------------------------------------------------------------
+HOW TO PREVENT CONFLICTS
+----------------------------------------------------------------
+
+You cannot avoid conflicts entirely in a team.
+But you can reduce them:
+
+    - Pull before you start work every day
+      git pull origin develop
+
+    - Keep branches short-lived
+      A branch open for 3 weeks diverges massively.
+      Merge frequently.
+
+    - Communicate with teammates
+      "I'm working on script.sh today"
+      This avoids two people editing the same file.
+
+    - Keep changes small and focused
+      Big commits touching 30 files create huge conflicts.
+      Small commits touching 2-3 files create minimal conflicts.
+
+    - Rebase your branch onto develop before opening a PR
+      git rebase develop
+      This resolves conflicts on your machine before review.
+
+----------------------------------------------------------------
+KEY TAKEAWAY
+----------------------------------------------------------------
+
+Conflicts are normal. Do not panic.
+Git never deletes your code during a conflict.
+Both versions are always preserved inside the markers.
+You are just the decision-maker.
+Resolve, stage, commit. Done.
+
+================================================================

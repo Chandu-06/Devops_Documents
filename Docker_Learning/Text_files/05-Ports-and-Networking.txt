@@ -1,0 +1,156 @@
+========================================
+       PORTS AND NETWORKING
+       Topic 5 - How Containers Communicate
+========================================
+
+
+----------------------------------------
+WHAT IS A PORT?
+----------------------------------------
+A numbered door on your computer.
+Every service listens on a specific port.
+Incoming data says "I am going to port
+5000" and OS routes it to that service.
+
+Well-known ports:
+  80    --> HTTP
+  443   --> HTTPS
+  5432  --> PostgreSQL
+  3306  --> MySQL
+  6379  --> Redis
+  27017 --> MongoDB
+  22    --> SSH
+
+
+----------------------------------------
+WHY DOCKER CREATES A PORT PROBLEM
+----------------------------------------
+Containers are isolated by default.
+Nothing outside can reach inside.
+You must explicitly map ports using -p:
+
+  docker run -p 8080:5000 myapp
+  #              host:container
+
+Left  = YOUR machine port
+Right = container internal port
+
+Browser connects to localhost:8080,
+Docker forwards it to port 5000 inside.
+
+
+----------------------------------------
+RUNNING MULTIPLE CONTAINERS
+----------------------------------------
+Two containers both using port 5000
+internally, mapped to different host ports:
+
+  docker run -p 8080:5000 myapp-v1
+  docker run -p 8081:5000 myapp-v2
+
+Both containers think they own port 5000.
+Your machine separates them at 8080/8081.
+
+
+----------------------------------------
+DOCKER NETWORK TYPES
+----------------------------------------
+
+Bridge Network (Default):
+  Containers get private IPs like 172.17.0.2
+  Can reach internet.
+  Cannot be reached from outside unless
+  port-mapped with -p.
+
+  Problem: containers talk by IP only.
+  IPs change every restart.
+  Use custom bridge networks instead.
+
+Custom Bridge Network (Recommended):
+  Provides automatic DNS resolution.
+  Containers reach each other by NAME.
+
+  docker network create mynetwork
+  docker run -d --name web --network mynetwork myapp
+  docker run -d --name db  --network mynetwork postgres:15
+  # web can reach db using hostname "db"
+
+Host Network:
+  Container shares your machine network directly.
+  No isolation, no port mapping needed.
+  Only works on Linux.
+
+  docker run --network host myapp
+
+None Network:
+  Completely disables all networking.
+  No internet, no container-to-container.
+  For security-critical batch jobs.
+
+  docker run --network none myapp
+
+Overlay Network:
+  Spans multiple machines.
+  Used in Docker Swarm and Kubernetes.
+  Containers on different servers talk
+  as if on same local network.
+
+  docker network create --driver overlay myoverlay
+
+
+----------------------------------------
+NETWORK COMMANDS
+----------------------------------------
+docker network ls                      # list networks
+docker network create mynetwork        # create custom
+docker network inspect mynetwork       # see containers on it
+docker network connect mynet myapp     # add container
+docker network disconnect mynet myapp  # remove container
+docker network rm mynetwork            # delete network
+docker network prune                   # remove unused
+
+
+----------------------------------------
+CROSS-PROJECT NETWORKS (COMPOSE)
+----------------------------------------
+Two separate Compose files sharing a network:
+
+  # Project A - creates the network
+  networks:
+    shared:
+      name: shared-network
+
+  # Project B - joins existing network
+  networks:
+    shared:
+      external: true
+      name: shared-network
+
+
+----------------------------------------
+DNS RESOLUTION INTERNALS
+----------------------------------------
+On a custom network, Docker runs an
+embedded DNS server at 127.0.0.11.
+
+When container A says "ping db":
+  Docker intercepts it
+  Looks up container named "db"
+  Returns its current IP
+
+This is why container names work as
+hostnames automatically.
+
+
+----------------------------------------
+EXPOSING TO ALL vs LOCALHOST ONLY
+----------------------------------------
+  docker run -p 5000:5000 myapp
+  # 0.0.0.0 -- anyone on your network
+
+  docker run -p 127.0.0.1:5000:5000 myapp
+  # localhost only -- your machine only
+
+In production, restrict to 127.0.0.1
+and put Nginx in front.
+========================================

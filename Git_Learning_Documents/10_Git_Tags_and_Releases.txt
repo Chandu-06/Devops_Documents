@@ -1,0 +1,167 @@
+================================================================
+GIT TAGS AND RELEASES
+================================================================
+
+----------------------------------------------------------------
+WHAT IS A TAG
+----------------------------------------------------------------
+
+A tag is a permanent marker on a specific commit.
+It never moves. It never changes.
+It is a way to say "this exact commit is version 1.0.0".
+
+Unlike branches which move forward with every commit,
+a tag always points to the same commit forever.
+
+Use case: Mark every production release with a tag.
+Six months later, if something breaks, you can check out 
+the exact code that was deployed on any given date.
+
+----------------------------------------------------------------
+SEMANTIC VERSIONING
+----------------------------------------------------------------
+
+Tags follow a format called semantic versioning: MAJOR.MINOR.PATCH
+
+    v1.0.0
+     | | |
+     | | +-- PATCH: Bug fix. Nothing new. Not breaking.
+     | +---- MINOR: New feature. Backward compatible.
+     +------ MAJOR: Breaking change. Not backward compatible.
+
+Real examples:
+
+    v1.0.0  -> First production release
+    v1.0.1  -> Fixed a bug in v1.0.0
+    v1.1.0  -> Added a new feature to v1.0.1
+    v2.0.0  -> Complete rewrite. Old scripts may break.
+
+----------------------------------------------------------------
+TWO TYPES OF TAGS
+----------------------------------------------------------------
+
+LIGHTWEIGHT TAG
+    Just a pointer to a commit. No extra information.
+    
+    git tag v1.0.0
+
+ANNOTATED TAG
+    Includes a message, author, and date.
+    This is the preferred type for releases.
+    
+    git tag -a v1.0.0 -m "Release version 1.0.0"
+
+Always use annotated tags for production releases.
+
+----------------------------------------------------------------
+HOW TO CREATE A TAG
+----------------------------------------------------------------
+
+STEP 1 -- Make sure you are on master and it is up to date
+    git checkout master
+    git pull origin master
+
+STEP 2 -- Create the annotated tag
+    git tag -a v1.0.0 -m "Release version 1.0.0"
+
+STEP 3 -- Push the tag to GitHub
+    git push origin v1.0.0
+
+    Or push all tags at once:
+    git push origin --tags
+
+----------------------------------------------------------------
+HOW TO VIEW TAGS
+----------------------------------------------------------------
+
+List all tags:
+    git tag
+
+List tags with their messages:
+    git tag -n
+
+Show details of a specific tag:
+    git show v1.0.0
+
+    Output includes:
+        Tag name and message
+        Who created it and when
+        The commit it points to
+        The commit message
+
+----------------------------------------------------------------
+GITHUB RELEASES
+----------------------------------------------------------------
+
+When you push a tag to GitHub, it appears in the Releases 
+section of the repository.
+
+To create a proper GitHub Release:
+    1. Go to your repo on GitHub
+    2. Click "Releases" in the right sidebar
+    3. Click "Create a new release"
+    4. Select your tag from the dropdown
+    5. Write release notes (what changed in this version)
+    6. Click "Publish release"
+
+GitHub then shows the release with:
+    - The version number
+    - The release notes
+    - Download links for the source code
+    - The exact commit that was tagged
+
+----------------------------------------------------------------
+HOW TAGS FIT INTO GIT FLOW
+----------------------------------------------------------------
+
+In Git Flow, tags are only created on master.
+Every time something merges to master, you tag it.
+
+    release/v1.0 branch  ->  merged to master  ->  tag v1.0.0
+    hotfix/fix-crash      ->  merged to master  ->  tag v1.0.1
+    release/v1.1 branch  ->  merged to master  ->  tag v1.1.0
+
+This means:
+    - Every commit on master has a tag
+    - You can always find exactly what was deployed
+    - You can always check out any historical release
+
+----------------------------------------------------------------
+CHECKING OUT A TAG
+----------------------------------------------------------------
+
+To see the code exactly as it was at a specific release:
+
+    git checkout v1.0.0
+
+This puts you in a "detached HEAD" state.
+You are not on any branch -- just viewing that snapshot.
+Do not make commits here.
+
+To go back to normal:
+    git checkout develop
+
+----------------------------------------------------------------
+DELETING A TAG
+----------------------------------------------------------------
+
+Delete locally:
+    git tag -d v1.0.0
+
+Delete on GitHub:
+    git push origin --delete v1.0.0
+
+Be careful. Deleting a tag from a public repo that others 
+depend on causes confusion.
+
+----------------------------------------------------------------
+KEY TAKEAWAY
+----------------------------------------------------------------
+
+Tags mark specific commits permanently.
+Use them for every production release.
+Follow semantic versioning: MAJOR.MINOR.PATCH
+Always tag on master, never on feature branches.
+Push tags to GitHub so the whole team can see them.
+
+================================================================

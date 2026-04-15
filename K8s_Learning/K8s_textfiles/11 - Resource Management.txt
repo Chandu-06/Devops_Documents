@@ -1,0 +1,207 @@
+================================================================================
+  KUBERNETES LEARNING SERIES — FILE 11
+  RESOURCE MANAGEMENT — CPU AND MEMORY
+  HSBC DevOps Engineering
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. WHY MANAGE RESOURCES?
+--------------------------------------------------------------------------------
+
+In a Kubernetes cluster, many applications share the same physical machines
+(nodes). Without limits:
+  - One greedy app could consume all CPU and memory, starving other apps
+  - The Scheduler cannot make good placement decisions (it doesn't know
+    how much each app actually needs)
+  - You cannot guarantee SLAs or performance for critical banking services
+
+ANALOGY: Flatmates sharing a house. Without rules, one person might hog
+the bathroom for an hour every morning, the kitchen all evening, and leave
+no hot water for anyone else. Fair usage rules are essential.
+
+
+--------------------------------------------------------------------------------
+2. REQUESTS AND LIMITS
+--------------------------------------------------------------------------------
+
+Every container can have two types of resource specifications:
+
+  REQUESTS — "I need at least this much"
+    The MINIMUM resources guaranteed to the container.
+    The Scheduler uses requests to decide which node to place the Pod on.
+    A node will only accept a Pod if it has enough unallocated resources
+    to satisfy the Pod's requests.
+    The container is GUARANTEED these resources.
+
+  LIMITS — "I can use at most this much"
+    The MAXIMUM resources the container is allowed to use.
+    If a container tries to exceed its CPU limit, it is throttled (slowed down).
+    If a container exceeds its memory limit, it is killed and restarted
+    (OOMKilled — Out Of Memory Killed).
+
+
+SUMMARY TABLE:
+  Resource | Exceeding Request         | Exceeding Limit
+  ---------|---------------------------|----------------------------------
+  CPU      | Can use more if node      | Container is THROTTLED (slowed)
+           | has spare capacity        | but NOT killed
+  Memory   | Can use more if node      | Container is KILLED and restarted
+           | has spare capacity        | (OOMKilled)
+
+
+--------------------------------------------------------------------------------
+3. RESOURCE UNITS
+--------------------------------------------------------------------------------
+
+CPU UNITS:
+  1     = 1 full CPU core
+  500m  = 0.5 cores (500 millicores)
+  250m  = 0.25 cores
+  100m  = 0.1 cores (10% of one core)
+  The 'm' suffix stands for millicores (1000m = 1 core)
+
+MEMORY UNITS:
+  128Mi = 128 mebibytes (binary: 1Mi = 1,048,576 bytes)
+  256Mi = 256 mebibytes
+  1Gi   = 1 gibibyte (1,073,741,824 bytes)
+  500M  = 500 megabytes (decimal: 1M = 1,000,000 bytes)
+  Note: Mi (mebibyte) and M (megabyte) are slightly different. Use Mi.
+
+
+--------------------------------------------------------------------------------
+4. SETTING RESOURCE REQUESTS AND LIMITS IN YAML
+--------------------------------------------------------------------------------
+
+    spec:
+      containers:
+      - name: payment-api
+        image: payment-api:v1.0
+        resources:
+          requests:                  # Minimum guaranteed
+            memory: "64Mi"           # Need at least 64 MB
+            cpu: "250m"              # Need at least 0.25 CPU core
+          limits:                    # Maximum allowed
+            memory: "128Mi"          # Never use more than 128 MB
+            cpu: "500m"              # Never use more than 0.5 CPU core
+
+
+GUIDELINES FOR SETTING VALUES:
+  1. Start with estimates based on your application's known requirements
+  2. Set requests = typical/average usage
+  3. Set limits = peak usage + safety buffer (1.5x to 2x requests is common)
+  4. Monitor actual usage in production and adjust
+  5. Always set BOTH requests and limits — never leave them undefined
+
+
+WHAT HAPPENS WITHOUT RESOURCE DEFINITIONS:
+  - No resource requests: Scheduler places Pod anywhere, may cause resource
+    contention on overloaded nodes
+  - No resource limits: Container can consume ALL node resources, starving
+    other Pods (LimitRange defaults will apply if configured — see below)
+
+
+--------------------------------------------------------------------------------
+5. QUALITY OF SERVICE (QoS) CLASSES
+--------------------------------------------------------------------------------
+
+Kubernetes assigns every Pod a QoS class based on its resource configuration.
+This affects which Pods are evicted first when a node runs out of memory:
+
+  GUARANTEED (Highest priority, last to be evicted)
+    requests == limits for ALL containers in the Pod
+    Example: requests.cpu = 500m, limits.cpu = 500m
+
+  BURSTABLE (Middle priority)
+    At least one container has requests != limits
+    Example: requests.cpu = 250m, limits.cpu = 500m (most common)
+
+  BESTEFFORT (Lowest priority, first to be evicted)
+    NO resource requests or limits defined at all
+    These Pods are evicted first when the node is under pressure
+
+  For HSBC production workloads: aim for Guaranteed or Burstable.
+  Never deploy production services as BestEffort.
+
+
+--------------------------------------------------------------------------------
+6. LIMITRANGE — NAMESPACE-LEVEL DEFAULTS
+--------------------------------------------------------------------------------
+
+A LimitRange automatically applies default resource requests/limits to
+containers in a namespace that don't specify their own. This protects against
+developers forgetting to set limits.
+
+    apiVersion: v1
+    kind: LimitRange
+    metadata:
+      name: hsbc-dev-limits
+      namespace: hsbc-payments-dev
+    spec:
+      limits:
+      - type: Container
+        default:                   # Applied as LIMIT if container has no limit
+          cpu: "500m"
+          memory: "256Mi"
+        defaultRequest:            # Applied as REQUEST if container has no request
+          cpu: "100m"
+          memory: "64Mi"
+        max:                       # No container can request/limit more than this
+          cpu: "2"
+          memory: "2Gi"
+        min:                       # No container can request/limit less than this
+          cpu: "50m"
+          memory: "32Mi"
+
+
+--------------------------------------------------------------------------------
+7. RESOURCEQUOTA — NAMESPACE-LEVEL TOTALS
+--------------------------------------------------------------------------------
+
+A ResourceQuota limits the TOTAL resources that can be consumed by all
+objects in a namespace combined.
+
+    apiVersion: v1
+    kind: ResourceQuota
+    metadata:
+      name: hsbc-dev-quota
+      namespace: hsbc-payments-dev
+    spec:
+      hard:
+        # Total compute resources for the namespace
+        requests.cpu: "10"          # Total CPU requests can't exceed 10 cores
+        requests.memory: "20Gi"    # Total memory requests can't exceed 20 GB
+        limits.cpu: "20"           # Total CPU limits can't exceed 20 cores
+        limits.memory: "40Gi"      # Total memory limits can't exceed 40 GB
+
+        # Object count limits
+        pods: "50"                 # Max 50 Pods in this namespace
+        services: "20"             # Max 20 Services
+        secrets: "50"              # Max 50 Secrets
+        configmaps: "50"           # Max 50 ConfigMaps
+        persistentvolumeclaims: "10"  # Max 10 PVCs
+
+
+--------------------------------------------------------------------------------
+8. VIEWING RESOURCE USAGE
+--------------------------------------------------------------------------------
+
+    # See current resource usage per node
+    kubectl top nodes
+
+    # See current resource usage per pod
+    kubectl top pods
+    kubectl top pods -n hsbc-payments-dev
+
+    # See resource quotas for a namespace
+    kubectl describe resourcequota -n hsbc-payments-dev
+
+    # See limits for a namespace
+    kubectl describe limitrange -n hsbc-payments-dev
+
+
+--------------------------------------------------------------------------------
+  TIP: Start with conservative requests and limits. Monitor actual usage
+  with 'kubectl top pods'. Adjust over time. It is better to start low
+  and increase than to over-provision and waste HSBC's infrastructure budget.
+--------------------------------------------------------------------------------

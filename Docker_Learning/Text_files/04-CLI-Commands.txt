@@ -1,0 +1,131 @@
+========================================
+       ESSENTIAL DOCKER CLI COMMANDS
+       Topic 4 - Your Daily Toolkit
+========================================
+
+
+----------------------------------------
+IMAGE COMMANDS
+----------------------------------------
+
+docker build
+  Build an image from a Dockerfile.
+
+  docker build -t myapp:1.0 .
+  docker build --no-cache -t myapp:1.0 .
+  docker build -f Dockerfile.prod -t myapp:1.0 .
+  docker build --build-arg ENV=prod -t myapp:1.0 .
+
+docker images
+  List all images on your machine.
+
+  docker images
+  docker images -a          # include intermediate
+  docker images -q          # IDs only
+  docker images -f dangling=true
+
+docker pull / push / tag
+  docker pull python:3.11-slim     # download from Hub
+  docker push yourname/myapp:1.0   # upload to registry
+  docker tag myapp:1.0 myapp:latest
+
+docker rmi
+  docker rmi myapp:1.0             # remove image
+  docker rmi -f myapp:1.0          # force remove
+  docker image prune               # remove dangling
+  docker image prune -a            # remove all unused
+
+docker history
+  docker history myapp:1.0         # layers and sizes
+  docker history --no-trunc myapp  # full commands
+
+
+----------------------------------------
+CONTAINER COMMANDS - CREATE AND RUN
+----------------------------------------
+
+docker run
+  Creates and starts a container.
+
+  docker run myapp:1.0
+  docker run -d myapp:1.0                  # background
+  docker run -p 8080:5000 myapp            # port mapping
+  docker run --name myapp myapp:1.0        # named container
+  docker run -e KEY=value myapp            # env variable
+  docker run -it myapp bash                # interactive shell
+  docker run --rm myapp                    # auto delete on exit
+  docker run --restart always myapp        # restart on crash
+  docker run -v vol:/data myapp            # mount volume
+
+Port mapping format -- always host:container:
+  docker run -p 8080:5000 myapp
+  browser --> localhost:8080 --> container port 5000
+
+
+----------------------------------------
+CONTAINER COMMANDS - MANAGE
+----------------------------------------
+
+docker ps
+  docker ps              # running containers
+  docker ps -a           # ALL containers
+  docker ps -q           # IDs only
+  docker ps -f name=app  # filter by name
+
+docker stop / start / restart
+  docker stop myapp      # graceful stop
+  docker start myapp     # restart stopped container
+  docker restart myapp   # stop then start
+  docker stop $(docker ps -q)  # stop ALL
+
+docker rm
+  docker rm myapp              # remove stopped container
+  docker rm -f myapp           # force remove running
+  docker container prune       # remove all stopped
+
+
+----------------------------------------
+CONTAINER COMMANDS - DEBUG
+----------------------------------------
+
+docker logs
+  docker logs myapp            # show all output
+  docker logs -f myapp         # follow live
+  docker logs --tail 50 myapp  # last 50 lines
+  docker logs -t myapp         # with timestamps
+  docker logs --since 30m myapp
+
+docker exec -- YOUR MOST POWERFUL DEBUG TOOL
+  docker exec myapp ls /app          # run single command
+  docker exec -it myapp bash         # shell into container
+  docker exec -it -u root myapp bash # shell as root
+
+docker inspect / cp
+  docker inspect myapp               # full JSON details
+  docker inspect -f '{{.NetworkSettings.IPAddress}}' myapp
+  docker cp myapp:/app/file.txt ./   # copy from container
+  docker cp ./file.txt myapp:/app/   # copy into container
+
+
+----------------------------------------
+SYSTEM COMMANDS
+----------------------------------------
+docker system df          # disk usage breakdown
+docker system prune       # clean up unused resources
+docker system prune -a    # aggressive cleanup
+docker info               # Docker engine info
+docker stats              # live resource usage
+
+
+----------------------------------------
+DAILY WORKFLOW
+----------------------------------------
+1. docker ps                    check what is running
+2. docker start <name>          start what you need
+3. docker build -t myapp .      after code changes
+4. docker stop && docker rm     remove old container
+5. docker run -d -p 5000:5000   run new container
+6. docker logs -f myapp         watch for errors
+7. docker exec -it myapp bash   debug if needed
+8. docker system prune          clean up periodically
+========================================

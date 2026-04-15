@@ -1,0 +1,146 @@
+========================================
+       RESOURCE LIMITS, BUILDKIT,
+       MULTI-PLATFORM BUILDS
+       Topic 14 - Production Essentials
+========================================
+
+
+----------------------------------------
+RESOURCE LIMITS
+----------------------------------------
+
+WHY LIMITS MATTER
+  Without limits, one misbehaving container
+  can consume all memory on a host and
+  crash every other container on it.
+  Always set limits in production.
+
+MEMORY LIMITS
+  docker run --memory 512m myapp
+  docker run --memory 512m --memory-swap 512m myapp
+
+  When container exceeds memory limit:
+    Linux OOM Killer terminates the process.
+    Container restarts if --restart always set.
+    Without a limit OOM Killer might kill
+    other processes on the host instead.
+
+CPU LIMITS
+  docker run --cpus 1.5 myapp       # hard ceiling
+  docker run --cpu-shares 512 myapp  # relative weight
+
+  --cpus: hard ceiling
+  --cpu-shares: relative weight (default 1024)
+    Only matters under contention.
+    512 vs 1024 = one gets twice the CPU time.
+
+IN DOCKER COMPOSE
+  services:
+    web:
+      deploy:
+        resources:
+          limits:
+            cpus: '0.5'
+            memory: 256M
+          reservations:
+            cpus: '0.25'
+            memory: 128M
+
+  limits = ceiling
+  reservations = guaranteed minimum
+
+HOW TO DETERMINE LIMITS
+  Run app under realistic load:
+    docker stats              # all containers
+    docker stats myapp        # one container
+
+  Set limits 20-30% above observed peak.
+  Too tight = OOM kills under normal load.
+  Too loose = no protection.
+
+
+----------------------------------------
+BUILDKIT - THE MODERN BUILD ENGINE
+----------------------------------------
+
+WHAT IT IS
+  Docker's next-generation build engine.
+  Default since Docker 23.
+  Faster and smarter than classic builder.
+
+KEY BENEFITS
+  - Parallel stage execution
+    Independent stages build simultaneously
+  - Better caching
+  - Cache mounts (persistent across builds)
+  - Secret mounts (no secrets in layers)
+
+CACHE MOUNTS - THE BIG WIN
+  # syntax=docker/dockerfile:1
+  FROM python:3.11-slim
+  WORKDIR /app
+  COPY requirements.txt .
+
+  # pip cache persists between ALL builds
+  RUN --mount=type=cache,target=/root/.cache/pip \
+      pip install -r requirements.txt
+
+  # same for npm
+  RUN --mount=type=cache,target=/root/.npm \
+      npm ci
+
+  Without cache mounts: re-downloads everything
+  With cache mounts: only changed packages download
+  Can reduce 3 minutes to 10 seconds.
+
+SECRET MOUNTS
+  RUN --mount=type=secret,id=mysecret \
+      cat /run/secrets/mysecret | some-command
+
+  docker build --secret id=mysecret,src=./secret.txt .
+
+  Secret available only during that RUN.
+  Never stored in any layer.
+  docker history shows nothing.
+
+ENABLING ON OLDER DOCKER
+  DOCKER_BUILDKIT=1 docker build -t myapp .
+
+  Or permanent in /etc/docker/daemon.json:
+  { "features": { "buildkit": true } }
+
+First line of Dockerfile for BuildKit:
+  # syntax=docker/dockerfile:1
+
+
+----------------------------------------
+MULTI-PLATFORM BUILDS - ARM VS X86
+----------------------------------------
+
+THE PROBLEM
+  Apple M1/M2/M3 Macs --> ARM (linux/arm64)
+  Most cloud servers  --> x86 (linux/amd64)
+
+  Image built on Mac won't run on server:
+    exec /app/myapp: exec format error
+
+THE SOLUTION - docker buildx
+  # Create multi-platform builder
+  docker buildx create --use --name multibuilder
+
+  # Build for both architectures and push
+  docker buildx build \
+    --platform linux/amd64,linux/arm64 \
+    -t yourname/myapp:1.0 \
+    --push \
+    .
+
+  Docker builds two images, bundles them
+  into a manifest list (one tag, multiple
+  arch variants). Pulling automatically
+  selects right architecture for machine.
+
+CHECKING IMAGE ARCHITECTURE
+  docker inspect myapp:1.0 | grep Architecture
+  docker buildx imagetools inspect yourname/myapp:1.0
+========================================

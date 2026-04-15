@@ -1,0 +1,237 @@
+================================================================
+GIT REBASE
+================================================================
+
+----------------------------------------------------------------
+WHAT IS REBASE
+----------------------------------------------------------------
+
+Rebase replays your commits on top of another branch.
+
+It takes your commits, temporarily removes them, updates 
+your branch to include the latest commits from another branch,
+then puts your commits back on top.
+
+The result: a clean, straight, linear history.
+No messy merge commits. No branchy-looking history.
+
+----------------------------------------------------------------
+MERGE VS REBASE -- THE KEY DIFFERENCE
+----------------------------------------------------------------
+
+MERGE joins two branches and creates a merge commit.
+History looks like this:
+
+    A---B---C---M  (develop with merge commit)
+         \     /
+          D---E    (feature branch)
+
+REBASE replays commits on top, no merge commit.
+History looks like this:
+
+    A---B---C---D'---E'  (develop, completely linear)
+
+D' and E' are the same changes as D and E.
+They just have new commit IDs because they were replayed 
+in a new position.
+
+----------------------------------------------------------------
+WHEN TO USE REBASE
+----------------------------------------------------------------
+
+USE REBASE:
+    - To clean up your own feature branch before a PR
+    - To update your feature branch with latest develop changes
+    - To make history look clean and linear
+
+DO NOT USE REBASE:
+    - On branches other people are using
+    - On develop or master
+    - After you have pushed and someone has pulled your branch
+
+SIMPLE RULE:
+    Only rebase your own local/private feature branch.
+    Never rebase a shared branch.
+
+WHY this rule matters:
+    Rebase rewrites commit history.
+    If someone else pulled your branch and you rebase it,
+    their copy of the history no longer matches yours.
+    This causes serious problems that are hard to fix.
+
+----------------------------------------------------------------
+BASIC REBASE -- UPDATING YOUR BRANCH
+----------------------------------------------------------------
+
+Scenario:
+    You created feature/summary-report from develop.
+    While you were working, 5 new commits landed on develop.
+    You want your branch to include those 5 commits.
+
+Without rebase you would merge develop into your branch.
+That creates a messy merge commit.
+
+With rebase:
+    git checkout feature/summary-report
+    git rebase develop
+
+Git will:
+    1. Find the point where your branch and develop diverged
+    2. Temporarily remove your commits
+    3. Move your branch to the tip of develop
+    4. Replay your commits one by one on top
+
+Now your feature branch looks like it was always based on 
+the latest develop.
+
+----------------------------------------------------------------
+GIT REBASE -i -- INTERACTIVE REBASE
+----------------------------------------------------------------
+
+The -i flag stands for interactive.
+
+Interactive rebase opens an editor and lets you:
+    - PICK     -- keep a commit as it is
+    - SQUASH   -- merge a commit into the one above it
+    - REWORD   -- keep the commit but change the message
+    - DROP     -- delete the commit entirely
+
+This is most commonly used to squash messy commits before a PR.
+
+----------------------------------------------------------------
+WHY SQUASH COMMITS
+----------------------------------------------------------------
+
+Scenario:
+    You worked on a feature and made these commits:
+
+        a1b2c3d  feat: add summary report
+        b2c3d4e  wip: added a note
+        c3d4e5f  fix: typo in comment
+
+    A senior reviews your PR and sees three commits.
+    The last two are embarrassing -- "wip" and "typo fix".
+    They say: "Please squash your commits."
+
+    After squashing:
+        d4e5f6g  feat: add summary report generation
+
+    One clean commit. Same code. Professional history.
+
+----------------------------------------------------------------
+HOW TO USE INTERACTIVE REBASE -- STEP BY STEP
+----------------------------------------------------------------
+
+STEP 1 -- Check how many commits you want to squash
+    git log --oneline
+
+    Output:
+        c3d4e5f  fix: typo in comment      <- commit 3
+        b2c3d4e  wip: added a note         <- commit 2
+        a1b2c3d  feat: add summary report  <- commit 1
+        h7i8j9k  (develop)
+
+    You want to squash the last 3 commits.
+
+STEP 2 -- Run interactive rebase for last 3 commits
+    git rebase -i HEAD~3
+
+    IMPORTANT: The symbol is tilde (~) not hyphen (-).
+    Tilde is on the key to the left of 1 (Shift + `)
+
+STEP 3 -- The editor opens showing:
+    pick a1b2c3d feat: add summary report
+    pick b2c3d4e wip: added a note
+    pick c3d4e5f fix: typo in comment
+
+STEP 4 -- Change pick to squash on the commits to merge:
+    pick a1b2c3d feat: add summary report
+    squash b2c3d4e wip: added a note
+    squash c3d4e5f fix: typo in comment
+
+    The first one stays as pick (it is the base).
+    The others become squash (they merge into the one above).
+
+STEP 5 -- Save and close the editor
+    In Notepad: File -> Save, then close the window.
+
+STEP 6 -- A second editor opens for the final commit message
+    It shows all three original messages combined.
+    Delete everything and write one clean message:
+
+        feat: add summary report generation
+
+    Save and close.
+
+STEP 7 -- Verify the squash worked
+    git log --oneline
+
+    Output:
+        d4e5f6g  feat: add summary report generation
+        h7i8j9k  (develop)
+
+    Three commits became one. Clean.
+
+----------------------------------------------------------------
+IF REBASE GOES WRONG -- HOW TO ABORT
+----------------------------------------------------------------
+
+If something looks wrong during rebase:
+    git rebase --abort
+
+This cancels everything and returns to exactly where you 
+were before you started the rebase.
+
+----------------------------------------------------------------
+REBASE DURING A CONFLICT
+----------------------------------------------------------------
+
+Sometimes a rebase hits a conflict just like a merge.
+
+Git will stop and say:
+    CONFLICT (content): Merge conflict in script.sh
+    error: could not apply a3f9c2b...
+
+Resolve the conflict the same way as a merge conflict:
+    1. Open the file
+    2. Fix the conflict markers
+    3. Stage the file:
+        git add script.sh
+    4. Continue the rebase:
+        git rebase --continue
+
+Do NOT run git commit -- use git rebase --continue instead.
+
+If it conflicts again on the next commit, repeat the process.
+
+----------------------------------------------------------------
+PUSHING AFTER A REBASE
+----------------------------------------------------------------
+
+After rebasing, your local history differs from the remote.
+A normal git push will be rejected.
+
+You need to force push:
+    git push origin feature/my-branch --force-with-lease
+
+IMPORTANT: Use --force-with-lease, NOT --force.
+--force-with-lease is safer. It fails if someone else 
+pushed to the branch since your last pull.
+--force blindly overwrites. Can cause data loss.
+
+NEVER force push to develop or master. Only to your own 
+feature branches that nobody else is using.
+
+----------------------------------------------------------------
+KEY TAKEAWAY
+----------------------------------------------------------------
+
+Merge = joins branches, creates a merge commit, history shows the branch
+Rebase = replays commits on top, no merge commit, history is linear
+
+Use rebase -i to squash messy commits before a PR.
+Only rebase your own private feature branches.
+Never rebase shared branches.
+Use git rebase --abort if anything goes wrong.
+
+================================================================

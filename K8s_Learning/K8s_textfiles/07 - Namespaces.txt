@@ -1,0 +1,203 @@
+================================================================================
+  KUBERNETES LEARNING SERIES — FILE 07
+  NAMESPACES — ORGANISING YOUR CLUSTER
+  HSBC DevOps Engineering
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. WHAT ARE NAMESPACES?
+--------------------------------------------------------------------------------
+
+A Namespace is a way to divide a single Kubernetes cluster into multiple
+virtual clusters. Think of it as folders on your computer — they help you
+organise and separate things logically.
+
+ANALOGY: Imagine a large office building shared by multiple companies (or
+teams). Each company has its own floor:
+  - Their own door locks (access control)
+  - Their own rules and policies
+  - Their own resources (desks, computers)
+  - They cannot walk into each other's floors
+  - But they share the same building infrastructure (electricity, lifts)
+
+Namespaces are those separate floors.
+
+Most Kubernetes resources live IN a namespace (Pods, Services, Deployments,
+ConfigMaps, Secrets). A few resources are cluster-wide and not namespaced
+(Nodes, PersistentVolumes, ClusterRoles).
+
+
+--------------------------------------------------------------------------------
+2. WHY USE NAMESPACES?
+--------------------------------------------------------------------------------
+
+  ORGANISATION
+    Separate environments in the same cluster:
+      hsbc-payments-dev   → development environment
+      hsbc-payments-uat   → user acceptance testing
+      hsbc-payments-prod  → production
+
+  ACCESS CONTROL
+    Using RBAC (see File 14), you can restrict who can do what per namespace.
+    Example: Junior developers can deploy to -dev but not -prod.
+
+  RESOURCE QUOTAS
+    Limit how much CPU and memory each namespace (team) can consume.
+    Example: The dev namespace gets at most 10 CPU cores, prod gets 50.
+
+  NAMING ISOLATION
+    Two applications can have the same name in different namespaces.
+    payment-api in hsbc-payments-dev is different from
+    payment-api in hsbc-payments-prod.
+
+  COST ALLOCATION
+    Tag namespaces per team/project. Track cloud resource costs per namespace.
+
+
+--------------------------------------------------------------------------------
+3. DEFAULT NAMESPACES IN EVERY KUBERNETES CLUSTER
+--------------------------------------------------------------------------------
+
+  NAMESPACE         | PURPOSE
+  ------------------|-----------------------------------------------------------
+  default           | Where objects go if you don't specify a namespace.
+                    | Fine for learning, avoid for production work.
+  kube-system       | Kubernetes internal components live here.
+                    | API server, scheduler, controller manager, CoreDNS, etc.
+                    | Never deploy your apps here.
+  kube-public       | Publicly readable by all users (authenticated or not).
+                    | Rarely used. Only for truly public cluster information.
+  kube-node-lease   | Node heartbeat data used for node availability checks.
+                    | Managed automatically — you will rarely look here.
+
+
+--------------------------------------------------------------------------------
+4. WORKING WITH NAMESPACES — COMMANDS
+--------------------------------------------------------------------------------
+
+    # List all namespaces
+    kubectl get namespaces
+    kubectl get ns                   # 'ns' is the short form
+
+    # Create a namespace
+    kubectl create namespace hsbc-payments-dev
+
+    # Get all pods in a specific namespace
+    kubectl get pods -n hsbc-payments-dev
+    kubectl get pods --namespace hsbc-payments-dev    # long form
+
+    # Get pods in ALL namespaces
+    kubectl get pods --all-namespaces
+    kubectl get pods -A              # short form
+
+    # Apply a YAML file to a specific namespace
+    kubectl apply -f deployment.yaml -n hsbc-payments-dev
+
+    # Set a default namespace for your session (so you don't type -n every time)
+    kubectl config set-context --current --namespace=hsbc-payments-dev
+
+    # Check which namespace you are currently in
+    kubectl config view --minify | grep namespace
+
+    # Delete a namespace (WARNING: deletes EVERYTHING inside it!)
+    kubectl delete namespace hsbc-payments-dev
+
+
+--------------------------------------------------------------------------------
+5. CREATING A NAMESPACE IN YAML
+--------------------------------------------------------------------------------
+
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: hsbc-payments-dev
+      labels:
+        team: payments
+        environment: development
+        cost-centre: "CC-12345"
+
+You can then reference the namespace in other YAML files:
+
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: payment-api
+      namespace: hsbc-payments-dev      # Explicitly place this in the namespace
+    spec:
+      ...
+
+
+--------------------------------------------------------------------------------
+6. RESOURCE QUOTAS — LIMITING NAMESPACE RESOURCES
+--------------------------------------------------------------------------------
+
+A ResourceQuota limits the total resources consumed by all objects in a
+namespace. Set by cluster administrators to prevent one team from starving
+another.
+
+    apiVersion: v1
+    kind: ResourceQuota
+    metadata:
+      name: payments-dev-quota
+      namespace: hsbc-payments-dev
+    spec:
+      hard:
+        pods: "20"                      # Max 20 Pods total
+        requests.cpu: "4"               # Max 4 CPU cores requested
+        requests.memory: 8Gi            # Max 8 GB memory requested
+        limits.cpu: "8"                 # Max 8 CPU cores limit
+        limits.memory: 16Gi            # Max 16 GB memory limit
+        services.loadbalancers: "2"     # Max 2 LoadBalancer Services
+
+
+--------------------------------------------------------------------------------
+7. LIMIT RANGE — DEFAULT LIMITS FOR CONTAINERS
+--------------------------------------------------------------------------------
+
+A LimitRange sets default resource limits for containers in a namespace.
+If a container is deployed WITHOUT resource limits, these defaults apply.
+This prevents runaway containers from consuming all node resources.
+
+    apiVersion: v1
+    kind: LimitRange
+    metadata:
+      name: payments-dev-limits
+      namespace: hsbc-payments-dev
+    spec:
+      limits:
+      - type: Container
+        default:                        # Default LIMIT if not specified
+          cpu: 500m
+          memory: 128Mi
+        defaultRequest:                 # Default REQUEST if not specified
+          cpu: 250m
+          memory: 64Mi
+        max:                            # Maximum allowed limit
+          cpu: "2"
+          memory: 1Gi
+
+
+--------------------------------------------------------------------------------
+8. CROSS-NAMESPACE COMMUNICATION
+--------------------------------------------------------------------------------
+
+Services in one namespace can be reached from another namespace using the
+full DNS name:
+
+  From hsbc-payments-dev, calling a service in hsbc-accounts-dev:
+
+    http://account-service.hsbc-accounts-dev.svc.cluster.local:80
+
+  Format: <service-name>.<namespace>.svc.cluster.local:<port>
+
+By default, Pods in any namespace can communicate with Pods in any other
+namespace. Use NetworkPolicies (File 14) to restrict this.
+
+
+--------------------------------------------------------------------------------
+  TIP FOR HSBC: You will likely work with namespaces named after teams
+  and environments: hsbc-payments-dev, hsbc-payments-uat, hsbc-payments-prod.
+  Always verify which namespace you are in before making changes!
+  A mistake in prod is much worse than a mistake in dev.
+--------------------------------------------------------------------------------

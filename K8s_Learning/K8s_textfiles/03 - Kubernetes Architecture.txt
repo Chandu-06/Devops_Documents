@@ -1,0 +1,221 @@
+================================================================================
+  KUBERNETES LEARNING SERIES — FILE 03
+  KUBERNETES ARCHITECTURE
+  HSBC DevOps Engineering
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. OVERVIEW
+--------------------------------------------------------------------------------
+
+Kubernetes has a well-defined architecture. Understanding it helps you know
+what happens when you deploy an application, and where to look when something
+goes wrong.
+
+Think of a Kubernetes cluster like a country:
+  - There is a government (Control Plane) that makes decisions
+  - There are citizens/workers (Worker Nodes) that do the actual work
+  - There are laws and records (etcd) that define how everything should be
+
+
+--------------------------------------------------------------------------------
+2. THE BIG PICTURE — WHAT IS A CLUSTER?
+--------------------------------------------------------------------------------
+
+A KUBERNETES CLUSTER is a group of machines (nodes) that work together to
+run your applications. Every Kubernetes installation is a cluster.
+
+A cluster has two types of machines:
+
+  CONTROL PLANE (also called Master Node)
+    The brain of Kubernetes. Makes all scheduling and management decisions.
+    Does NOT run your application containers (in most setups).
+
+  WORKER NODES
+    The muscle. These machines actually run your application containers.
+    A cluster typically has many worker nodes for redundancy and scale.
+
+                    ┌─────────────────────────────────┐
+                    │         CONTROL PLANE            │
+                    │  API Server | etcd | Scheduler   │
+                    │       Controller Manager         │
+                    └────────────┬────────────────────┘
+                                 │ manages
+              ┌──────────────────┼──────────────────┐
+              ▼                  ▼                   ▼
+    ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
+    │  Worker Node │   │  Worker Node │   │  Worker Node │
+    │   kubelet    │   │   kubelet    │   │   kubelet    │
+    │  kube-proxy  │   │  kube-proxy  │   │  kube-proxy  │
+    │ [Pod][Pod]   │   │ [Pod][Pod]   │   │ [Pod][Pod]   │
+    └──────────────┘   └──────────────┘   └──────────────┘
+
+
+--------------------------------------------------------------------------------
+3. CONTROL PLANE COMPONENTS
+--------------------------------------------------------------------------------
+
+The Control Plane is the management layer. Think of it as the head office:
+
+
+  A) API SERVER (kube-apiserver)
+  --------------------------------
+  The front door of Kubernetes. EVERY command you run (kubectl), EVERY tool
+  that talks to Kubernetes goes through the API server. It validates requests
+  and updates the cluster state.
+
+  ANALOGY: Like a receptionist who handles all incoming calls and routes them
+  to the right department.
+
+  Key facts:
+    - The only component that directly interacts with etcd
+    - Exposes the Kubernetes REST API
+    - Handles authentication and authorisation
+
+
+  B) etcd
+  --------
+  A distributed key-value database that stores ALL cluster data:
+    - What applications are running
+    - How many replicas of each
+    - All configurations and secrets
+    - Network information
+
+  This is the SINGLE SOURCE OF TRUTH for the entire cluster.
+
+  ANALOGY: The company's official filing cabinet — every important piece of
+  information lives here. If etcd is lost without backup, the cluster is lost.
+
+  Key facts:
+    - Distributed (multiple copies for reliability)
+    - Only the API server reads/writes to etcd directly
+    - Must be backed up regularly in production
+
+
+  C) SCHEDULER (kube-scheduler)
+  -------------------------------
+  When you want to run a new container (Pod), the scheduler decides WHICH
+  worker node it should run on. It considers:
+    - Available CPU and memory on each node
+    - Resource requests of the Pod
+    - Special placement rules (affinity/anti-affinity)
+    - Node taints and tolerations
+
+  ANALOGY: An HR manager who assigns new tasks to the right employee based
+  on their skills, workload, and availability.
+
+
+  D) CONTROLLER MANAGER (kube-controller-manager)
+  --------------------------------------------------
+  Runs multiple "controllers" — background loops that watch the cluster state
+  and make corrections to match the desired state.
+
+  Examples of controllers it runs:
+    - Node Controller: notices when nodes go down
+    - ReplicaSet Controller: ensures the right number of Pods are running
+    - Deployment Controller: manages rolling updates
+    - Endpoints Controller: connects Services to Pods
+
+  ANALOGY: A quality control supervisor who constantly checks that everything
+  matches the plan, and fixes it when it doesn't.
+
+  KEY CONCEPT — THE RECONCILIATION LOOP:
+    Watch desired state (e.g., 3 replicas wanted)
+    Watch actual state  (e.g., 2 replicas running — one crashed)
+    Take action         (create a new Pod to restore to 3)
+    Repeat forever
+
+
+--------------------------------------------------------------------------------
+4. WORKER NODE COMPONENTS
+--------------------------------------------------------------------------------
+
+Worker nodes are the machines that actually run your application containers.
+Each worker node has three key components:
+
+
+  A) kubelet
+  -----------
+  An agent that runs on every worker node. It:
+    - Receives Pod specifications from the API server
+    - Ensures the described containers are running and healthy
+    - Reports the node's status back to the control plane
+    - Manages container lifecycle (start, stop, restart)
+
+  ANALOGY: A team leader on the factory floor — receives orders from HQ
+  and makes sure the workers (containers) are doing their jobs correctly.
+
+  Key facts:
+    - Runs as a system service, not as a Pod
+    - Communicates with the container runtime to start/stop containers
+    - Runs health checks and reports failures
+
+
+  B) kube-proxy
+  ---------------
+  Manages network rules on the node. It enables:
+    - Network communication TO containers (from outside)
+    - Network communication BETWEEN containers (within the cluster)
+    - Load balancing across multiple Pod replicas
+    - Service IP to Pod IP translation
+
+  ANALOGY: The building's switchboard operator — routes calls (network traffic)
+  to the right person (container).
+
+
+  C) CONTAINER RUNTIME
+  ----------------------
+  The software that actually creates and runs containers. Kubernetes supports
+  multiple runtimes through the CRI (Container Runtime Interface):
+
+    - containerd  (most common today — lightweight, production standard)
+    - Docker      (was default, now uses containerd underneath)
+    - CRI-O       (lightweight alternative used in OpenShift)
+
+  ANALOGY: The actual machinery on the factory floor that physically makes
+  the product. kubelet tells it what to make; it makes it.
+
+
+--------------------------------------------------------------------------------
+5. ARCHITECTURE SUMMARY TABLE
+--------------------------------------------------------------------------------
+
+  Component            | Location      | Primary Role
+  ---------------------|---------------|------------------------------------------
+  API Server           | Control Plane | Entry point for all Kubernetes commands
+  etcd                 | Control Plane | Stores all cluster state (the database)
+  Scheduler            | Control Plane | Decides which node runs each Pod
+  Controller Manager   | Control Plane | Watches and maintains desired state
+  kubelet              | Worker Node   | Runs and monitors containers on the node
+  kube-proxy           | Worker Node   | Manages network rules and routing
+  Container Runtime    | Worker Node   | Actually starts and runs containers
+
+
+--------------------------------------------------------------------------------
+6. HOW A DEPLOYMENT WORKS — TRACING THROUGH THE ARCHITECTURE
+--------------------------------------------------------------------------------
+
+Let's trace exactly what happens when you run: kubectl apply -f deployment.yaml
+
+  1. kubectl sends the YAML to the API Server over HTTPS
+  2. API Server validates the request and authenticates you
+  3. API Server writes the desired state to etcd
+  4. The Deployment Controller (in Controller Manager) notices the new Deployment
+  5. It creates a ReplicaSet object (also written to etcd via API Server)
+  6. The ReplicaSet Controller notices it needs 3 Pods
+  7. It creates 3 Pod objects (pending state, written to etcd)
+  8. The Scheduler notices unscheduled Pods in etcd
+  9. Scheduler picks the best node for each Pod and updates the Pod objects
+ 10. kubelet on each chosen node notices a Pod assigned to it
+ 11. kubelet tells the Container Runtime to pull the image and start the container
+ 12. Container Runtime pulls image from registry and starts the container
+ 13. kubelet reports back: container is running
+ 14. API Server updates the Pod status in etcd
+ 15. kubectl get pods now shows: Running
+
+
+--------------------------------------------------------------------------------
+  REMEMBER: You never talk to worker nodes directly. Everything goes through
+  the API Server. kubectl -> API Server -> etcd -> Controllers -> kubelet.
+--------------------------------------------------------------------------------

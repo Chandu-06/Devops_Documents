@@ -1,0 +1,165 @@
+========================================
+       MULTI-STAGE BUILDS
+       Topic 8 - Production Quality Images
+========================================
+
+
+----------------------------------------
+THE PROBLEM
+----------------------------------------
+Building a Go app needs:
+  - Go compiler
+  - Build tools
+  - Development dependencies
+  - Source code
+
+Running the compiled binary needs:
+  - Just the binary itself
+
+In a normal Dockerfile all build tools
+end up in your final image.
+A 10MB binary ships in an 850MB image.
+
+Same problem in every language:
+  Java    --> JDK to compile, JRE to run
+  Node.js --> devDependencies to build,
+              only prod deps to run
+  React   --> webpack to build,
+              only static files to serve
+
+
+----------------------------------------
+THE SOLUTION
+----------------------------------------
+Multiple FROM statements in one Dockerfile.
+Each FROM starts a new stage.
+Copy files between stages.
+Leave everything else behind.
+Final image contains only the last stage.
+
+
+----------------------------------------
+GO EXAMPLE - 99% SIZE REDUCTION
+----------------------------------------
+Single-stage (bad):
+  FROM golang:1.21
+  WORKDIR /app
+  COPY . .
+  RUN go build -o myapp .
+  CMD ["./myapp"]
+  Result: ~850MB
+
+Multi-stage (good):
+  # Stage 1: Build
+  FROM golang:1.21 AS builder
+  WORKDIR /app
+  COPY go.mod go.sum ./
+  RUN go mod download
+  COPY . .
+  RUN CGO_ENABLED=0 go build -o myapp .
+
+  # Stage 2: Run
+  FROM scratch
+  COPY --from=builder /app/myapp /myapp
+  CMD ["/myapp"]
+  Result: ~8MB
+
+
+----------------------------------------
+KEY SYNTAX
+----------------------------------------
+Naming a stage with AS:
+  FROM golang:1.21 AS builder
+  # can name anything: builder, deps, test
+
+Copying from another stage with --from:
+  COPY --from=builder /app/myapp /myapp
+  # copies from builder stage, not local machine
+
+FROM scratch:
+  Special empty Docker image -- zero bytes.
+  No OS, no shell, nothing.
+  Your image contains only what you copy in.
+  Use alpine:3.18 if you need a shell.
+
+
+----------------------------------------
+PYTHON MULTI-STAGE EXAMPLE
+----------------------------------------
+# Stage 1: Build with compiler tools
+FROM python:3.11 AS builder
+WORKDIR /app
+RUN apt-get update && apt-get install -y gcc libpq-dev
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# Stage 2: Runtime only
+FROM python:3.11-slim
+WORKDIR /app
+COPY --from=builder /install /usr/local
+COPY . .
+RUN useradd -m appuser
+USER appuser
+CMD ["python", "app.py"]
+Result: ~150MB vs ~950MB
+
+
+----------------------------------------
+NODE.JS / REACT EXAMPLE
+----------------------------------------
+# Stage 1: Build frontend
+FROM node:20 AS builder
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# Stage 2: Serve with Nginx
+FROM nginx:alpine
+COPY --from=builder /app/dist /usr/share/nginx/html
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+Result: ~25MB. No Node.js in production.
+
+
+----------------------------------------
+THREE-STAGE PATTERN WITH TESTS
+----------------------------------------
+FROM python:3.11-slim AS deps
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+FROM deps AS test
+COPY requirements-dev.txt .
+RUN pip install -r requirements-dev.txt
+COPY . .
+RUN pytest tests/   # build fails if tests fail
+
+FROM deps AS production
+COPY . .
+CMD ["python", "app.py"]
+
+Tests run as part of the build.
+Broken code never produces an image.
+
+
+----------------------------------------
+BUILDING A SPECIFIC STAGE
+----------------------------------------
+docker build --target test -t myapp:test .
+docker build --target builder -t myapp:build .
+docker build -t myapp:1.0 .
+
+
+----------------------------------------
+RESULTS COMPARISON
+----------------------------------------
+Metric           Single-Stage    Multi-Stage
+-----------      ------------    -----------
+Image size       ~850MB          ~15MB
+Push to registry ~3 minutes      ~8 seconds
+Compiler in img  Yes             No
+Source code      Yes             No
+Attack surface   Large           Minimal
+========================================

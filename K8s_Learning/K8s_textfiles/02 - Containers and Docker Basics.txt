@@ -1,0 +1,192 @@
+================================================================================
+  KUBERNETES LEARNING SERIES — FILE 02
+  CONTAINERS AND DOCKER BASICS
+  HSBC DevOps Engineering
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. WHAT IS A CONTAINER?
+--------------------------------------------------------------------------------
+
+Before we can understand Kubernetes fully, we need to understand containers —
+because Kubernetes manages containers. Think of a container as a lightweight,
+portable box that holds your application and everything it needs to run.
+
+ANALOGY — SHIPPING CONTAINERS
+--------------------------------
+Before standardised shipping containers, loading cargo onto ships was slow and
+messy. Each item was loaded individually. The invention of the standardised
+metal shipping container revolutionised logistics — the same container fits on
+any ship, train, or truck.
+
+Software containers work the same way. The container packages your app with all
+its dependencies, so it runs the same way on ANY machine:
+  - Your laptop
+  - A test server
+  - Production in the cloud
+
+The famous developer problem: "It works on my machine!" — Containers solve
+this completely because the container IS the machine environment.
+
+
+--------------------------------------------------------------------------------
+2. CONTAINERS vs VIRTUAL MACHINES
+--------------------------------------------------------------------------------
+
+You may have heard of Virtual Machines (VMs). Both VMs and containers are ways
+to isolate applications, but they work very differently:
+
+  Aspect          | Virtual Machine (VM)           | Container
+  ----------------|--------------------------------|---------------------------
+  Size            | Gigabytes (includes full OS)   | Megabytes (shares host OS)
+  Startup Time    | Minutes                        | Seconds
+  Resource Usage  | Heavy — dedicated CPU/RAM      | Lightweight — shared
+  Isolation       | Full isolation (separate OS)   | Process-level isolation
+  Portability     | Harder to move                 | Very easy to move
+  Use Case        | Full OS environments           | Microservices, apps
+
+KEY POINT: Containers share the host operating system's kernel. This is why
+they are so much lighter and faster than VMs. Each container only contains the
+application and its specific dependencies — not an entire operating system.
+
+
+--------------------------------------------------------------------------------
+3. WHAT IS DOCKER?
+--------------------------------------------------------------------------------
+
+Docker is the most popular tool for creating and running containers.
+
+Think of the relationship like this:
+  - Docker = the tool you use to BUILD and RUN containers
+  - Kubernetes = the tool you use to MANAGE MANY containers across many machines
+
+Docker without Kubernetes: you can run containers on one machine manually.
+Kubernetes without Docker: you have an orchestrator but nothing to orchestrate.
+Docker + Kubernetes: you can build containers and manage them at massive scale.
+
+
+THREE KEY DOCKER CONCEPTS
+---------------------------
+
+  DOCKERFILE
+    A text file with instructions on how to build your container image.
+    Think of it as a recipe — it lists every ingredient and cooking step.
+
+  IMAGE
+    A read-only snapshot/blueprint of your application and its environment.
+    Like a class in programming — it is the definition, not a running thing.
+    You build an image once and can create many containers from it.
+
+  CONTAINER
+    A running instance of an image.
+    Like an object created from a class.
+    You can run many containers from the same image simultaneously.
+
+  REGISTRY
+    A storage place for images (e.g., Docker Hub, or HSBC's Nexus registry).
+    Like a library — you store images here and pull them when needed.
+
+
+--------------------------------------------------------------------------------
+4. A SIMPLE DOCKERFILE — EXPLAINED
+--------------------------------------------------------------------------------
+
+Here is a Dockerfile for a basic Node.js application, with every line explained:
+
+    FROM node:18-alpine
+    # Start from the Node.js 18 base image (Alpine Linux = tiny OS ~5MB)
+    # You always start FROM an existing image — never from nothing
+    # Alpine is used because it produces smaller final images
+
+    WORKDIR /app
+    # Set the working directory inside the container
+    # All commands after this run from /app
+
+    COPY package.json .
+    # Copy package.json first (before the rest of the code)
+    # Smart trick: Docker caches layers. If package.json hasn't changed,
+    # it reuses the cached npm install — much faster builds!
+
+    RUN npm install
+    # Install dependencies INSIDE the container during build
+    # This runs once when building the image
+
+    COPY . .
+    # Copy all the source code into the container
+    # Comes AFTER npm install so code changes don't bust the npm cache
+
+    EXPOSE 3000
+    # Document that the app listens on port 3000
+    # Does NOT actually open the port — that happens at runtime
+
+    CMD ["node", "server.js"]
+    # The command that runs when a container starts from this image
+    # Unlike RUN (build time), CMD runs at container start time
+
+
+--------------------------------------------------------------------------------
+5. CONTAINER LIFECYCLE
+--------------------------------------------------------------------------------
+
+Understanding the lifecycle of a container helps you understand what
+Kubernetes is managing:
+
+  Step 1: BUILD
+    Write a Dockerfile, run 'docker build' to create an image
+    Command: docker build -t my-app:v1.0 .
+
+  Step 2: PUSH
+    Upload the image to a registry (Docker Hub, Nexus, ECR, etc.)
+    Command: docker push my-registry/my-app:v1.0
+
+  Step 3: PULL
+    Download the image from the registry to a machine
+    Command: docker pull my-registry/my-app:v1.0
+
+  Step 4: RUN
+    Start a container from the image
+    Command: docker run -d -p 8080:3000 my-app:v1.0
+
+  Step 5: STOP / KILL
+    Stop a running container
+    Command: docker stop container-name
+
+
+--------------------------------------------------------------------------------
+6. USEFUL DOCKER COMMANDS
+--------------------------------------------------------------------------------
+
+    # Build an image
+    docker build -t my-app:v1.0 .
+
+    # List images on your machine
+    docker images
+
+    # Run a container
+    docker run -d -p 8080:3000 my-app:v1.0
+
+    # List running containers
+    docker ps
+
+    # See container logs
+    docker logs container-name
+
+    # Go inside a running container (like SSH)
+    docker exec -it container-name /bin/sh
+
+    # Stop a container
+    docker stop container-name
+
+    # Remove a container
+    docker rm container-name
+
+    # Remove an image
+    docker rmi my-app:v1.0
+
+
+--------------------------------------------------------------------------------
+  SUMMARY: Once you understand containers, Kubernetes becomes much clearer.
+  Kubernetes is simply a system that automates the running and management of
+  containers at massive scale across hundreds of machines.
+--------------------------------------------------------------------------------

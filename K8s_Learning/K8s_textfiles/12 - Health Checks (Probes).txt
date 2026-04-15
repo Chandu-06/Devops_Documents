@@ -1,0 +1,255 @@
+================================================================================
+  KUBERNETES LEARNING SERIES — FILE 12
+  HEALTH CHECKS — LIVENESS, READINESS AND STARTUP PROBES
+  HSBC DevOps Engineering
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. WHY HEALTH CHECKS MATTER
+--------------------------------------------------------------------------------
+
+A container might be running but the application inside might be:
+  - Stuck in an infinite loop
+  - Waiting for a database connection that never comes
+  - Deadlocked and not processing any requests
+  - Still starting up and not ready to serve traffic yet
+
+Without health checks, Kubernetes sees "container process is running" and
+thinks everything is fine — even when your application is completely broken.
+
+ANALOGY: Just because the lights are on in an office does not mean anyone is
+working. You need to actually call and ask "are you available to take calls?"
+before routing customer calls to that desk.
+
+
+--------------------------------------------------------------------------------
+2. THREE TYPES OF PROBES
+--------------------------------------------------------------------------------
+
+  LIVENESS PROBE
+  ---------------
+  Question: "Is the application still alive and functional?"
+
+  If the liveness probe FAILS repeatedly (based on failureThreshold),
+  Kubernetes kills the container and restarts it.
+
+  Use for: Detecting deadlocks, memory leaks, infinite loops — situations
+  where the process is technically running but completely stuck.
+
+  IMPORTANT: Only use liveness probes for detecting UNRECOVERABLE situations.
+  If your app temporarily fails due to a downstream dependency, a liveness
+  probe failure causing a restart might make things worse, not better.
+
+
+  READINESS PROBE
+  ----------------
+  Question: "Is the application ready to serve incoming traffic?"
+
+  If the readiness probe FAILS, Kubernetes REMOVES the Pod from the Service's
+  endpoint list. Traffic stops being sent to it. The Pod is NOT restarted.
+  When the probe passes again, the Pod is added back and traffic resumes.
+
+  Use for:
+    - During startup (app needs 30 seconds to load caches/configs)
+    - When dependencies (database, cache) are temporarily unavailable
+    - During graceful shutdown (stop accepting new requests)
+
+  This is the most important probe for ensuring users never hit a broken Pod.
+
+
+  STARTUP PROBE
+  --------------
+  Question: "Has the application finished its initial startup?"
+
+  For applications that take a long time to start (e.g., a legacy Java app
+  that takes 3 minutes to initialise). The startup probe runs FIRST.
+  While the startup probe is active, liveness and readiness probes are
+  paused — preventing them from killing a slow-starting app.
+
+  Once the startup probe succeeds once, it is disabled and liveness/readiness
+  probes take over.
+
+
+PROBE SUMMARY TABLE:
+  Probe     | On Failure              | On Success        | Use Case
+  ----------|-------------------------|-------------------|----------------------
+  Liveness  | Container is restarted  | Nothing           | Detect deadlocks
+  Readiness | Pod removed from Service| Pod added to Service| Detect not-ready state
+  Startup   | Container is restarted  | Liveness/Readiness | Slow-starting apps
+            | (if failureThreshold hit)|  probes take over |
+
+
+--------------------------------------------------------------------------------
+3. PROBE MECHANISMS — HOW KUBERNETES CHECKS HEALTH
+--------------------------------------------------------------------------------
+
+  HTTP GET (most common for web applications)
+    Kubernetes sends an HTTP GET request to a specific path and port.
+    Any response with status code 200-399 = SUCCESS.
+    Any other status code (or connection refused) = FAILURE.
+
+    livenessProbe:
+      httpGet:
+        path: /health      # Your app must expose this endpoint
+        port: 3000
+
+  TCP SOCKET
+    Kubernetes attempts to open a TCP connection to the specified port.
+    If the connection succeeds = SUCCESS.
+    If the connection is refused = FAILURE.
+    Use for non-HTTP services (databases, message queues).
+
+    livenessProbe:
+      tcpSocket:
+        port: 5432         # Try to connect to port 5432
+
+  EXEC COMMAND
+    Kubernetes runs a command INSIDE the container.
+    Exit code 0 = SUCCESS.
+    Any non-zero exit code = FAILURE.
+    Use when you need custom health check logic.
+
+    livenessProbe:
+      exec:
+        command:
+        - /bin/sh
+        - -c
+        - "curl -f http://localhost:3000/health || exit 1"
+
+  GRPC (since Kubernetes 1.24)
+    For gRPC services. Calls the gRPC health checking protocol.
+
+    livenessProbe:
+      grpc:
+        port: 50051
+
+
+--------------------------------------------------------------------------------
+4. PROBE CONFIGURATION PARAMETERS
+--------------------------------------------------------------------------------
+
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 3000
+      initialDelaySeconds: 15     # Wait 15s after container starts before first check
+                                  # Give the app time to start before probing
+      periodSeconds: 20           # Check every 20 seconds
+      timeoutSeconds: 5           # If no response in 5s, count as failure
+      successThreshold: 1         # How many consecutive successes = healthy (usually 1)
+      failureThreshold: 3         # How many consecutive failures = trigger action
+                                  # With periodSeconds:20, this allows 60s of failures
+
+PARAMETER GUIDELINES:
+  initialDelaySeconds:
+    Set to: time your app typically takes to start + safety buffer
+    Too low: Probe fails during startup, causing premature restarts
+    Too high: App failures not detected quickly
+
+  periodSeconds:
+    How often to check. 10-20 seconds is typical.
+    For critical payment services: shorter periods (5-10s)
+    For batch jobs: longer periods (30-60s)
+
+  failureThreshold:
+    Number of consecutive failures before action is taken.
+    Higher = more tolerant of transient failures.
+    Typical: 3 failures (combined with periodSeconds = total wait time)
+
+
+--------------------------------------------------------------------------------
+5. COMPLETE EXAMPLE — PAYMENT API WITH ALL THREE PROBES
+--------------------------------------------------------------------------------
+
+    spec:
+      containers:
+      - name: payment-api
+        image: payment-api:v1.0
+        ports:
+        - containerPort: 3000
+
+        # Startup Probe: Give the app up to 5min (30 * 10s) to start
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          failureThreshold: 30        # Allow up to 30 failures
+          periodSeconds: 10           # Check every 10s
+                                      # = up to 300s (5 min) to start
+
+        # Liveness Probe: Restart if app becomes unresponsive
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 0      # Startup probe handles the initial delay
+          periodSeconds: 30           # Check every 30 seconds
+          failureThreshold: 3         # Restart after 3 failures (90 seconds)
+
+        # Readiness Probe: Only send traffic when app is truly ready
+        readinessProbe:
+          httpGet:
+            path: /ready              # Separate endpoint — checks dependencies too
+            port: 3000
+          initialDelaySeconds: 0
+          periodSeconds: 10           # Check every 10 seconds — faster response
+          failureThreshold: 3         # Remove from Service after 3 failures
+
+
+--------------------------------------------------------------------------------
+6. WHAT YOUR APPLICATION MUST EXPOSE
+--------------------------------------------------------------------------------
+
+Your application needs to implement these endpoints:
+
+  /health — Liveness check
+    Returns 200 if the application process is alive and functional.
+    Should NOT check external dependencies (database, cache).
+    Just: "Am I running and not deadlocked?"
+    Keep it simple and fast.
+
+    # Simple Node.js example:
+    app.get('/health', (req, res) => {
+      res.status(200).json({ status: 'UP' });
+    });
+
+  /ready — Readiness check
+    Returns 200 ONLY when the application is fully ready to serve requests.
+    SHOULD check: database connection, cache connection, required configs loaded.
+    Returns 503 if any dependency is unavailable.
+
+    # Node.js readiness example:
+    app.get('/ready', async (req, res) => {
+      try {
+        await database.ping();        // Check DB connection
+        await cache.ping();           // Check Redis connection
+        res.status(200).json({ ready: true });
+      } catch (err) {
+        res.status(503).json({ ready: false, reason: err.message });
+      }
+    });
+
+
+--------------------------------------------------------------------------------
+7. DEBUGGING PROBE FAILURES
+--------------------------------------------------------------------------------
+
+When a probe fails, you'll see events in the Pod description:
+
+    kubectl describe pod payment-api-xxxx
+
+    Events:
+      Liveness probe failed: HTTP probe failed with statuscode: 500
+      Readiness probe failed: connection refused
+
+    # If liveness probe is repeatedly failing and restarting the container:
+    kubectl logs payment-api-xxxx --previous   # Logs from before the restart
+
+
+--------------------------------------------------------------------------------
+  REMEMBER: The readiness probe is the most important for user experience.
+  It ensures that traffic is only sent to Pods that are fully ready.
+  Liveness ensures self-healing. Startup ensures slow apps aren't killed
+  before they finish starting up.
+--------------------------------------------------------------------------------

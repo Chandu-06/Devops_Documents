@@ -1,0 +1,236 @@
+================================================================
+COMMON PROBLEMS AND FIXES
+================================================================
+
+----------------------------------------------------------------
+PROBLEM 1 -- PUSH REJECTED
+----------------------------------------------------------------
+
+Error message:
+    error: failed to push some refs to '...'
+    hint: Updates were rejected because the remote contains 
+    work that you do not have locally.
+
+What happened:
+    Someone else pushed to the same branch while you were 
+    working. Your local copy is behind the remote.
+    Git is protecting you from overwriting their work.
+
+Fix:
+    git pull origin <branchname>
+    git push origin <branchname>
+
+Prevention:
+    Always git pull before you start working each day.
+    Always git pull before you push.
+
+----------------------------------------------------------------
+PROBLEM 2 -- MERGE CONFLICT
+----------------------------------------------------------------
+
+Error message:
+    CONFLICT (content): Merge conflict in script.sh
+    Automatic merge failed; fix conflicts and then commit.
+
+What happened:
+    Two branches changed the same line differently.
+    Git cannot decide which version to keep.
+
+Fix:
+    1. Open the conflicting file
+    2. Find the <<<<<<< markers
+    3. Keep what you want, delete what you do not
+    4. Delete ALL three marker lines (<<<, ===, >>>)
+    5. git add <filename>
+    6. git commit -m "fix: resolve merge conflict"
+
+To cancel the merge instead:
+    git merge --abort
+
+----------------------------------------------------------------
+PROBLEM 3 -- WRONG BRANCH
+----------------------------------------------------------------
+
+You started working and realised you are on develop 
+instead of a feature branch.
+
+Fix -- if you have NOT committed yet:
+    git stash
+    git checkout -b feature/your-feature-name
+    git stash pop
+
+Fix -- if you HAVE committed but NOT pushed:
+    git reset HEAD~1           (undo last commit, keep changes)
+    git stash
+    git checkout -b feature/your-feature-name
+    git stash pop
+    git add .
+    git commit -m "your original message"
+
+----------------------------------------------------------------
+PROBLEM 4 -- ACCIDENTALLY COMMITTED TO DEVELOP
+----------------------------------------------------------------
+
+You committed directly to develop instead of a feature branch.
+
+Fix -- undo the last commit but keep your changes:
+    git reset HEAD~1
+
+Then create a proper feature branch and commit there.
+
+WARNING:
+    Never use git reset --hard on a shared branch.
+    It deletes commits permanently and breaks everyone else.
+
+----------------------------------------------------------------
+PROBLEM 5 -- DETACHED HEAD
+----------------------------------------------------------------
+
+Error message:
+    You are in 'detached HEAD' state.
+
+What happened:
+    You checked out a specific commit or tag instead of a branch.
+    HEAD is not pointing to any branch.
+    Any commits you make here will be lost when you switch.
+
+Fix:
+    If you just want to look around and make no changes:
+        git checkout develop    (go back to a branch)
+
+    If you made commits you want to keep:
+        git checkout -b new-branch-name
+        (this creates a branch at your current position)
+
+----------------------------------------------------------------
+PROBLEM 6 -- FORGOT TO PULL BEFORE BRANCHING
+----------------------------------------------------------------
+
+You created a feature branch from an outdated develop.
+Your branch is missing recent commits.
+
+Fix:
+    git checkout develop
+    git pull origin develop
+    git checkout feature/your-branch
+    git rebase develop
+
+This replays your commits on top of the updated develop.
+
+----------------------------------------------------------------
+PROBLEM 7 -- STALE REMOTE BRANCHES
+----------------------------------------------------------------
+
+git branch -a shows branches that no longer exist on GitHub.
+
+Fix:
+    git remote prune origin
+
+This removes local references to remote branches that 
+have been deleted.
+
+----------------------------------------------------------------
+PROBLEM 8 -- SCRIPT PERMISSION DENIED
+----------------------------------------------------------------
+
+Error message:
+    bash: ./log_processor.sh: Permission denied
+
+What happened:
+    The script does not have execute permission.
+
+Fix -- Option 1 (give execute permission):
+    chmod +x log_processor.sh
+    ./log_processor.sh app.log
+
+Fix -- Option 2 (run directly through bash):
+    bash log_processor.sh app.log
+
+----------------------------------------------------------------
+PROBLEM 9 -- INVALID UPSTREAM HEAD~N ERROR
+----------------------------------------------------------------
+
+Error message:
+    fatal: invalid upstream 'HEAD-3'
+
+What happened:
+    You used a hyphen (-) instead of a tilde (~).
+
+Fix:
+    git rebase -i HEAD~3
+
+    The tilde symbol ~ is on the key left of 1.
+    Press Shift + ` to type ~.
+
+----------------------------------------------------------------
+PROBLEM 10 -- UNTRACKED FILES BLOCKING CHECKOUT
+----------------------------------------------------------------
+
+Error message:
+    error: Your local changes to the following files would 
+    be overwritten by checkout
+
+What happened:
+    You have uncommitted changes in your working directory.
+    Switching branches would overwrite them.
+
+Fix -- Option 1 (commit them first):
+    git add .
+    git commit -m "wip: save progress"
+    git checkout other-branch
+
+Fix -- Option 2 (stash them):
+    git stash
+    git checkout other-branch
+    git stash pop    (when you come back)
+
+Fix -- Option 3 (discard them permanently):
+    git restore .    (WARNING: changes are gone forever)
+
+----------------------------------------------------------------
+PROBLEM 11 -- NEED TO UNDO A COMMIT ALREADY PUSHED
+----------------------------------------------------------------
+
+You pushed a commit and realised it was wrong.
+
+SAFE FIX -- revert (creates a new commit that undoes it):
+    git revert <commit-hash>
+    git push origin <branchname>
+
+This is safe because it does not rewrite history.
+The bad commit is still there but a new commit undoes it.
+
+UNSAFE FIX -- reset and force push (rewrites history):
+    git reset --hard <commit-hash>
+    git push origin <branchname> --force-with-lease
+
+Only do this on your own feature branch that nobody else 
+is using. Never on develop or master.
+
+----------------------------------------------------------------
+PROBLEM 12 -- ACCIDENTALLY DELETED A BRANCH
+----------------------------------------------------------------
+
+You deleted a branch and realised you needed it.
+
+Fix:
+    git reflog
+
+Look for the last commit that was on that branch.
+It will show as something like:
+    a3f9c2b HEAD@{3}: commit: feat: add summary report
+
+Then create a new branch at that commit:
+    git checkout -b recovered-branch a3f9c2b
+
+----------------------------------------------------------------
+KEY TAKEAWAY
+----------------------------------------------------------------
+
+Most Git problems have a safe fix.
+When in doubt: git status first to understand the situation.
+Never force anything on shared branches.
+git rebase --abort and git merge --abort are always available.
+git reflog is your ultimate safety net -- it records everything.
+
+================================================================
