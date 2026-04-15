@@ -1,0 +1,113 @@
+================================================================================
+  JENKINS LEARNING DOCUMENT
+  Concept #5 — triggers { }
+  Auto-run pipelines on schedule, Git push, or upstream events
+================================================================================
+
+WHAT IS IT?
+================================================================================
+triggers { } defines how and when your pipeline starts AUTOMATICALLY — without
+anyone manually clicking "Build Now".
+
+IMPORTANT: Triggers are registered after the FIRST run. Run manually once,
+then the trigger becomes active.
+
+ALL TRIGGER TYPES
+================================================================================
+
+1. cron — Run on a Schedule
+
+    triggers { cron('0 2 * * *') }   // every day at 2:00 AM
+
+    CRON SYNTAX:
+        Minute (0-59) | Hour (0-23) | Day of Month (1-31) | Month (1-12) | Day of Week (0-7)
+        *               *             *                     *              *
+
+    Special characters:
+        *    = every possible value
+        ,    = multiple values   (1,15 = 1st and 15th)
+        -    = range             (1-5  = Monday to Friday)
+        /    = every N           (*/15 = every 15 minutes)
+        H    = Jenkins hash (spreads load across jobs)
+
+    Common examples:
+        cron('*/15 * * * *')     // every 15 minutes
+        cron('0 0 * * *')        // every day at midnight
+        cron('0 9 * * 1-5')      // every weekday at 9 AM
+        cron('0 8 * * 1')        // every Monday at 8 AM
+        cron('H 0 * * *')        // midnight-ish, spread across jobs
+        cron('H/15 * * * *')     // every 15 min, offset per job
+
+    Always prefer H over fixed times in real projects!
+
+2. pollSCM — Check Git for Changes on a Schedule
+
+    triggers { pollSCM('H/5 * * * *') }   // check Git every 5 minutes
+
+    Jenkins polls your Git repo every N minutes. If new commits found,
+    triggers the pipeline. If no new commits, does nothing.
+
+    pollSCM vs webhook:
+        pollSCM         — Jenkins asks GitHub (good when behind firewall)
+        githubPush      — GitHub tells Jenkins instantly (needs public URL)
+
+3. githubPush — Trigger Instantly on Git Push
+
+    triggers { githubPush() }
+
+    GitHub instantly notifies Jenkins via webhook when code is pushed.
+    Pipeline starts within seconds.
+    Requires webhook in GitHub repository settings:
+        Payload URL: http://jenkins.mycompany.com:8080/github-webhook/
+
+4. upstream — Trigger When Another Pipeline Finishes
+
+    triggers {
+        upstream(
+            upstreamProjects: 'my-build-pipeline',
+            threshold: hudson.model.Result.SUCCESS
+        )
+    }
+
+    // Multiple upstream projects:
+    upstream(upstreamProjects: 'build-pipeline, test-pipeline',
+             threshold: hudson.model.Result.SUCCESS)
+
+    Threshold options:
+        hudson.model.Result.SUCCESS    // only if upstream PASSED
+        hudson.model.Result.UNSTABLE   // if passed OR had test failures
+        hudson.model.Result.FAILURE    // even if upstream FAILED
+
+COMBINING MULTIPLE TRIGGERS
+================================================================================
+
+    triggers {
+        githubPush()                          // trigger on every push
+        cron('H 1 * * 1-5')                  // nightly at 1 AM weekdays
+        upstream(upstreamProjects: 'build',
+                 threshold: hudson.model.Result.SUCCESS)
+    }
+
+TRIGGERED BY — Check What Started the Build
+================================================================================
+
+    stage('Full Security Scan') {
+        when { triggeredBy 'TimerTrigger' }   // only in scheduled builds
+        steps { sh './security-scan.sh --full' }
+    }
+
+QUICK REFERENCE
+================================================================================
+  cron          | Fixed schedule              | Nightly builds, reports
+  pollSCM       | New Git commits found       | Jenkins behind firewall
+  githubPush    | Instantly on GitHub push    | Jenkins publicly reachable
+  gitlab        | GitLab push or merge req    | Using GitLab
+  upstream      | Another pipeline finishes   | Chaining pipelines
+
+COMMON MISTAKES
+================================================================================
+  • Expecting trigger to work on first run — run pipeline manually once first
+  • Using githubPush when Jenkins is behind firewall — use pollSCM instead
+  • Wrong cron syntax — cron uses 5 fields, not 6
+  • Polling every minute — puts heavy load on Jenkins and GitHub
+================================================================================

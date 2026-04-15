@@ -1,0 +1,129 @@
+================================================================================
+  JENKINS LEARNING DOCUMENT
+  Concept #1 — pipeline { }
+  The outermost wrapper — everything lives inside this block
+================================================================================
+
+WHAT IS IT?
+================================================================================
+The pipeline { } block is the outermost wrapper of your entire Jenkinsfile.
+Think of it as the cover of a book — everything else (agent, stages, post, etc.)
+lives inside it. Without this block, Jenkins will not even recognise the file
+as a pipeline.
+
+THE SIMPLEST POSSIBLE JENKINSFILE
+================================================================================
+
+    pipeline {
+
+    }
+
+That is the skeleton. But this will throw an error because a pipeline must have
+at least an agent and one stage inside. Everything goes inside pipeline { }.
+
+WHAT DOES IT LOOK LIKE WITH THINGS INSIDE?
+================================================================================
+
+    pipeline {            // pipeline starts here
+
+        agent any         // inside pipeline
+
+        stages {          // inside pipeline
+            stage('Build') {
+                steps {
+                    echo 'Building...'
+                }
+            }
+        }
+
+    }                     // pipeline ends here
+
+Every single block — agent, options, parameters, triggers, environment,
+stages, post — sits directly inside pipeline { }. None can exist outside it.
+
+TWO TYPES OF PIPELINE SYNTAX
+================================================================================
+
+TYPE 1 — DECLARATIVE (What We Are Learning)
+
+    pipeline {
+        agent any
+        stages {
+            stage('Hello') {
+                steps { echo 'Hello World' }
+            }
+        }
+    }
+
+  • Clean, structured, easy to read
+  • Has strict rules you must follow
+  • Recommended for beginners and most real projects
+
+TYPE 2 — SCRIPTED (Older Style)
+
+    node {
+        stage('Hello') {
+            echo 'Hello World'
+        }
+    }
+
+  • Uses node { } instead of pipeline { }
+  • More flexible but harder to read
+  • Found in older projects
+
+THREE STRICT RULES
+================================================================================
+
+RULE 1 — pipeline must be at the top level (not inside if/functions)
+RULE 2 — agent is mandatory inside every pipeline
+RULE 3 — stages with at least one stage is mandatory
+
+WHERE DOES THE JENKINSFILE LIVE?
+================================================================================
+
+    my-project/
+    |-- Jenkinsfile          <- lives here, at the root
+    |-- src/
+    |   |-- app.java
+    |-- pom.xml
+
+Jenkins automatically looks for a file named "Jenkinsfile" in the root.
+
+WHAT HAPPENS WHEN JENKINS READS THE JENKINSFILE?
+================================================================================
+
+    You push code to GitHub
+            |
+    GitHub notifies Jenkins (webhook)
+            |
+    Jenkins pulls your code
+            |
+    Jenkins finds the Jenkinsfile in the root
+            |
+    Jenkins executes everything inside it, top to bottom
+            |
+    Pipeline finishes (success or failure)
+
+COMMON BEGINNER MISTAKES
+================================================================================
+
+MISTAKE 1 — Mismatched curly braces
+    Missing } for stages, stage, steps etc.
+
+MISTAKE 2 — Typo in the word pipeline
+    Pipeline {   // Wrong — capital P
+    pipline {    // Wrong — typo
+    pipeline {   // Correct
+
+MISTAKE 3 — Putting things outside pipeline { }
+    agent any       // Wrong — outside pipeline
+    pipeline { ... }
+
+SUMMARY
+================================================================================
+  • pipeline { } is the mandatory outer wrapper of every Jenkinsfile
+  • Everything else lives inside it
+  • Declarative is modern; Scripted (node { }) is old
+  • Three rules: needs agent, needs stages, must be top-level
+  • File named Jenkinsfile lives at the root of your repo
+================================================================================

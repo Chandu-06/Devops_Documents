@@ -1,0 +1,446 @@
+================================================================================
+  JENKINS LEARNING DOCUMENT
+  Reference — Complete Jenkins Pipeline
+  A production-grade Jenkinsfile using every concept learned
+================================================================================
+
+COMPLETE ANNOTATED JENKINSFILE
+================================================================================
+
+    // Optional: load reusable functions from shared library
+    @Library('my-shared-library') _
+
+    // Optional: helper functions defined above pipeline { }
+    def getVersion() {
+        return sh(
+            script: 'mvn help:evaluate -Dexpression=project.version -q -DforceStdout',
+            returnStdout: true
+        ).trim()
+    }
+
+    def isWorkingHours() {
+        def hour = new Date().format('H').toInteger()
+        def day  = new Date().format('u').toInteger()   // 1=Mon 7=Sun
+        return day <= 5 && hour >= 9 && hour <= 18      // Mon-Fri 9AM-6PM
+    }
+
+    pipeline {
+
+        // ── AGENT ─────────────────────────────────────────────────────────
+        agent any   // run on any available machine
+
+        // ── OPTIONS ───────────────────────────────────────────────────────
+        options {
+            timeout(time: 30, unit: 'MINUTES')
+            buildDiscarder(logRotator(numToKeepStr: '20'))
+            disableConcurrentBuilds()
+            timestamps()
+        }
+
+        // ── TRIGGERS ──────────────────────────────────────────────────────
+        triggers {
+            githubPush()                // instant trigger on every push
+            cron('H 2 * * 1-5')        // nightly at 2 AM weekdays
+        }
+
+        // ── PARAMETERS ────────────────────────────────────────────────────
+        parameters {
+            choice(name: 'ENVIRONMENT',
+                   choices: ['dev', 'staging', 'production'],
+                   description: 'Target environment')
+            booleanParam(name: 'RUN_TESTS', defaultValue: true,
+                         description: 'Run test suite?')
+            booleanParam(name: 'SKIP_DEPLOY', defaultValue: false,
+                         description: 'Skip deployment (build and test only)?')
+        }
+
+        // ── ENVIRONMENT ───────────────────────────────────────────────────
+        environment {
+            APP_NAME     = 'my-service'
+            DOCKER_REG   = 'registry.mycompany.com'
+            SONAR_TOKEN  = credentials('sonar-token')         // secret text
+            DOCKER_CREDS = credentials('registry-creds')      // auto _USR _PSW
+        }
+
+        // ── STAGES ────────────────────────────────────────────────────────
+        stages {
+
+            // ── STAGE 1: Checkout ─────────────────────────────────────────
+            stage('Checkout') {
+                steps {
+                    checkout scm
+                    script {
+                        env.VERSION   = getVersion()
+                        env.GIT_HASH  = sh(
+                            script: 'git rev-parse --short HEAD',
+                            returnStdout: true
+                        ).trim()
+                        env.IMAGE_TAG = "${DOCKER_REG}/${APP_NAME}:${env.VERSION}-${env.BUILD_NUMBER}"
+
+                        // Customise Jenkins UI display
+                        currentBuild.displayName = "#${env.BUILD_NUMBER} v${env.VERSION}"
+                        currentBuild.description = "Branch: ${env.GIT_BRANCH} | ${env.GIT_HASH}"
+
+                        echo """
+=======================================================
+  App     : ${APP_NAME}
+  Version : ${env.VERSION}
+  Branch  : ${env.GIT_BRANCH}
+  Commit  : ${env.GIT_HASH}
+  Image   : ${env.IMAGE_TAG}
+======================================================="""
+                    }
+                }
+            }
+
+            // ── STAGE 2: Build ────────────────────────────────────────────
+            stage('Build') {
+                steps {
+                    sh 'mvn clean package -DskipTests'
+                    stash name: 'app-jar', includes: 'target/*.jar'
+                    archiveArtifacts artifacts: 'target/*.jar'
+                }
+                post {
+                    failure {
+                        slackSend channel: '#builds', color: 'danger',
+                                   message: "Build stage FAILED: ${APP_NAME} #${env.BUILD_NUMBER}"
+                    }
+                }
+            }
+
+            // ── STAGE 3: Quality Gates (parallel) ─────────────────────────
+            stage('Quality Gates') {
+                parallel {
+                    failFast true   // abort all if one fails
+
+                    stage('Unit Tests') {
+                        when { expression { params.RUN_TESTS == true } }
+                        steps { sh 'mvn test -Punit' }
+                        post {
+                            always {
+                                junit allowEmptyResults: true,
+                                      testResults: 'target/surefire-reports/*.xml'
+                            }
+                        }
+                    }
+
+                    stage('Integration Tests') {
+                        when { expression { params.RUN_TESTS == true } }
+                        steps { sh 'mvn test -Pintegration' }
+                        post {
+                            always {
+                                junit allowEmptyResults: true,
+                                      testResults: 'target/failsafe-reports/*.xml'
+                            }
+                        }
+                    }
+
+                    stage('Code Quality') {
+                        steps {
+                            withSonarQubeEnv('SonarQube') {
+                                sh "mvn sonar:sonar -Dsonar.token=${SONAR_TOKEN}"
+                            }
+                            timeout(time: 5, unit: 'MINUTES') {
+                                waitForQualityGate abortPipeline: true
+                            }
+                        }
+                    }
+
+                    stage('Nightly Security Scan') {
+                        when {
+                            allOf {
+                                branch 'develop'
+                                triggeredBy 'TimerTrigger'   // only in nightly
+                            }
+                        }
+                        steps { sh 'mvn dependency-check:check' }
+                    }
+                }
+            }
+
+            // ── STAGE 4: Docker Build & Push ──────────────────────────────
+            stage('Docker Build & Push') {
+                when {
+                    anyOf {
+                        branch 'main'
+                        branch 'develop'
+                        branch 'release/*'
+                        tag 'v*'
+                    }
+                }
+                steps {
+                    sh "docker build -t ${env.IMAGE_TAG} ."
+                    sh "docker login ${DOCKER_REG} -u ${DOCKER_CREDS_USR} -p ${DOCKER_CREDS_PSW}"
+                    sh "docker push ${env.IMAGE_TAG}"
+                    sh "docker tag ${env.IMAGE_TAG} ${DOCKER_REG}/${APP_NAME}:latest"
+                    sh "docker push ${DOCKER_REG}/${APP_NAME}:latest"
+                }
+            }
+
+            // ── STAGE 5: Deploy to Dev ────────────────────────────────────
+            stage('Deploy to Dev') {
+                when {
+                    allOf {
+                        branch 'develop'
+                        expression { params.SKIP_DEPLOY == false }
+                    }
+                }
+                steps {
+                    sh "./deploy.sh dev ${env.IMAGE_TAG}"
+                    sleep(time: 15, unit: 'SECONDS')
+                    sh './smoke-test.sh dev'
+                }
+                post {
+                    success {
+                        slackSend channel: '#dev-deployments', color: 'good',
+                                   message: "Dev deploy OK: ${APP_NAME} v${env.VERSION}"
+                    }
+                    failure {
+                        sh './rollback.sh dev'
+                        slackSend channel: '#dev-deployments', color: 'danger',
+                                   message: "Dev deploy FAILED — rolled back"
+                    }
+                }
+            }
+
+            // ── STAGE 6: Deploy to UAT ────────────────────────────────────
+            stage('Deploy to UAT') {
+                when {
+                    allOf {
+                        branch 'release/*'
+                        expression { params.SKIP_DEPLOY == false }
+                    }
+                }
+                steps {
+                    sh "./deploy.sh uat ${env.IMAGE_TAG}"
+                    sh './run-regression-tests.sh uat'
+                }
+                post {
+                    success {
+                        slackSend channel: '#uat-deployments', color: 'good',
+                                   message: "UAT deploy OK: ${APP_NAME} v${env.VERSION}"
+                    }
+                }
+            }
+
+            // ── STAGE 7: Production Approval ──────────────────────────────
+            stage('Production Approval') {
+                when {
+                    beforeAgent true
+                    allOf {
+                        branch 'main'
+                        expression { params.SKIP_DEPLOY == false }
+                    }
+                }
+                options {
+                    timeout(time: 48, unit: 'HOURS')   // auto-abort after 48 hours
+                }
+                steps {
+                    script {
+                        if (!isWorkingHours()) {
+                            echo "WARNING: Deploying to production OUTSIDE working hours!"
+                            currentBuild.description += " | Off-hours deployment"
+                        }
+                    }
+                    input(
+                        message: "Deploy ${APP_NAME} v${env.VERSION} to PRODUCTION?",
+                        ok: 'Approve & Deploy',
+                        submitter: 'devops-lead,cto'
+                    )
+                }
+            }
+
+            // ── STAGE 8: Deploy to Production ─────────────────────────────
+            stage('Deploy to Production') {
+                when {
+                    beforeAgent true
+                    allOf {
+                        branch 'main'
+                        expression { params.SKIP_DEPLOY == false }
+                    }
+                }
+                steps {
+                    script {
+                        int maxAttempts = 3
+                        boolean deployed = false
+
+                        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                            try {
+                                echo "Deploy attempt ${attempt}/${maxAttempts}..."
+                                sh "./deploy.sh production ${env.IMAGE_TAG}"
+                                deployed = true
+                                break
+                            } catch (Exception e) {
+                                echo "Attempt ${attempt} failed: ${e.getMessage()}"
+                                if (attempt < maxAttempts) {
+                                    sleep(30)
+                                }
+                            }
+                        }
+
+                        if (!deployed) {
+                            sh './rollback.sh production'
+                            error "All ${maxAttempts} deploy attempts failed — rolled back"
+                        }
+                    }
+
+                    // Health check loop
+                    waitUntil {
+                        script {
+                            def status = sh(
+                                script: "curl -s -o /dev/null -w '%{http_code}' https://prod.mycompany.com/health",
+                                returnStdout: true
+                            ).trim()
+                            return status == '200'
+                        }
+                    }
+                    echo "Service is healthy in production!"
+                }
+                post {
+                    success {
+                        slackSend channel: '#production-deployments', color: 'good',
+                                   message: "LIVE: ${APP_NAME} v${env.VERSION} is in production!"
+                        mail to: 'stakeholders@mycompany.com',
+                             subject: "Released: ${APP_NAME} v${env.VERSION}",
+                             body: "Build #${env.BUILD_NUMBER} is now live.\n${env.BUILD_URL}"
+                    }
+                    failure {
+                        sh './rollback.sh production'
+                        slackSend channel: '#production-deployments', color: 'danger',
+                                   message: "PRODUCTION DEPLOY FAILED — auto rolled back!\n${env.BUILD_URL}"
+                    }
+                }
+            }
+
+            // ── STAGE 9: Publish Release (on version tags only) ───────────
+            stage('Publish Release') {
+                when {
+                    beforeAgent true
+                    tag pattern: 'v\\d+\\.\\d+\\.\\d+', comparator: 'REGEXP'
+                }
+                steps {
+                    unstash 'app-jar'
+                    sh 'mvn deploy -DskipTests'   // publish to Maven Central
+                    sh "docker tag ${env.IMAGE_TAG} ${DOCKER_REG}/${APP_NAME}:stable"
+                    sh "docker push ${DOCKER_REG}/${APP_NAME}:stable"
+                }
+            }
+
+        }
+
+        // ── GLOBAL POST ────────────────────────────────────────────────────
+        post {
+
+            success {
+                slackSend channel: '#builds', color: 'good',
+                           message: "SUCCESS: ${APP_NAME} [${env.GIT_BRANCH}] #${env.BUILD_NUMBER} (${currentBuild.durationString})"
+            }
+
+            failure {
+                slackSend channel: '#builds', color: 'danger',
+                           message: "FAILED: ${APP_NAME} [${env.GIT_BRANCH}] #${env.BUILD_NUMBER}\n${env.BUILD_URL}"
+                mail to: 'devops@mycompany.com',
+                     subject: "PIPELINE FAILED: ${APP_NAME} #${env.BUILD_NUMBER}",
+                     body: """
+    Pipeline failed.
+    Job      : ${env.JOB_NAME}
+    Build    : #${env.BUILD_NUMBER}
+    Branch   : ${env.GIT_BRANCH}
+    Commit   : ${env.GIT_HASH}
+    Duration : ${currentBuild.durationString}
+    URL      : ${env.BUILD_URL}
+    """
+            }
+
+            fixed {
+                slackSend channel: '#builds', color: 'good',
+                           message: "RECOVERED: ${APP_NAME} is back to healthy after previous failure!"
+            }
+
+            regression {
+                slackSend channel: '#alerts', color: 'danger',
+                           message: "REGRESSION: ${APP_NAME} just broke after passing previously!\n${env.BUILD_URL}"
+            }
+
+            always {
+                sh "docker rmi ${env.IMAGE_TAG} || true"
+            }
+
+            cleanup {
+                cleanWs()
+                echo "Workspace cleaned — pipeline complete."
+            }
+
+        }
+    }
+
+================================================================================
+COMPLETE LEARNING SUMMARY
+================================================================================
+
+  #    | Concept                  | What It Does
+  -----|--------------------------|----------------------------------------------
+  1    | pipeline { }             | Outer wrapper — holds everything
+  2    | agent                    | Which machine runs the pipeline
+  3    | options { }              | Pipeline behaviour settings
+  4    | parameters { }           | User input before running
+  5    | triggers { }             | Auto-run on schedule or push
+  6    | environment { }          | Variables and secrets
+  7    | stages { } + stage( )    | The work — organised phases
+  8    | steps { }                | Actual commands and operations
+  9    | when { }                 | Conditional stage execution
+  10   | script { }               | Full Groovy logic
+  11   | withCredentials { }      | Secure secret injection
+  12   | post { }                 | After-pipeline actions
+  T1   | Shared Libraries         | Reusable code across pipelines
+  T2   | Multibranch Pipelines    | Automatic branch management
+  T3   | Installation & Setup     | Jenkins from scratch
+  T4   | Plugins                  | 20 most important plugins
+  T5   | Blue Ocean               | Modern visual UI
+  T6   | Credentials Management   | Creating and organising secrets
+  T7   | Git Integration          | Webhooks, status checks, private repos
+  T8   | Docker Integration       | Build, test, push, deploy patterns
+  T9   | SonarQube Integration    | Quality gates
+  T10  | Kubernetes Integration   | Dynamic pod agents
+  T11  | Troubleshooting          | Common errors and fixes
+  T12  | Best Practices           | Junior to senior level improvements
+  T13  | Interview Preparation    | Fresher to experienced questions
+
+================================================================================
+KEY RULES TO ALWAYS REMEMBER
+================================================================================
+
+  1.  pipeline { } is the mandatory outer wrapper — everything goes inside
+  2.  agent defines where code runs — use Docker for clean environments
+  3.  options { } sets pipeline behaviour — always add timeout and timestamps
+  4.  parameters { } make pipelines flexible — use double quotes for ${params.X}
+  5.  triggers { } auto-run pipelines — register by running manually first
+  6.  environment { } stores variables — NEVER hardcode secrets
+  7.  stages run top-to-bottom — failure in one skips the rest
+  8.  steps { } has the actual commands — always .trim() shell output
+  9.  when { } controls stage execution — use beforeAgent true with agents
+  10. script { } gives Groovy power — def is local, env. is global
+  11. withCredentials { } injects secrets safely — secrets masked as ****
+  12. post { } handles cleanup — always publish test results in always { }
+  13. Shared libraries = write once, use everywhere
+  14. Multibranch pipelines = what real companies use in production
+  15. Keep Jenkinsfiles THIN — logic belongs in external scripts
+
+================================================================================
+GOLDEN RULES FOR PRODUCTION PIPELINES
+================================================================================
+
+  • Always use timeout — never let builds hang forever
+  • Always clean workspace — cleanWs() in post { always }
+  • Always use || true for cleanup commands — docker rmi, docker stop
+  • Always publish test results in post { always } — never in steps
+  • Always use beforeAgent true when stage has its own agent
+  • Always pin Docker image versions — never use :latest
+  • Always use input for production deployments — human approval required
+  • Always use credentials store for secrets — never hardcode
+  • Always use parallel { } for independent stages — cut build time
+  • Always use failFast true in parallel blocks — fail quickly
+
+================================================================================
+END OF JENKINS LEARNING DOCUMENT
+================================================================================

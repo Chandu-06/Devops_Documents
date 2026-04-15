@@ -1,0 +1,214 @@
+================================================================================
+  JENKINS LEARNING DOCUMENT
+  Concept #8 — steps { } in Depth
+  Every command type, file operation, build tool, and flow control step
+================================================================================
+
+CATEGORY 1 — SHELL & SCRIPT EXECUTION
+================================================================================
+
+sh — Linux/Mac shell command (the workhorse)
+
+    sh 'mvn clean package'
+    sh "mvn package -Dversion=${VERSION}"      // double quotes = substitution
+
+    // Multi-line
+    sh '''
+        echo 'Running build script'
+        chmod +x ./build.sh
+        ./build.sh
+    '''
+
+    // Capture output into variable
+    script {
+        def version = sh(script: 'cat version.txt', returnStdout: true).trim()
+        echo "Version: ${version}"
+    }
+
+    // Capture exit code without failing pipeline
+    script {
+        def status = sh(script: 'systemctl is-active myapp', returnStatus: true)
+        if (status == 0) { echo 'Service running' }
+        else             { sh 'systemctl start myapp' }
+    }
+
+bat — Windows batch command
+    bat 'mvn clean package'
+    bat "mvn package -Dversion=${VERSION}"
+
+CATEGORY 2 — FILE OPERATIONS
+================================================================================
+
+writeFile — create a file with content
+    writeFile file: 'version.txt', text: "${VERSION}"
+    writeFile file: 'config.properties', text: """
+app.name=${APP_NAME}
+app.version=${VERSION}
+"""
+
+readFile — read file contents
+    script {
+        def content = readFile('config/database.yml')
+        def version = readFile('VERSION').trim()
+    }
+
+fileExists — check if a file exists
+    script {
+        if (fileExists('docker-compose.yml')) {
+            sh 'docker-compose up -d'
+        } else {
+            sh './start-server.sh'
+        }
+    }
+
+dir — change working directory
+    dir('frontend') {
+        sh 'npm install'
+        sh 'npm run build'
+    }
+    // back to workspace root
+
+archiveArtifacts — save files in Jenkins
+    archiveArtifacts artifacts: 'target/*.jar'
+    archiveArtifacts(
+        artifacts: 'target/*.jar',
+        fingerprint: true,
+        allowEmptyArchive: true,
+        onlyIfSuccessful: true
+    )
+
+stash / unstash — pass files between stages
+    stage('Build') {
+        steps {
+            sh 'mvn package'
+            stash name: 'app-jar', includes: 'target/*.jar'
+        }
+    }
+    stage('Deploy') {
+        steps {
+            unstash 'app-jar'   // restore files here
+            sh 'scp target/*.jar ubuntu@server:/opt/app/'
+        }
+    }
+
+CATEGORY 3 — BUILD TOOL STEPS
+================================================================================
+
+Maven:
+    sh 'mvn clean package'
+    sh 'mvn clean package -DskipTests'
+    sh 'mvn test'
+    sh 'mvn verify'
+    sh 'mvn sonar:sonar'
+
+npm (Node.js):
+    sh 'npm install'
+    sh 'npm run build'
+    sh 'npm test'
+    sh 'npm run lint'
+
+Docker:
+    sh "docker build -t ${IMAGE_TAG} ."
+    sh "docker push ${IMAGE_TAG}"
+    sh "docker run --rm ${IMAGE_TAG} ./run-tests.sh"
+    sh 'docker-compose up -d'
+    sh "docker rmi ${IMAGE_TAG} || true"   // || true = OK if image not found
+
+CATEGORY 4 — TEST & QUALITY STEPS
+================================================================================
+
+junit — publish test results
+    post {
+        always {
+            junit(testResults: 'target/surefire-reports/*.xml',
+                  allowEmptyResults: true)
+        }
+    }
+
+publishHTML — HTML reports
+    post {
+        always {
+            publishHTML(target: [
+                reportDir: 'coverage/lcov-report',
+                reportFiles: 'index.html',
+                reportName: 'Test Coverage Report',
+                keepAll: true
+            ])
+        }
+    }
+
+CATEGORY 5 — FLOW CONTROL STEPS
+================================================================================
+
+error — deliberately fail the pipeline
+    script {
+        if (params.VERSION == '') {
+            error 'VERSION parameter cannot be empty!'
+        }
+    }
+
+catchError — continue pipeline after a failure
+    steps {
+        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+            sh 'mvn test'    // if fails, mark UNSTABLE but continue
+        }
+        sh 'mvn package'   // still runs even if tests failed
+    }
+
+waitUntil — wait for a condition to become true
+    steps {
+        sh './start-server.sh &'
+        waitUntil {
+            script {
+                def response = sh(
+                    script: 'curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health',
+                    returnStdout: true
+                ).trim()
+                return response == '200'
+            }
+        }
+        sh './smoke-tests.sh'
+    }
+
+retry — retry a block of steps
+    steps {
+        retry(3) {
+            sh 'curl https://flaky-dependency.com/download/package.zip'
+        }
+    }
+
+timeout — timeout for specific steps
+    steps {
+        timeout(time: 5, unit: 'MINUTES') {
+            sh './long-running-task.sh'
+        }
+    }
+
+CATEGORY 6 — ENVIRONMENT STEPS
+================================================================================
+
+withEnv — temporarily set environment variables
+    steps {
+        withEnv(['JAVA_HOME=/opt/java/17', 'PATH+JAVA=/opt/java/17/bin']) {
+            sh 'java -version'
+            sh 'mvn clean package'
+        }
+        // JAVA_HOME is back to original here
+    }
+
+COMMON MISTAKES
+================================================================================
+  • Not using .trim() when capturing shell output
+  • Shell failure silently ignored — use || true for expected failures
+  • Forgetting set -e in multi-line shell scripts
+  • Using stash when archiveArtifacts is more appropriate
+
+KEY RULES
+================================================================================
+  • Always .trim() when capturing shell output
+  • Use || true for cleanup commands that might legitimately fail
+  • Use set -e in multi-line shell scripts to fail fast
+  • Keep complex logic in external script files
+  • Use catchError for non-critical failures — pipeline continues
+  • Use waitUntil to wait for servers or services to be ready
+================================================================================

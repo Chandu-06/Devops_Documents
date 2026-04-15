@@ -1,0 +1,179 @@
+================================================================================
+  JENKINS LEARNING DOCUMENT
+  Concept #12 — post { }
+  Actions after the pipeline finishes — cleanup, notifications, rollback
+================================================================================
+
+WHAT IS IT?
+================================================================================
+post { } defines actions that run after the pipeline or a stage finishes —
+regardless of whether it passed, failed, or was aborted. It is your cleanup
+crew, notification system, and safety net all in one.
+
+WHERE DOES IT GO?
+================================================================================
+
+Pipeline level (runs after ALL stages):
+    pipeline {
+        agent any
+        stages { ... }
+        post { ... }
+    }
+
+Stage level (runs after THAT stage):
+    stage('Test') {
+        steps { ... }
+        post { ... }
+    }
+
+ALL POST CONDITIONS
+================================================================================
+
+always — runs no matter what
+    post {
+        always {
+            echo 'Pipeline finished — cleaning up'
+            cleanWs()    // delete workspace files
+        }
+    }
+
+success — only when build PASSED (green)
+    post {
+        success {
+            slackSend channel: '#builds', color: 'good',
+                       message: "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+        }
+    }
+
+failure — only when build FAILED (red)
+    post {
+        failure {
+            slackSend channel: '#alerts', color: 'danger',
+                       message: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+            mail to: 'devops@company.com',
+                 subject: "FAILED: ${env.JOB_NAME}",
+                 body: "Build failed. Check: ${env.BUILD_URL}"
+        }
+    }
+
+unstable — build is UNSTABLE (yellow — some tests failed)
+    post {
+        unstable {
+            slackSend channel: '#builds', color: 'warning',
+                       message: "UNSTABLE: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+        }
+    }
+
+aborted — someone manually STOPPED the pipeline
+    post {
+        aborted {
+            slackSend channel: '#builds', color: 'warning',
+                       message: "ABORTED: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+        }
+    }
+
+changed — result CHANGED from previous build
+    post {
+        changed {
+            slackSend channel: '#builds',
+                       message: "Result changed to ${currentBuild.result}"
+        }
+    }
+
+fixed — build RECOVERS from failure (was failing, now passing)
+    post {
+        fixed {
+            slackSend channel: '#builds', color: 'good',
+                       message: "Pipeline is back to healthy!"
+        }
+    }
+
+regression — build BREAKS after being healthy (was passing, now failing)
+    post {
+        regression {
+            slackSend channel: '#alerts', color: 'danger',
+                       message: "REGRESSION: Pipeline just broke!"
+        }
+    }
+
+cleanup — runs ABSOLUTELY LAST (after all other post conditions)
+    post {
+        always   { junit 'target/surefire-reports/*.xml' }
+        success  { slackSend channel: '#builds', message: 'Passed' }
+        failure  { slackSend channel: '#builds', message: 'Failed' }
+        cleanup  {
+            sh 'docker system prune -f || true'
+            cleanWs()
+        }
+    }
+
+EXECUTION ORDER
+================================================================================
+
+    1. always      <- first
+    2. changed     <- if result changed
+    3. fixed       <- if recovered
+    4. regression  <- if broke
+    5. aborted     <- if aborted
+    6. failure     <- if failed
+    7. success     <- if passed
+    8. unstable    <- if unstable
+    9. cleanup     <- absolutely last
+
+STAGE-LEVEL POST — KEEPING THINGS ORGANISED
+================================================================================
+
+    stage('Build') {
+        steps { sh 'mvn clean package' }
+        post {
+            failure {
+                slackSend channel: '#builds', color: 'danger',
+                           message: "Build stage FAILED"
+            }
+        }
+    }
+    stage('Test') {
+        steps { sh 'mvn test' }
+        post {
+            always {
+                junit allowEmptyResults: true,
+                      testResults: 'target/surefire-reports/*.xml'
+            }
+        }
+    }
+    stage('Deploy') {
+        steps { sh './deploy.sh production' }
+        post {
+            success {
+                slackSend channel: '#deployments', color: 'good',
+                           message: "Deploy SUCCESS"
+            }
+            failure {
+                sh './rollback.sh production'
+                slackSend channel: '#deployments', color: 'danger',
+                           message: "Deploy FAILED — rolled back"
+            }
+        }
+    }
+
+COMMON MISTAKES
+================================================================================
+  • Putting post inside steps — post is a SIBLING of steps, not inside it
+  • Not publishing test results in always — put junit in always, never in steps
+  • Forgetting || true in cleanup commands — docker rmi might fail legitimately
+  • Putting all cleanup in global post instead of stage-specific post
+
+SUMMARY
+================================================================================
+  Condition    | When It Runs
+  -------------|------------------------------------------
+  always       | Every time — no exceptions
+  success      | Only when build passed (green)
+  failure      | Only when build failed (red)
+  unstable     | Only when build is unstable (yellow)
+  aborted      | Only when manually stopped
+  changed      | When result differs from previous build
+  fixed        | When build recovers from failure
+  regression   | When build breaks after being healthy
+  cleanup      | Always — runs absolutely last
+================================================================================

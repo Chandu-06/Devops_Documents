@@ -1,0 +1,165 @@
+================================================================================
+  JENKINS LEARNING DOCUMENT
+  Topic #1 — Shared Libraries
+  Write pipeline logic once, reuse it across all your projects
+================================================================================
+
+WHAT IS IT?
+================================================================================
+A Shared Library is a way to write Groovy code ONCE and reuse it across
+multiple Jenkins pipelines. Instead of copy-pasting deploy functions,
+notification logic, or build steps into every Jenkinsfile, you put that code
+in a shared library and every pipeline calls it.
+
+Real world analogy: A company's internal toolbox. Every team uses the same
+hammer — they don't each build their own tools.
+
+THE PROBLEM IT SOLVES
+================================================================================
+
+Without shared libraries: If deploy logic changes, you update every single
+Jenkinsfile. With 50 projects, that is 50 files to update.
+
+With a shared library: Change the function ONCE — all 50 projects get the
+update automatically.
+
+SHARED LIBRARY FOLDER STRUCTURE
+================================================================================
+
+    my-shared-library/                  <- root of the Git repo
+    |
+    |-- vars/                           <- global functions (most used)
+    |   |-- myDeploy.groovy             <- callable as myDeploy() in pipelines
+    |   |-- sendNotification.groovy     <- callable as sendNotification()
+    |   |-- buildDocker.groovy          <- callable as buildDocker()
+    |
+    |-- src/                            <- Groovy classes (advanced)
+    |   |-- org/
+    |       |-- mycompany/
+    |           |-- Docker.groovy
+    |
+    |-- resources/                      <- static files
+        |-- deploy-template.sh
+
+CREATING FUNCTIONS IN vars/
+================================================================================
+
+vars/myDeploy.groovy:
+    def call(Map config) {
+        def appName  = config.appName
+        def server   = config.server
+        def imageTag = config.imageTag ?: 'latest'
+
+        echo "Deploying ${appName}:${imageTag} to ${server}"
+        sh "docker build -t ${appName}:${imageTag} ."
+        sh "docker push ${appName}:${imageTag}"
+        sh "ssh ubuntu@${server} 'docker pull ${appName}:${imageTag} && docker restart ${appName}'"
+    }
+
+vars/sendNotification.groovy:
+    def call(Map config) {
+        def channel = config.channel ?: '#builds'
+        def status  = config.status  ?: 'success'
+        def color   = status == 'success' ? 'good' : 'danger'
+        slackSend channel: channel, color: color, message: config.message
+    }
+
+REGISTERING THE LIBRARY IN JENKINS
+================================================================================
+
+    Jenkins UI
+    -> Manage Jenkins
+    -> Configure System
+    -> Global Pipeline Libraries
+    -> Add:
+        Name: my-shared-library        <- used in @Library('...')
+        Default version: main
+        Source: Git
+        URL: https://github.com/myorg/my-shared-library.git
+        Credentials: github-token
+
+USING THE SHARED LIBRARY IN A JENKINSFILE
+================================================================================
+
+Basic usage:
+    @Library('my-shared-library') _    // underscore _ is required
+
+    pipeline {
+        agent any
+        stages {
+            stage('Deploy') {
+                steps {
+                    script {
+                        myDeploy(
+                            appName : 'myapp',
+                            server  : 'prod.mycompany.com',
+                            imageTag: '2.0.0'
+                        )
+                        sendNotification(
+                            channel: '#deployments',
+                            status : 'success',
+                            message: 'myapp 2.0.0 deployed'
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+Specific versions:
+    @Library('my-shared-library@develop') _      // specific branch
+    @Library('my-shared-library@v1.2.0') _       // specific tag
+    @Library('my-shared-library@a3f5c91') _      // specific commit
+    @Library(['my-shared-library', 'other-lib']) _ // multiple libraries
+
+POWER PATTERN — ENTIRE PIPELINE IN SHARED LIBRARY
+================================================================================
+
+vars/microservicePipeline.groovy:
+    def call(Map config) {
+        def appName    = config.appName
+        def dockerRepo = config.dockerRepo ?: "myregistry/${appName}"
+        def deployEnvs = config.deployEnvs ?: ['staging']
+
+        pipeline {
+            agent any
+            environment { IMAGE_TAG = "${dockerRepo}:${env.BUILD_NUMBER}" }
+            stages {
+                stage('Build & Test') { steps { sh 'mvn clean verify' } }
+                stage('Docker Build') { steps { sh "docker build -t ${env.IMAGE_TAG} ." } }
+                stage('Deploy') {
+                    when { branch 'main' }
+                    steps {
+                        script {
+                            deployEnvs.each { environment ->
+                                sh "./deploy.sh ${environment} ${env.IMAGE_TAG}"
+                            }
+                        }
+                    }
+                }
+            }
+            post {
+                success { slackSend channel: '#builds', color: 'good', message: "Deployed ${appName}" }
+                failure { slackSend channel: '#builds', color: 'danger', message: "Failed ${appName}" }
+                always  { cleanWs() }
+            }
+        }
+    }
+
+Now every microservice Jenkinsfile is just 5 lines:
+    @Library('my-shared-library') _
+    microservicePipeline(
+        appName   : 'user-service',
+        dockerRepo: 'myregistry/user-service',
+        deployEnvs: ['staging', 'production']
+    )
+
+SUMMARY
+================================================================================
+  • A shared library is a separate Git repository with reusable Groovy code
+  • Functions go in vars/ — filename = function name
+  • Register in Jenkins once under Manage Jenkins -> Configure System
+  • Use @Library('name') _ at the top of any Jenkinsfile
+  • Functions in vars/ use def call(...) as the entry point
+  • Biggest benefit: change logic once, all pipelines get the update
+================================================================================

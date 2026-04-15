@@ -1,0 +1,180 @@
+================================================================================
+  JENKINS LEARNING DOCUMENT
+  Topics #3, #4, #5 — Installation, Plugins & Blue Ocean
+  Setting up Jenkins from scratch and the tools that power it
+================================================================================
+
+PART 1 — JENKINS INSTALLATION
+================================================================================
+
+ON UBUNTU/DEBIAN LINUX
+--------------------------------------------------------------------------------
+
+    # Step 1: Install Java (Jenkins requires Java 11 or 17)
+    sudo apt update
+    sudo apt install openjdk-17-jdk -y
+    java -version   # verify
+
+    # Step 2: Add Jenkins repository
+    curl -fsSL https://pkg.jenkins.io/debian/jenkins.io-2023.key | sudo tee \
+        /usr/share/keyrings/jenkins-keyring.asc > /dev/null
+
+    echo deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] \
+        https://pkg.jenkins.io/debian binary/ | sudo tee \
+        /etc/apt/sources.list.d/jenkins.list > /dev/null
+
+    # Step 3: Install Jenkins
+    sudo apt update && sudo apt install jenkins -y
+
+    # Step 4: Start Jenkins
+    sudo systemctl start jenkins
+    sudo systemctl enable jenkins   # start on boot
+
+    Jenkins is now at: http://your-server-ip:8080
+
+USING DOCKER (Quickest Way to Try Jenkins)
+--------------------------------------------------------------------------------
+
+    docker run -d \
+        --name jenkins \
+        -p 8080:8080 \
+        -p 50000:50000 \
+        -v jenkins_home:/var/jenkins_home \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        jenkins/jenkins:lts
+
+    Port 8080  = Jenkins web UI
+    Port 50000 = agent communication port
+    jenkins_home volume = persists all Jenkins data
+
+INITIAL SETUP — FIRST TIME
+--------------------------------------------------------------------------------
+
+    Step 1: Unlock Jenkins
+    -> Get initial password:
+       sudo cat /var/jenkins/secrets/initialAdminPassword
+    -> Paste it in the browser at http://your-server:8080
+
+    Step 2: Install Plugins
+    -> Choose: "Install suggested plugins"
+    -> Wait 2-3 minutes
+
+    Step 3: Create Admin User
+    -> Enter username, password, email
+
+    Step 4: Configure Jenkins URL
+    -> Set to: http://your-server-ip:8080
+    -> Save and Finish
+
+CONFIGURING GLOBAL TOOLS
+--------------------------------------------------------------------------------
+
+    Manage Jenkins -> Global Tool Configuration
+
+    -> JDK:
+        Name: JDK-17
+        JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+        (or tick "Install automatically")
+
+    -> Maven:
+        Name: Maven-3.9
+        Tick: Install automatically
+        Version: 3.9.4
+
+    -> Git:
+        Name: Default
+        Path: /usr/bin/git
+
+PART 2 — IMPORTANT JENKINS PLUGINS
+================================================================================
+
+ESSENTIAL PIPELINE PLUGINS
+--------------------------------------------------------------------------------
+  Plugin                    | What It Does
+  --------------------------|--------------------------------------------------
+  Pipeline                  | Core pipeline support — without this nothing works
+  Pipeline: Stage View      | Shows stages as visual blocks in classic UI
+  Blue Ocean                | Modern pipeline UI — visual and beautiful
+  Multibranch Pipeline      | Branch discovery and PR builds
+
+SOURCE CONTROL PLUGINS
+--------------------------------------------------------------------------------
+  Git                       | Connect to Git repos, checkout code
+  GitHub                    | GitHub webhook integration, PR builds
+  GitLab                    | GitLab webhook integration
+  GitHub Branch Source      | Multibranch support for GitHub
+
+BUILD TOOL & QUALITY PLUGINS
+--------------------------------------------------------------------------------
+  Maven Integration         | Maven build support
+  NodeJS                    | Manage Node.js versions, npm builds
+  Docker Pipeline           | docker.build(), docker.push() steps
+  SonarQube Scanner         | Code quality analysis integration
+  JUnit                     | Publish test results, trend graphs
+  HTML Publisher            | Publish HTML reports
+
+NOTIFICATION & SECURITY PLUGINS
+--------------------------------------------------------------------------------
+  Slack Notification        | slackSend step
+  Email Extension           | Rich HTML email notifications
+  Credentials Binding       | withCredentials step
+  Role-based Authorization  | Control who can do what
+  Workspace Cleanup         | cleanWs() step
+
+INSTALLING A PLUGIN
+--------------------------------------------------------------------------------
+
+    Manage Jenkins
+    -> Manage Plugins (or "Plugins" in newer versions)
+    -> Available Plugins tab
+    -> Search for plugin name
+    -> Tick the checkbox
+    -> Click: Install without restart
+
+PART 3 — BLUE OCEAN UI
+================================================================================
+
+WHAT IS IT?
+--------------------------------------------------------------------------------
+Blue Ocean is Jenkins' modern, visual pipeline interface. It shows pipelines
+as visual flows with coloured stage blocks.
+
+  Classic Jenkins UI            | Blue Ocean UI
+  ------------------------------|------------------------------------------
+  Text-heavy, dated look        | Clean, modern, visual
+  Build history as a list       | Pipeline as a visual flow
+  Hard to see which stage failed| Instantly see which stage failed
+  No visual pipeline map        | Each stage shown as a coloured block
+  Logs buried in menus          | Logs shown inline next to the stage
+
+HOW TO ACCESS BLUE OCEAN
+--------------------------------------------------------------------------------
+
+    Option 1: Click "Open Blue Ocean" button in Jenkins sidebar
+    Option 2: Go to: http://your-jenkins:8080/blue
+
+WHAT BLUE OCEAN SHOWS
+--------------------------------------------------------------------------------
+
+    Pipeline view:
+
+    [Checkout] -> [Build] -> [Test] -> [Deploy Staging] -> [Deploy Prod]
+       OK           OK        FAIL        skipped            skipped
+
+    Click on [Test] -> shows test logs inline
+                    -> shows which specific tests failed
+                    -> shows duration of each step
+
+BLUE OCEAN PIPELINE EDITOR
+--------------------------------------------------------------------------------
+Blue Ocean has a visual editor where you can create pipelines by clicking
+and dragging — without writing Groovy. It generates the Jenkinsfile for you.
+
+    Blue Ocean -> New Pipeline
+    -> Connect to GitHub -> Select repository
+    -> Visual editor appears
+    -> Add stages by clicking +
+    -> Blue Ocean generates and commits the Jenkinsfile
+
+Useful for beginners — but experienced engineers write Jenkinsfiles directly.
+================================================================================

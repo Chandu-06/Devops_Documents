@@ -1,0 +1,120 @@
+================================================================================
+  JENKINS LEARNING DOCUMENT
+  Concept #4 — parameters { }
+  User inputs before the pipeline runs — forms, dropdowns, checkboxes
+================================================================================
+
+WHAT IS IT?
+================================================================================
+parameters { } lets you define inputs that a user must provide before the
+pipeline runs. The "Build Now" button changes to "Build with Parameters",
+showing a form the user fills out.
+
+ALL PARAMETER TYPES
+================================================================================
+
+string — single line text input
+    parameters {
+        string(name: 'VERSION', defaultValue: '1.0.0',
+               description: 'Enter the version number to deploy')
+    }
+    sh "mvn package -Dversion=${params.VERSION}"
+
+choice — dropdown menu
+    parameters {
+        choice(name: 'ENVIRONMENT',
+               choices: ['dev', 'staging', 'production'],
+               description: 'Select the environment to deploy to')
+    }
+    sh "./deploy.sh ${params.ENVIRONMENT}"
+    Note: The FIRST item in the list is the default.
+
+booleanParam — checkbox (true/false)
+    parameters {
+        booleanParam(name: 'RUN_TESTS', defaultValue: true,
+                     description: 'Should the test suite run?')
+    }
+    when { expression { params.RUN_TESTS == true } }
+
+text — multi-line text input
+    parameters {
+        text(name: 'RELEASE_NOTES', defaultValue: '',
+             description: 'Enter release notes')
+    }
+
+password — masked input
+    parameters {
+        password(name: 'DEPLOY_TOKEN', defaultValue: '',
+                 description: 'Enter the deployment API token')
+    }
+    Value is masked as **** in logs.
+    NOTE: For permanent secrets, use withCredentials instead.
+
+file — upload a file before build
+    parameters {
+        file(name: 'CONFIG_FILE', description: 'Upload config file')
+    }
+
+USING params INSIDE YOUR PIPELINE
+================================================================================
+
+    // ALWAYS use double quotes for variable substitution
+    echo "Deploying ${params.VERSION} to ${params.ENVIRONMENT}"
+    sh "mvn package -Dversion=${params.VERSION}"
+    when { expression { params.RUN_TESTS == true } }
+
+    // Single quotes will NOT work — prints literally
+    echo 'Version is ${params.VERSION}'  // WRONG
+
+IMPORTANT — FIRST RUN BEHAVIOUR
+================================================================================
+The very FIRST time Jenkins runs a pipeline with parameters, it does NOT show
+the form. It runs with default values. From the SECOND run onwards, the form
+appears. This is normal Jenkins behaviour — not a bug.
+
+COMPLETE REAL-WORLD EXAMPLE
+================================================================================
+
+    pipeline {
+        agent any
+        parameters {
+            choice(name: 'ENVIRONMENT',
+                   choices: ['dev', 'staging', 'production'],
+                   description: 'Target deployment environment')
+            string(name: 'VERSION', defaultValue: '1.0.0',
+                   description: 'Application version to deploy')
+            booleanParam(name: 'RUN_TESTS', defaultValue: true,
+                         description: 'Run the full test suite?')
+            text(name: 'RELEASE_NOTES', defaultValue: 'No notes.',
+                 description: 'Release notes for this version')
+        }
+        stages {
+            stage('Build') {
+                steps { sh "mvn clean package -Dapp.version=${params.VERSION}" }
+            }
+            stage('Test') {
+                when { expression { params.RUN_TESTS == true } }
+                steps { sh 'mvn test' }
+            }
+            stage('Deploy') {
+                steps { sh "./deploy.sh ${params.ENVIRONMENT} ${params.VERSION}" }
+            }
+        }
+    }
+
+QUICK REFERENCE
+================================================================================
+  string       | Single line text | Version numbers, names, URLs
+  choice       | Dropdown menu    | Environment, region, tier
+  booleanParam | Checkbox         | Feature flags, skip/run switches
+  text         | Multi-line area  | Release notes, descriptions
+  password     | Masked input     | One-time tokens, user secrets
+  file         | File upload      | Config files, certificates
+
+COMMON MISTAKES
+================================================================================
+  • Single quotes with params — always use double quotes
+  • Wrong comparison: use == true not == 'true' for booleanParam
+  • Expecting form on first run — form only appears from second run onwards
+  • Using password param for permanent secrets — use withCredentials instead
+================================================================================

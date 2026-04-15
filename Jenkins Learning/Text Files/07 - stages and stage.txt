@@ -1,0 +1,167 @@
+================================================================================
+  JENKINS LEARNING DOCUMENT
+  Concept #7 — stages { } and stage( )
+  The heart of the pipeline — where all the actual work is organised
+================================================================================
+
+WHAT IS IT?
+================================================================================
+stages { } is the container. Inside it, you define individual stage('name') { }
+blocks — each one representing a distinct, logical phase of your software
+delivery process. Stages run TOP TO BOTTOM, one at a time by default.
+
+THE BASIC STRUCTURE
+================================================================================
+
+    pipeline {
+        agent any
+        stages {                          // container for all stages
+            stage('Checkout') {           // stage 1
+                steps { ... }
+            }
+            stage('Build') {              // stage 2
+                steps { ... }
+            }
+            stage('Test') {               // stage 3
+                steps { ... }
+            }
+            stage('Deploy') {             // stage 4
+                steps { ... }
+            }
+        }
+    }
+
+If any stage fails — all remaining stages are SKIPPED.
+
+ANATOMY OF A SINGLE stage( )
+================================================================================
+
+    stage('Deploy') {
+        agent { }           // optional — which machine runs this stage
+        environment { }     // optional — variables for this stage only
+        options { }         // optional — timeout, retry for this stage
+        when { }            // optional — condition to decide if stage runs
+        input { }           // optional — pause and wait for human approval
+        steps { }           // REQUIRED — the actual commands
+        post { }            // optional — what to do after this stage
+    }
+
+input { } — HUMAN APPROVAL GATE
+================================================================================
+
+    stage('Deploy to Production') {
+        steps {
+            input message: 'Deploy to production?', ok: 'Yes, deploy now!'
+            sh './deploy.sh production'
+        }
+    }
+
+Advanced input — with parameters and approver restriction:
+
+    stage('Production Approval') {
+        options { timeout(time: 24, unit: 'HOURS') }
+        steps {
+            script {
+                def approval = input(
+                    message: 'Approve deployment to production?',
+                    ok: 'Deploy',
+                    submitter: 'senior-dev,devops-lead',
+                    parameters: [
+                        choice(name: 'DEPLOY_SLOT',
+                               choices: ['blue', 'green'],
+                               description: 'Which slot?')
+                    ]
+                )
+                env.DEPLOY_SLOT = approval.DEPLOY_SLOT
+            }
+        }
+    }
+
+PARALLEL STAGES — Run Multiple Stages Simultaneously
+================================================================================
+
+    stage('Run All Tests') {
+        parallel {
+            stage('Unit Tests') {
+                steps { sh 'mvn test -Punit' }
+            }
+            stage('Integration Tests') {
+                steps { sh 'mvn test -Pintegration' }
+            }
+            stage('Security Scan') {
+                steps { sh 'mvn dependency-check:check' }
+            }
+        }
+    }
+
+All 3 run simultaneously. Next stage only starts when ALL finish.
+
+failFast — abort all parallel stages if one fails:
+    stage('Tests') {
+        parallel {
+            failFast true   // abort all if any one fails
+            stage('Unit')        { steps { sh 'mvn test -Punit' } }
+            stage('Integration') { steps { sh 'mvn test -Pintegration' } }
+        }
+    }
+
+Parallel with different agents:
+    stage('Cross-Platform Tests') {
+        parallel {
+            stage('Test on Linux') {
+                agent { label 'linux' }
+                steps { sh 'mvn test' }
+            }
+            stage('Test on Windows') {
+                agent { label 'windows' }
+                steps { bat 'mvn test' }
+            }
+        }
+    }
+
+NESTED SEQUENTIAL STAGES
+================================================================================
+
+    stages {
+        stage('CI') {
+            stages {
+                stage('Build')       { steps { sh 'mvn package' } }
+                stage('Unit Test')   { steps { sh 'mvn test' } }
+                stage('Code Quality'){ steps { sh 'mvn sonar:sonar' } }
+            }
+        }
+        stage('CD') {
+            stages {
+                stage('Deploy Staging')    { steps { sh './deploy.sh staging' } }
+                stage('Smoke Test')        { steps { sh './smoke-test.sh' } }
+                stage('Deploy Production') {
+                    steps {
+                        input 'Approve production?'
+                        sh './deploy.sh production'
+                    }
+                }
+            }
+        }
+    }
+
+STAGE-LEVEL post { }
+================================================================================
+
+    stage('Test') {
+        steps { sh 'mvn test' }
+        post {
+            always { junit 'target/surefire-reports/*.xml' }
+            failure {
+                slackSend channel: '#dev-alerts',
+                           message: "Tests failed in build #${env.BUILD_NUMBER}"
+            }
+        }
+    }
+
+COMMON MISTAKES
+================================================================================
+  • Putting steps directly in stages instead of inside a stage
+  • Forgetting that parallel stages need their own stage wrapper
+  • Using sh on Windows agent or bat on Linux agent
+  • Not using beforeAgent true with expensive Docker agents in when conditions
+================================================================================

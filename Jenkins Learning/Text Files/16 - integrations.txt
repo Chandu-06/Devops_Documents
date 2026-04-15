@@ -1,0 +1,250 @@
+================================================================================
+  JENKINS LEARNING DOCUMENT
+  Topics #6 to #10 — Integrations
+  Git, Credentials, Docker, SonarQube, and Kubernetes
+================================================================================
+
+PART 1 — CREDENTIALS MANAGEMENT (UI)
+================================================================================
+
+    Manage Jenkins -> Credentials -> System -> Global credentials -> Add Credentials
+
+Username + Password:
+    Kind: Username with password
+    Username: myDockerHubUser
+    Password: myDockerHubPassword
+    ID: docker-hub-creds        <- reference this in credentialsId: '...'
+    Description: Docker Hub login
+
+Secret Text:
+    Kind: Secret text
+    Secret: sk-abc123yourtokenhere
+    ID: sonarqube-token
+
+SSH Private Key:
+    Kind: SSH Username with private key
+    ID: prod-deploy-key
+    Username: ubuntu
+    Private Key: Enter directly -> paste your private key content
+
+Credential Scopes:
+  Global   = Available to all jobs and pipelines
+  System   = Only for Jenkins system use (not pipelines)
+  Folder   = Only available inside a specific folder
+
+PART 2 — JENKINS + GIT INTEGRATION
+================================================================================
+
+SETTING UP A GITHUB WEBHOOK
+--------------------------------------------------------------------------------
+
+In GitHub:
+    Your Repository -> Settings -> Webhooks -> Add webhook
+    Payload URL: http://jenkins.mycompany.com:8080/github-webhook/
+    Content type: application/json
+    Events: Just the push event
+    -> Add webhook
+
+In Jenkinsfile:
+    triggers { githubPush() }
+
+CONNECTING PRIVATE REPOSITORIES
+--------------------------------------------------------------------------------
+
+    // In Jenkins credentials:
+    Kind: Username with password
+    Username: your-github-username
+    Password: your-github-personal-access-token   <- NOT account password
+    ID: github-token
+
+    GitHub PAT permissions needed:
+      repo           — full repository access
+      admin:repo_hook — manage webhooks
+
+    // In Jenkinsfile:
+    git branch: 'main',
+        url: 'https://github.com/myorg/private-repo.git',
+        credentialsId: 'github-token'
+
+PART 3 — JENKINS + DOCKER (FULL PICTURE)
+================================================================================
+
+PATTERN 1 — Build and Push Docker Image
+--------------------------------------------------------------------------------
+
+    environment {
+        DOCKER_REG = 'registry.mycompany.com'
+        APP_NAME   = 'payment-service'
+        VERSION    = '3.0.0'
+        IMAGE      = "${DOCKER_REG}/${APP_NAME}:${VERSION}-${env.BUILD_NUMBER}"
+    }
+
+    stage('Build Image') { steps { sh "docker build -t ${IMAGE} ." } }
+
+    stage('Push Image') {
+        steps {
+            withCredentials([usernamePassword(
+                credentialsId: 'registry-creds',
+                usernameVariable: 'REG_USER',
+                passwordVariable: 'REG_PASS'
+            )]) {
+                sh "docker login ${DOCKER_REG} -u ${REG_USER} -p ${REG_PASS}"
+                sh "docker push ${IMAGE}"
+            }
+        }
+    }
+
+    stage('Deploy') {
+        steps {
+            sh """
+                docker pull ${IMAGE}
+                docker stop ${APP_NAME} || true
+                docker run -d --name ${APP_NAME} -p 8080:8080 ${IMAGE}
+            """
+        }
+    }
+
+    post { always { sh "docker rmi ${IMAGE} || true" } }
+
+PATTERN 2 — Docker as Build Environment
+--------------------------------------------------------------------------------
+Instead of installing Maven/Node on the agent, run inside Docker:
+
+    pipeline {
+        agent none
+        stages {
+            stage('Build Java') {
+                agent { docker 'maven:3.9-openjdk-17' }
+                steps { sh 'mvn clean package' }
+            }
+            stage('Build Frontend') {
+                agent { docker 'node:18-alpine' }
+                steps { sh 'npm install && npm run build' }
+            }
+        }
+    }
+
+PATTERN 3 — Docker Compose for Integration Tests
+--------------------------------------------------------------------------------
+
+    stage('Integration Tests') {
+        steps {
+            sh 'docker-compose -f docker-compose.test.yml up -d'
+            sleep(time: 15, unit: 'SECONDS')
+            sh 'mvn test -Pintegration'
+        }
+        post { always { sh 'docker-compose -f docker-compose.test.yml down -v' } }
+    }
+
+COMMON DOCKER + JENKINS ISSUES
+--------------------------------------------------------------------------------
+
+  Permission denied /var/run/docker.sock
+  -> Fix: sudo usermod -aG docker jenkins
+
+  Old images filling disk
+  -> Fix: docker system prune -f in post { always { } }
+
+  Image not found on agent
+  -> Fix: Use alwaysPull true in agent config
+
+PART 4 — JENKINS + SONARQUBE
+================================================================================
+
+SonarQube analyses your code and reports bugs, security vulnerabilities,
+code smells, duplicate code, and test coverage. The quality gate blocks
+deployments when code quality drops below a threshold.
+
+    stage('Code Quality Analysis') {
+        steps {
+            withSonarQubeEnv('SonarQube') {   // name set in Jenkins config
+                sh '''
+                    mvn sonar:sonar \
+                        -Dsonar.projectKey=my-app \
+                        -Dsonar.projectName="My Application"
+                '''
+            }
+        }
+    }
+
+    stage('Quality Gate') {
+        steps {
+            timeout(time: 5, unit: 'MINUTES') {
+                waitForQualityGate abortPipeline: true
+                // PASSES -> pipeline continues
+                // FAILS  -> pipeline aborts immediately
+            }
+        }
+    }
+
+Quality Gate example thresholds:
+    Coverage on new code > 80%
+    Duplicated lines on new code < 3%
+    Maintainability rating = A
+    New bugs = 0
+    New vulnerabilities = 0
+
+PART 5 — JENKINS + KUBERNETES
+================================================================================
+
+Instead of fixed agent machines sitting idle, Jenkins spins up Kubernetes Pods
+as agents — one pod per build, destroyed after build finishes.
+
+    Pipeline triggered
+            |
+    Jenkins requests Kubernetes to create a Pod
+            |
+    Kubernetes starts the Pod (30-60 seconds)
+            |
+    Pipeline runs inside the Pod
+            |
+    Pipeline finishes -> Pod deleted automatically
+
+USING KUBERNETES AGENT IN PIPELINE
+--------------------------------------------------------------------------------
+
+    pipeline {
+        agent {
+            kubernetes {
+                yaml '''
+    apiVersion: v1
+    kind: Pod
+    spec:
+      containers:
+      - name: maven
+        image: maven:3.9-openjdk-17
+        command: [sleep]
+        args: [99d]
+      - name: docker
+        image: docker:latest
+        command: [sleep]
+        args: [99d]
+    '''
+            }
+        }
+        stages {
+            stage('Build') {
+                steps {
+                    container('maven') {   // run inside the maven container
+                        sh 'mvn clean package'
+                    }
+                }
+            }
+            stage('Docker Build') {
+                steps {
+                    container('docker') {  // run inside the docker container
+                        sh 'docker build -t myapp .'
+                    }
+                }
+            }
+        }
+    }
+
+BENEFITS OF KUBERNETES AGENTS
+--------------------------------------------------------------------------------
+  Cost           — Pods spin up only when needed — no idle machines
+  Scale          — 1 build or 1000 builds — Kubernetes handles it
+  Isolation      — Every build gets a fresh, clean environment
+  Flexibility    — Each pipeline can define its own Pod spec
+  Resource control — CPU and memory limits per build
+================================================================================

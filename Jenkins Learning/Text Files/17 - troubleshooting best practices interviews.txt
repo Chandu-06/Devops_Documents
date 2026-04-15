@@ -1,0 +1,256 @@
+================================================================================
+  JENKINS LEARNING DOCUMENT
+  Topics #11, #12, #13 — Troubleshooting, Best Practices & Interview Prep
+  Debug pipelines, write professional code, and ace your Jenkins interviews
+================================================================================
+
+PART 1 — TROUBLESHOOTING JENKINS PIPELINES
+================================================================================
+
+READING JENKINS LOGS
+--------------------------------------------------------------------------------
+    Jenkins job -> Click on failed build number -> Console Output
+
+    Look for these keywords:
+      ERROR
+      FAILED
+      Exception
+      error:
+      BUILD FAILURE
+      Process exited with code
+
+COMMON ERRORS AND FIXES
+--------------------------------------------------------------------------------
+
+Error: command not found (e.g. mvn: command not found)
+  Cause: Tool not installed on agent
+  Fix:   Use Docker agent with tool pre-installed
+         agent { docker 'maven:3.9-openjdk-17' }
+
+Error: Permission denied
+  Cause: Script not executable
+  Fix:   sh 'chmod +x ./deploy.sh' before running
+
+Error: No such file after unstash
+  Cause: Stash name mismatch
+  Fix:   Ensure stash name: 'x' and unstash 'x' match exactly
+
+Error: Workspace dirty
+  Cause: Leftover files from previous build
+  Fix:   Add cleanWs() in post { always { } }
+
+Error: script returned exit code 1
+  Cause: Shell command failed
+  Fix:   Run command manually on server to see real error
+         Or capture: def code = sh(script: '...', returnStatus: true)
+
+Error: Build hangs forever
+  Cause: Process waiting for input, or connection hanging
+  Fix:   Add timeout in options { } or per step
+
+Error: java.io.NotSerializableException
+  Cause: Non-serializable object stored in pipeline variable
+  Fix:   Use @NonCPS annotation on the method
+
+Error: Expected a step @ line X (Groovy CPS mismatch)
+  Cause: Groovy code directly in steps without script { }
+  Fix:   Wrap in script { def x = [1,2,3].collect { ... } }
+
+DEBUGGING TECHNIQUES
+--------------------------------------------------------------------------------
+
+1. Add echo statements everywhere:
+    script {
+        echo '=== DEBUG: Starting deploy ==='
+        echo "IMAGE_TAG: ${env.IMAGE_TAG}"
+        echo "ENVIRONMENT: ${params.ENVIRONMENT}"
+        sh './deploy.sh'
+        echo '=== DEBUG: Deploy finished ==='
+    }
+
+2. Print all environment variables:
+    sh 'printenv | sort'
+
+3. Jenkins Replay (test fixes without committing):
+    Failed build -> Replay -> Edit Jenkinsfile in browser -> Run
+
+4. Pipeline Syntax Tool:
+    Your Pipeline Job -> Pipeline Syntax
+    -> Select a step from dropdown
+    -> Fill in the fields
+    -> Click: Generate Pipeline Script
+
+PART 2 — JENKINS BEST PRACTICES
+================================================================================
+
+1. KEEP JENKINSFILE THIN
+--------------------------------------------------------------------------------
+    // Wrong — 80 lines of bash inside Jenkinsfile
+    sh '''
+        # 80 lines of deployment logic here
+    '''
+
+    // Correct — Jenkinsfile just orchestrates
+    sh 'chmod +x ./scripts/deploy.sh'
+    sh "./scripts/deploy.sh ${params.ENVIRONMENT} ${env.IMAGE_TAG}"
+
+    Rule: Jenkinsfile describes WHAT to do, not HOW to do it.
+
+2. ALWAYS CLEAN THE WORKSPACE
+    post { always { cleanWs() } }
+
+3. NEVER HARDCODE SECRETS
+    // Never
+    environment { DB_PASSWORD = 'MySecret123' }
+
+    // Always
+    environment { DB_PASSWORD = credentials('database-password') }
+
+4. USE || true FOR SAFE CLEANUP
+    sh 'docker stop myapp || true'
+    sh 'docker rm myapp || true'
+
+5. ALWAYS PUBLISH TEST RESULTS IN always
+    // Wrong — if tests fail, junit never runs
+    steps {
+        sh 'mvn test'
+        junit 'target/surefire-reports/*.xml'   // skipped when tests fail!
+    }
+
+    // Correct
+    steps { sh 'mvn test' }
+    post { always { junit allowEmptyResults: true,
+                          testResults: 'target/surefire-reports/*.xml' } }
+
+6. USE beforeAgent true WITH STAGE AGENTS
+    when {
+        beforeAgent true   // check condition BEFORE allocating agent
+        branch 'main'
+    }
+
+7. SET MEANINGFUL BUILD NAMES
+    currentBuild.displayName = "#${env.BUILD_NUMBER} — v${VERSION} [${env.BRANCH_NAME}]"
+    currentBuild.description = "Deployed to ${params.ENVIRONMENT}"
+
+8. USE failFast IN PARALLEL STAGES
+    stage('Tests') {
+        parallel {
+            failFast true   // don't wait for all tests if one fails
+            stage('Unit')        { steps { sh 'mvn test -Punit' } }
+            stage('Integration') { steps { sh 'mvn test -Pintegration' } }
+        }
+    }
+
+9. PIN TOOL VERSIONS
+    // Never — can break unexpectedly
+    agent { docker 'node:latest' }
+
+    // Always — consistent and reproducible
+    agent { docker 'node:18.17.0-alpine3.18' }
+
+10. USE input FOR PRODUCTION DEPLOYMENTS
+    stage('Production Gate') {
+        when { branch 'main' }
+        options { timeout(time: 24, unit: 'HOURS') }
+        steps {
+            input message: "Approve deployment of v${VERSION} to PRODUCTION?",
+                  submitter: 'devops-lead,cto'
+        }
+    }
+
+11. USE SHARED LIBRARIES FOR COMMON LOGIC
+    Anything repeated across 3+ pipelines -> move to shared library.
+
+PART 3 — INTERVIEW QUESTIONS
+================================================================================
+
+FRESHER LEVEL
+--------------------------------------------------------------------------------
+
+Q: What is Jenkins?
+A: Jenkins is an open-source automation server used to implement CI/CD
+   pipelines. It automatically builds, tests, and deploys code whenever
+   changes are pushed to a repository.
+
+Q: What is the difference between CI and CD?
+A: CI (Continuous Integration) = automatically building and testing code on
+   every commit. CD (Continuous Delivery) = automatically deploying tested
+   code to staging. Continuous Deployment = automatically deploying to
+   production without manual approval.
+
+Q: What is a Jenkinsfile?
+A: A text file in the root of the project repository, written in Groovy,
+   that contains the pipeline definition. Jenkins reads it automatically.
+
+Q: Declarative vs Scripted pipeline?
+A: Declarative uses pipeline { }, strict structure, modern standard.
+   Scripted uses node { }, more flexible, found in older Jenkins setups.
+
+Q: What is an agent?
+A: The machine that runs the pipeline. Master reads the Jenkinsfile and
+   schedules work. Agents do the actual building, testing, deploying.
+
+INTERMEDIATE LEVEL
+--------------------------------------------------------------------------------
+
+Q: agent any vs agent none?
+A: any = any available machine. none = no global agent, each stage picks own.
+
+Q: How do you handle secrets in Jenkins?
+A: Store in Jenkins credentials store, reference by ID only. Use
+   withCredentials or credentials() to inject. Auto-masked as **** in logs.
+
+Q: stash vs archiveArtifacts?
+A: stash = temporary, between stages, deleted after pipeline.
+   archiveArtifacts = permanent, visible and downloadable in Jenkins UI.
+
+Q: What is Multibranch Pipeline?
+A: Job type that auto-discovers all branches. Creates separate job per branch.
+   Auto-builds PRs. Uses Jenkinsfile from each branch.
+
+Q: What is when?
+A: Conditional block inside stage. Conditions: branch, expression, environment,
+   changeset, triggeredBy. Combinators: allOf, anyOf, not.
+
+EXPERIENCED LEVEL
+--------------------------------------------------------------------------------
+
+Q: What are Shared Libraries and why use them?
+A: Reusable Groovy code in a separate Git repo. Functions defined once in
+   vars/ folder, used by all pipelines. Change once, all pipelines updated.
+
+Q: How to optimise a slow pipeline?
+A: 1. Move independent stages into parallel { }
+   2. Use changeset conditions to skip stages when files unchanged
+   3. Add beforeAgent true to avoid allocating agents for skipped stages
+   4. Cache Maven/npm dependencies between builds
+   5. Use failFast true in parallel blocks
+   6. Pin faster Docker images (Alpine variants)
+
+Q: How to roll back a production deployment?
+A: Automatic: post { failure { sh './rollback.sh production' } }
+   Or manual: parameter ROLLBACK=true with when { expression { params.ROLLBACK } }
+
+Q: fixed vs regression in post?
+A: fixed = was failing, now passing (recovery).
+   regression = was passing, now failing (new breakage).
+   Smarter than changed — avoid notification spam.
+
+PRACTICAL SCENARIO — Pipeline Not Triggering
+--------------------------------------------------------------------------------
+1. Check if webhook is configured in GitHub/GitLab settings
+2. Check if Jenkins is publicly reachable from GitHub
+3. Check if triggers { githubPush() } is in the Jenkinsfile
+4. Check if pipeline was run at least once manually (triggers need first run)
+5. If behind firewall, switch to pollSCM instead of webhook
+6. Check Jenkins logs: Manage Jenkins -> System Log for webhook errors
+
+PRACTICAL SCENARIO — Pipeline Takes 45 Minutes
+--------------------------------------------------------------------------------
+1. Identify slowest stages using timestamps in logs
+2. Move independent stages into parallel { }
+3. Use changeset conditions to skip unchanged components
+4. Cache Maven/npm dependencies using shared volumes
+5. Use faster Docker images (Alpine variants)
+6. Add failFast true to parallel blocks to abort early on failure
+================================================================================

@@ -1,0 +1,161 @@
+================================================================================
+  JENKINS LEARNING DOCUMENT
+  Concept #9 — when { }
+  Conditional gates — control which stages run and which are skipped
+================================================================================
+
+WHAT IS IT?
+================================================================================
+when { } is a conditional gate on a stage. It answers one question:
+"Should this stage run or be skipped?"
+
+GOLDEN RULE — beforeAgent
+================================================================================
+Whenever a stage has its own agent, always add beforeAgent true to when.
+This evaluates the condition BEFORE allocating the agent — saving resources.
+
+    stage('Deploy') {
+        agent { docker 'deploy-tools:latest' }
+        when {
+            beforeAgent true    // check BEFORE spinning up Docker container
+            branch 'main'
+        }
+        steps { sh './deploy.sh' }
+    }
+
+Without beforeAgent true: Jenkins pulls Docker image, starts container,
+evaluates condition, condition is false, destroys container. Wasted time!
+
+ALL CONDITION TYPES
+================================================================================
+
+branch — current Git branch
+    when { branch 'main' }
+    when { branch 'develop' }
+    when { branch 'release/*' }         // wildcard
+    when { branch 'feature/*' }
+    when { branch pattern: 'release/\\d+\\.\\d+', comparator: 'REGEXP' }
+
+tag — current Git tag
+    when { tag '*' }          // any tag
+    when { tag 'v*' }         // tags starting with v (v1.0, v2.3.1)
+    when { tag 'release-*' }
+
+environment — check an environment variable
+    when { environment name: 'DEPLOY_ENV', value: 'production' }
+    when { environment name: 'CI', value: 'true' }
+
+expression — any Groovy expression (most flexible)
+    when { expression { params.ENVIRONMENT == 'production' } }
+    when { expression { params.RUN_TESTS == true } }
+    when { expression { fileExists('Dockerfile') } }
+
+    // Complex logic
+    when {
+        expression {
+            params.ENVIRONMENT == 'production' &&
+            env.GIT_BRANCH == 'origin/main'
+        }
+    }
+
+    // Don't deploy on weekends
+    when {
+        expression {
+            def day = new Date().format('EEEE')
+            return !(day in ['Saturday', 'Sunday'])
+        }
+    }
+
+triggeredBy — how was this build started?
+    when { triggeredBy 'TimerTrigger' }    // scheduled cron job
+    when { triggeredBy 'UserIdCause' }     // manually triggered
+    when { triggeredBy 'UpstreamCause' }   // triggered by upstream pipeline
+
+changeset — which files changed?
+    when { changeset 'src/**' }              // any file in src/
+    when { changeset 'frontend/**' }         // any file in frontend/
+    when { changeset 'Dockerfile' }
+    when { changeset pattern: '**/*.java', comparator: 'GLOB' }
+
+changeRequest — pull request builds
+    when { changeRequest() }                 // any PR build
+    when { changeRequest target: 'main' }    // PRs targeting main
+    when { not { changeRequest() } }         // NOT a PR
+
+COMBINING CONDITIONS
+================================================================================
+
+allOf — ALL must be true (AND)
+    when {
+        allOf {
+            branch 'main'
+            environment name: 'DEPLOY_ENABLED', value: 'true'
+            expression { params.ENVIRONMENT == 'production' }
+        }
+    }
+
+anyOf — ANY must be true (OR)
+    when {
+        anyOf {
+            branch 'main'
+            branch 'release'
+            tag 'v*'
+        }
+    }
+
+not — negate a condition
+    when { not { branch 'feature/*' } }  // everything EXCEPT feature branches
+
+    // not with multiple conditions
+    when {
+        not {
+            anyOf {
+                branch 'feature/*'
+                branch 'hotfix/*'
+            }
+        }
+    }
+
+GITFLOW CI/CD PATTERN WITH when
+================================================================================
+
+  Branch          | Stages That Run
+  ----------------|--------------------------------------------------
+  feature/xyz     | Checkout, Build, Unit Tests
+  Pull Request    | Checkout, Build, Unit Tests, Integration, PR Quality
+  develop         | All CI stages + Deploy to Dev
+  develop (nightly)| All CI stages + Deploy to Dev + Performance Tests
+  release/3.0     | All CI stages + Deploy to UAT
+  main            | All CI stages + Approval + Deploy to Production
+  v3.0.0 (tag)    | Build, Unit Tests, Docker Build, Publish Release
+
+COMMON PATTERNS
+================================================================================
+
+    // Skip stage when a parameter says so
+    stage('Tests') {
+        when { expression { params.SKIP_TESTS != true } }
+        steps { sh 'mvn test' }
+    }
+
+    // Run only if previous build failed (recovery notification)
+    stage('Recovery Notification') {
+        when {
+            expression { currentBuild.previousBuild?.result == 'FAILURE' }
+        }
+        steps { slackSend channel: '#builds', message: 'Pipeline recovered!' }
+    }
+
+    // Run only when specific files changed
+    stage('Rebuild DB Schema') {
+        when { changeset 'src/main/resources/db/migration/**' }
+        steps { sh 'mvn flyway:migrate' }
+    }
+
+COMMON MISTAKES
+================================================================================
+  • Forgetting beforeAgent true — agent allocated even when condition is false
+  • Using == 'main' instead of branch 'main' — env.GIT_BRANCH has origin/ prefix
+  • Using when outside a stage — when must be inside stage, before steps
+  • Forgetting that not wraps only ONE condition — use anyOf inside not for multiple
+================================================================================

@@ -1,0 +1,125 @@
+================================================================================
+  JENKINS LEARNING DOCUMENT
+  Concept #2 — agent
+  Tells Jenkins which machine should run your pipeline
+================================================================================
+
+WHAT IS IT?
+================================================================================
+agent tells Jenkins: on which machine should this pipeline (or stage) run?
+
+JENKINS ARCHITECTURE — MASTER & AGENT
+================================================================================
+
+                    +---------------------+
+                    |   Jenkins Master     |
+                    |  - Reads Jenkinsfile  |
+                    |  - Schedules jobs    |
+                    |  - Shows UI/results  |
+                    +----------+----------+
+                               |
+          +--------------------+--------------------+
+          |                    |                    |
+    +-----+--------+     +-----+--------+     +----+----------+
+    | Agent Node 1 |     | Agent Node 2 |     | Agent Node 3  |
+    |   (Linux)    |     |  (Windows)   |     |   (Docker)    |
+    | Runs builds  |     | Runs builds  |     | Runs builds   |
+    +--------------+     +--------------+     +---------------+
+
+  • Master — the brain. Reads Jenkinsfile, schedules, shows results. Does
+    NOT do the actual build work.
+  • Agent — the hands. Actually runs your commands, builds, tests, deploys.
+
+WHERE CAN agent BE WRITTEN?
+================================================================================
+
+1. Pipeline level — applies to ALL stages
+
+    pipeline {
+        agent any
+        stages { ... }
+    }
+
+2. Stage level — overrides for just that stage
+
+    pipeline {
+        agent none
+        stages {
+            stage('Build') {
+                agent { label 'linux' }
+                steps { sh 'mvn package' }
+            }
+        }
+    }
+
+ALL AGENT OPTIONS
+================================================================================
+
+agent any
+    Run on any available agent node. Most common for beginners.
+
+agent none
+    No global agent. Each stage must define its own.
+
+agent { label 'linux' }
+    Run only on machines tagged with that label.
+
+    agent { label 'linux && docker' }   // must have BOTH labels
+    agent { label 'linux || windows' }  // either Linux OR Windows
+
+agent { docker 'node:18' }    (Very Important)
+    Jenkins spins up a Docker container, runs pipeline inside it,
+    then destroys the container. Benefits:
+      • No need to install tools on the build machine
+      • Every build gets a clean, identical environment
+      • No "works on my machine" problems
+
+    pipeline {
+        agent { docker 'node:18-alpine' }
+        stages {
+            stage('Build') {
+                steps {
+                    sh 'node --version'
+                    sh 'npm install'
+                }
+            }
+        }
+    }
+
+agent { docker { } }    Advanced Docker
+    agent {
+        docker {
+            image 'maven:3.9-openjdk-17'
+            args  '-v /tmp:/tmp'
+            registryUrl 'https://registry.mycompany.com'
+            registryCredentialsId 'my-registry-creds'
+            alwaysPull true
+        }
+    }
+
+agent { dockerfile true }
+    Jenkins builds a Docker image from your own Dockerfile and runs
+    the pipeline inside it.
+
+agent { kubernetes { } }    Enterprise Level
+    Spins up a Kubernetes Pod as the agent. Used in large companies.
+
+sh vs bat — CRITICAL DIFFERENCE
+================================================================================
+
+  sh          = Linux/Mac shell command     sh 'mvn package'
+  bat         = Windows batch command       bat 'mvn package'
+  powershell  = Windows PowerShell          powershell 'Get-Process'
+
+SUMMARY
+================================================================================
+  Option                      | Meaning
+  ----------------------------|------------------------------------------
+  agent any                   | Any available machine
+  agent none                  | Each stage sets its own
+  agent { label 'x' }         | Only machines tagged with label x
+  agent { docker 'image' }    | Run inside a Docker container
+  agent { docker { } }        | Docker with advanced options
+  agent { dockerfile true }   | Build Docker from your Dockerfile
+  agent { kubernetes { } }    | Run inside a Kubernetes Pod
+================================================================================

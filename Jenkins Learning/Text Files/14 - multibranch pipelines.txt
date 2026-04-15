@@ -1,0 +1,159 @@
+================================================================================
+  JENKINS LEARNING DOCUMENT
+  Topic #2 — Multibranch Pipelines
+  Automatic branch discovery — one job type to manage all branches
+================================================================================
+
+WHAT IS IT?
+================================================================================
+A Multibranch Pipeline automatically discovers all branches in your Git
+repository and creates a separate pipeline job for each one — automatically.
+
+Real world analogy: A school with automatic class creation. Normally you'd
+manually create a classroom for each grade. With Multibranch, the school
+creates a classroom the moment a new grade appears and deletes it when gone.
+
+REGULAR PIPELINE vs MULTIBRANCH PIPELINE
+================================================================================
+
+Regular Pipeline:
+  • Manually configure which branch to build
+  • One job for the whole project
+  • Change config to build a different branch
+  • Does not scale for multiple branches
+
+Multibranch Pipeline:
+  • Automatically discovers ALL branches
+  • Creates separate job for EACH branch
+  • Auto-creates job when new branch appears
+  • Auto-deletes job when branch is deleted
+  • Each branch uses its OWN Jenkinsfile from that branch
+  • THIS is what real companies use
+
+SETTING UP A MULTIBRANCH PIPELINE
+================================================================================
+
+    New Item
+    -> Enter name: my-app
+    -> Select: Multibranch Pipeline
+    -> OK
+
+    Configure:
+    -> Branch Sources -> Add -> GitHub
+        -> Repository URL: https://github.com/myorg/my-app.git
+        -> Credentials: github-token
+
+    -> Behaviours:
+        -> Discover branches: All branches
+        -> Filter by name (wildcards):
+            Include: main, develop, feature/*, release/*
+            Exclude: experimental/*
+
+    -> Scan Multibranch Pipeline Triggers:
+        -> Periodically if not otherwise run: 1 minute
+
+    -> Save
+
+Jenkins immediately scans and creates jobs for all matching branches.
+
+env.BRANCH_NAME IN MULTIBRANCH
+================================================================================
+
+    echo "Current branch: ${env.BRANCH_NAME}"
+    // Outputs: main  OR  develop  OR  feature/login  etc.
+
+    IMPORTANT DIFFERENCE:
+    BRANCH_NAME = 'main'           (no origin/ prefix) <- USE THIS
+    GIT_BRANCH  = 'origin/main'    (has origin/ prefix)
+
+    This is why:  when { branch 'main' }  works cleanly in Multibranch.
+
+REAL JENKINSFILE FOR MULTIBRANCH
+================================================================================
+
+    pipeline {
+        agent any
+        environment {
+            APP_NAME  = 'product-service'
+            IMAGE_TAG = "myregistry/${APP_NAME}:${env.BUILD_NUMBER}"
+        }
+        stages {
+            stage('Checkout') {
+                steps {
+                    checkout scm
+                    echo "Building branch: ${env.BRANCH_NAME}"
+                }
+            }
+            stage('Build') { steps { sh 'mvn clean package -DskipTests' } }
+            stage('Test')  { steps { sh 'mvn test' } }
+
+            stage('Docker Build') {
+                when { anyOf { branch 'main'; branch 'develop'; branch 'release/*' } }
+                steps { sh "docker build -t ${IMAGE_TAG} ." }
+            }
+            stage('Deploy to Dev') {
+                when { branch 'develop' }
+                steps { sh "./deploy.sh dev ${IMAGE_TAG}" }
+            }
+            stage('Deploy to UAT') {
+                when { branch 'release/*' }
+                steps { sh "./deploy.sh uat ${IMAGE_TAG}" }
+            }
+            stage('Deploy to Production') {
+                when { branch 'main' }
+                steps {
+                    input message: 'Deploy to production?', ok: 'Deploy'
+                    sh "./deploy.sh production ${IMAGE_TAG}"
+                }
+            }
+        }
+        post {
+            success {
+                slackSend channel: '#builds', color: 'good',
+                           message: "SUCCESS: ${APP_NAME} [${env.BRANCH_NAME}] #${env.BUILD_NUMBER}"
+            }
+            always { cleanWs() }
+        }
+    }
+
+WHAT EACH BRANCH DOES
+================================================================================
+
+  feature/xyz      | Checkout, Build, Test (no deployment)
+  Pull Request     | Checkout, Build, Test (reports to GitHub)
+  develop          | Checkout, Build, Test, Docker Build, Deploy to Dev
+  release/3.0      | Checkout, Build, Test, Docker Build, Deploy to UAT
+  main             | All CI + Production Approval + Deploy to Production
+
+PULL REQUEST BUILDS
+================================================================================
+
+When connected to GitHub, Multibranch automatically builds Pull Requests:
+
+    Developer opens PR: feature/login -> main
+            |
+    Jenkins automatically detects it
+            |
+    Creates job: my-app/PR-42
+            |
+    Runs pipeline on merged code (feature/login merged into main)
+            |
+    Reports status back to GitHub: green tick or red X on the PR
+            |
+    When PR merged/closed -> Jenkins deletes PR-42 job automatically
+
+PR Build Variables:
+    env.BRANCH_NAME    = 'PR-42'
+    env.CHANGE_ID      = '42'          (PR number)
+    env.CHANGE_TARGET  = 'main'        (target branch)
+    env.CHANGE_AUTHOR  = 'john.doe'    (who opened the PR)
+
+SUMMARY
+================================================================================
+  • Automatically creates Jenkins jobs for every branch in your repo
+  • Uses the Jenkinsfile from each branch
+  • env.BRANCH_NAME gives clean name without origin/ prefix
+  • Automatically builds Pull Requests and reports status to GitHub/GitLab
+  • Filter branches with wildcards to avoid building unwanted branches
+  • This is what real companies use — not regular single-branch pipelines
+================================================================================

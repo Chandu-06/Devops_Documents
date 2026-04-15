@@ -1,0 +1,116 @@
+================================================================================
+  JENKINS LEARNING DOCUMENT
+  Concept #3 — options { }
+  Pipeline-level behaviour settings — timeouts, retries, logs
+================================================================================
+
+WHAT IS IT?
+================================================================================
+options { } is where you define HOW the pipeline behaves — not what it does,
+but how it runs. Think of it as the settings/preferences panel of your pipeline.
+
+WHERE DOES IT GO?
+================================================================================
+
+    pipeline {
+        agent any
+        options {
+            // settings go here
+        }
+        stages { ... }
+    }
+
+EVERY OPTION EXPLAINED
+================================================================================
+
+1. timeout — kill the pipeline if it takes too long
+
+    options {
+        timeout(time: 30, unit: 'MINUTES')
+    }
+
+    Units: SECONDS | MINUTES | HOURS
+    Also works at stage level:
+        stage('Deploy') {
+            options { timeout(time: 5, unit: 'MINUTES') }
+            steps { sh './deploy.sh' }
+        }
+
+2. retry — automatically retry on failure
+
+    options { retry(3) }    // try 3 times total (1 original + 2 retries)
+
+    Also works at stage level — great for flaky npm install or downloads.
+
+3. timestamps — add timestamps to every log line
+
+    options { timestamps() }
+
+    Without: "Started by user admin"
+    With:    "09:45:01 Started by user admin"
+
+4. buildDiscarder — control how many old builds to keep
+
+    buildDiscarder(logRotator(numToKeepStr: '10'))          // keep last 10
+    buildDiscarder(logRotator(daysToKeepStr: '7'))          // keep last 7 days
+    buildDiscarder(logRotator(numToKeepStr: '10',
+                              daysToKeepStr: '7'))           // both (stricter)
+    buildDiscarder(logRotator(numToKeepStr: '10',
+                              artifactNumToKeepStr: '3'))    // limit artifacts too
+
+5. disableConcurrentBuilds — no two builds at the same time
+
+    options { disableConcurrentBuilds() }
+
+    Prevents two builds from deploying to the same server simultaneously.
+    Advanced: disableConcurrentBuilds(abortPrevious: true)
+
+6. skipDefaultCheckout — do not auto-checkout code
+
+    options { skipDefaultCheckout() }
+
+    Use when you want to control the checkout manually.
+
+7. quietPeriod — wait before starting
+
+    options { quietPeriod(30) }    // wait 30 seconds
+
+    Prevents Jenkins starting a new build for every single commit
+    when developers push multiple commits quickly.
+
+8. ansiColor — coloured console output
+
+    options { ansiColor('xterm') }
+
+    Requires the AnsiColor plugin.
+
+COMBINING MULTIPLE OPTIONS
+================================================================================
+
+    pipeline {
+        agent any
+        options {
+            timeout(time: 20, unit: 'MINUTES')
+            retry(2)
+            timestamps()
+            buildDiscarder(logRotator(numToKeepStr: '15'))
+            disableConcurrentBuilds()
+            ansiColor('xterm')
+        }
+        stages { ... }
+    }
+
+PIPELINE-LEVEL vs STAGE-LEVEL
+================================================================================
+
+  Option                   | Level
+  -------------------------|-------------------
+  timeout                  | Pipeline + Stage
+  retry                    | Pipeline + Stage
+  timestamps               | Pipeline + Stage
+  buildDiscarder           | Pipeline only
+  disableConcurrentBuilds  | Pipeline only
+  skipDefaultCheckout      | Pipeline + Stage
+  quietPeriod              | Pipeline only
+  ansiColor                | Pipeline + Stage
+================================================================================

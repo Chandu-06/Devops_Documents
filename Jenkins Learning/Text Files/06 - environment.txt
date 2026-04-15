@@ -1,0 +1,147 @@
+================================================================================
+  JENKINS LEARNING DOCUMENT
+  Concept #6 — environment { }
+  Global variables and secrets — define once, use everywhere
+================================================================================
+
+WHAT IS IT?
+================================================================================
+environment { } is where you define variables — named values you can reuse
+anywhere in your pipeline. It is also where you safely inject secrets —
+passwords, API keys, tokens — without writing them as plain text.
+
+WHERE DOES IT GO?
+================================================================================
+
+Pipeline level (available to ALL stages):
+    pipeline {
+        agent any
+        environment {
+            APP_NAME = 'my-web-app'
+            VERSION  = '2.5.1'
+        }
+        stages { ... }
+    }
+
+Stage level (available only to THAT stage):
+    stage('Deploy') {
+        environment { DEPLOY_SERVER = '192.168.1.10' }
+        steps { sh "ssh ubuntu@${DEPLOY_SERVER} './deploy.sh'" }
+    }
+
+PART 1 — SIMPLE VARIABLES
+================================================================================
+
+    environment {
+        APP_NAME        = 'shopping-cart'
+        VERSION         = '3.1.0'
+        DEPLOY_SERVER   = '192.168.1.50'
+
+        // Build one variable from others
+        IMAGE_FULL_NAME = "${DOCKER_REPO}/${APP_NAME}:${VERSION}"
+        // Result: mycompany/shopping-cart:3.1.0
+
+        // Dynamic variable from shell command
+        GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD',
+                               returnStdout: true).trim()
+        BUILD_DATE       = sh(script: 'date +%Y-%m-%d',
+                               returnStdout: true).trim()
+    }
+
+PART 2 — JENKINS BUILT-IN VARIABLES (Always Available)
+================================================================================
+
+    env.JOB_NAME          // Name of the pipeline job
+    env.BUILD_NUMBER      // Current build number (42)
+    env.BUILD_URL         // Full URL to this build
+    env.WORKSPACE         // Folder where code is checked out
+    env.GIT_BRANCH        // Current Git branch (origin/main)
+    env.GIT_COMMIT        // Full Git commit hash
+    env.NODE_NAME         // Agent machine running this build
+
+    Example:
+        sh "mv target/myapp.jar target/myapp-${env.BUILD_NUMBER}.jar"
+
+PART 3 — SECRETS AND CREDENTIALS (Most Important)
+================================================================================
+
+NEVER hardcode passwords in your Jenkinsfile!
+
+HOW IT WORKS:
+    1. Store secret in Jenkins UI (Manage Jenkins -> Credentials)
+    2. Give it an ID, e.g. 'docker-hub-creds'
+    3. Reference by ID only in Jenkinsfile — never the actual value
+    4. Jenkins injects real value at runtime, masked as **** in logs
+
+Secret Text:
+    environment {
+        SONAR_TOKEN = credentials('sonarqube-token')
+    }
+    sh "mvn sonar:sonar -Dsonar.token=${SONAR_TOKEN}"
+    // Logs show: mvn sonar:sonar -Dsonar.token=****
+
+Username + Password Pair:
+    environment {
+        DOCKER_CREDS = credentials('dockerhub-credentials')
+        // Auto-creates THREE variables:
+        // DOCKER_CREDS         = username:password
+        // DOCKER_CREDS_USR     = username only
+        // DOCKER_CREDS_PSW     = password only
+    }
+    sh "docker login -u ${DOCKER_CREDS_USR} -p ${DOCKER_CREDS_PSW}"
+
+SSH Private Key:
+    environment {
+        SSH_KEY = credentials('deploy-server-ssh-key')
+        // SSH_KEY = path to temp file containing the key
+    }
+    sh "ssh -i ${SSH_KEY} ubuntu@192.168.1.10 './deploy.sh'"
+
+PART 4 — withCredentials { } ALTERNATIVE
+================================================================================
+
+Use when you want secrets available only for specific steps:
+
+    steps {
+        withCredentials([
+            usernamePassword(credentialsId: 'dockerhub-creds',
+                             usernameVariable: 'DOCKER_USER',
+                             passwordVariable: 'DOCKER_PASS')
+        ]) {
+            sh "docker login -u ${DOCKER_USER} -p ${DOCKER_PASS}"
+        }
+        // Credentials are GONE here — no longer accessible
+    }
+
+PART 5 — SETTING VARIABLES DYNAMICALLY AT RUNTIME
+================================================================================
+
+    stage('Build') {
+        steps {
+            script {
+                env.IMAGE_TAG = "myapp:${env.BUILD_NUMBER}-${env.GIT_COMMIT.take(7)}"
+                // Result: myapp:42-a3f5c91
+            }
+        }
+    }
+    stage('Push') {
+        steps { sh "docker push ${env.IMAGE_TAG}" }  // available here too
+    }
+
+VARIABLE PRIORITY (OVERRIDE ORDER)
+================================================================================
+    Jenkins built-in         (lowest priority)
+            |
+    Pipeline-level environment { }
+            |
+    Stage-level environment { }
+            |
+    withCredentials { }      (highest priority — tightest scope)
+
+COMMON MISTAKES
+================================================================================
+  • Hardcoding secrets — NEVER write passwords directly
+  • Single quotes — always use double quotes when using ${VARIABLE}
+  • Defining variable after using it in the same block
+  • Forgetting _USR and _PSW suffixes for username/password credentials
+================================================================================

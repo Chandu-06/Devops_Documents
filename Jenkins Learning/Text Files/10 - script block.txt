@@ -1,0 +1,193 @@
+================================================================================
+  JENKINS LEARNING DOCUMENT
+  Concept #10 — script { }
+  Full Groovy logic — variables, loops, conditions, error handling
+================================================================================
+
+WHAT IS IT?
+================================================================================
+script { } is placed inside steps { } and lets you write full Groovy
+programming logic — variables, loops, conditions, functions, try/catch.
+It is the escape hatch that gives you real programming power.
+
+def vs env. — THE CRITICAL DIFFERENCE
+================================================================================
+
+    stage('Set Variables') {
+        steps {
+            script {
+                def localVar = 'only here'      // local — only in THIS block
+                env.GLOBAL_VAR = 'everywhere'   // global — all stages can use
+            }
+        }
+    }
+    stage('Use Variables') {
+        steps {
+            script {
+                echo localVar         // ERROR — localVar does not exist here
+                echo env.GLOBAL_VAR   // Works!
+            }
+        }
+    }
+
+Rule: def = local scope.  env. = pipeline-wide scope.
+
+CONDITIONS — if / else
+================================================================================
+
+    steps {
+        script {
+            if (params.ENVIRONMENT == 'production') {
+                sh './deploy-prod.sh'
+            } else if (params.ENVIRONMENT == 'staging') {
+                sh './deploy-staging.sh'
+            } else {
+                error "Unknown environment: ${params.ENVIRONMENT}"
+            }
+
+            // Groovy switch — cleaner for multiple values
+            switch (params.ENVIRONMENT) {
+                case 'production': sh './deploy-prod.sh'; break
+                case 'staging':    sh './deploy-staging.sh'; break
+                default:           error 'Unknown environment'
+            }
+        }
+    }
+
+LOOPS
+================================================================================
+
+for loop — iterate over a list:
+    script {
+        def servers = ['server1.com', 'server2.com', 'server3.com']
+        for (server in servers) {
+            echo "Deploying to ${server}"
+            sh "scp target/myapp.jar ubuntu@${server}:/opt/app/"
+        }
+    }
+
+each — Groovy-style iteration:
+    script {
+        def environments = ['dev', 'staging', 'uat']
+        environments.each { env ->
+            sh "./smoke-test.sh ${env}"
+        }
+    }
+
+eachWithIndex — with index:
+    script {
+        def services = ['user-service', 'order-service', 'payment-service']
+        services.eachWithIndex { service, index ->
+            echo "Building ${index + 1}/${services.size()}: ${service}"
+            dir(service) { sh 'mvn clean package' }
+        }
+    }
+
+while loop:
+    script {
+        int attempts = 0
+        boolean serverReady = false
+        while (!serverReady && attempts < 10) {
+            attempts++
+            def status = sh(
+                script: 'curl -s -o /dev/null -w "%{http_code}" http://myserver/health',
+                returnStdout: true
+            ).trim()
+            if (status == '200') { serverReady = true }
+            else { sleep(10) }
+        }
+        if (!serverReady) { error 'Server failed to start' }
+    }
+
+MAPS — KEY-VALUE LOOKUPS
+================================================================================
+
+    script {
+        def serverConfig = [
+            production : '10.0.1.100',
+            staging    : '10.0.1.50',
+            dev        : '10.0.1.20'
+        ]
+        // Instead of long if/else chains:
+        env.TARGET_SERVER = serverConfig[params.ENVIRONMENT]
+        sh "./deploy.sh ${env.TARGET_SERVER}"
+    }
+
+try / catch / finally — ERROR HANDLING
+================================================================================
+
+    steps {
+        script {
+            try {
+                sh 'docker run --name test-container myapp ./run-tests.sh'
+            } catch (Exception e) {
+                echo "Tests failed: ${e.getMessage()}"
+                currentBuild.result = 'UNSTABLE'
+            } finally {
+                // Always runs — even if tests failed
+                sh 'docker rm -f test-container || true'
+            }
+        }
+    }
+
+Setting build result manually:
+    currentBuild.result = 'SUCCESS'    // green
+    currentBuild.result = 'UNSTABLE'   // yellow — tests failed but not a crash
+    currentBuild.result = 'FAILURE'    // red
+
+currentBuild — BUILD INFORMATION
+================================================================================
+
+    script {
+        echo "Build number   : ${currentBuild.number}"
+        echo "Build result   : ${currentBuild.result}"
+        echo "Build duration : ${currentBuild.durationString}"
+
+        // Customise Jenkins UI display
+        currentBuild.displayName = "#${env.BUILD_NUMBER} - v${params.VERSION}"
+        currentBuild.description = "Deployed to ${params.ENVIRONMENT}"
+
+        // Check previous build
+        def prevResult = currentBuild.previousBuild?.result ?: 'N/A'
+        echo "Previous result: ${prevResult}"
+    }
+
+REUSABLE FUNCTIONS — Defined Above pipeline { }
+================================================================================
+
+    // Define ABOVE pipeline { }
+    def deployToServer(String environment, String imageTag) {
+        echo "Deploying ${imageTag} to ${environment}"
+        sh "./deploy.sh ${environment} ${imageTag}"
+        sleep(15)
+        def status = sh(script: "./health-check.sh ${environment}", returnStatus: true)
+        if (status != 0) { error "Health check failed on ${environment}" }
+    }
+
+    def sendNotification(String channel, String status, String message) {
+        def color = status == 'success' ? 'good' : 'danger'
+        slackSend channel: channel, color: color, message: message
+    }
+
+    // Use in pipeline
+    pipeline {
+        agent any
+        stages {
+            stage('Deploy') {
+                steps {
+                    script {
+                        deployToServer('staging', env.IMAGE_TAG)
+                        sendNotification('#deploys', 'success', 'App deployed!')
+                    }
+                }
+            }
+        }
+    }
+
+COMMON MISTAKES
+================================================================================
+  • Using def when you need env. — def dies after the script block
+  • Not handling shell failures in try/catch
+  • Forgetting .trim() on shell output
+  • Writing too much logic in Jenkinsfile — keep it in external scripts
+================================================================================
