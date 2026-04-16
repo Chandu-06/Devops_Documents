@@ -1,0 +1,172 @@
+================================================================
+              DOCKER PRACTICE — ANSWER SHEET
+================================================================
+Instructions:
+- Write your answers below each question reference
+- Include actual file content (Dockerfile, Jenkinsfile, YAML, etc.)
+- You can add comments using # to explain your thinking
+================================================================
+
+----------------------------------------------------------------
+ANSWER 1 — Multi-Stage Node.js App
+----------------------------------------------------------------
+(Write your Dockerfile here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 2 — Python Flask App
+----------------------------------------------------------------
+(Write your Dockerfile here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 3 — Dockerfile for Java Spring Boot App
+----------------------------------------------------------------
+(Write your Dockerfile here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 4 — Nginx Static Website
+----------------------------------------------------------------
+(Write your Dockerfile here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 5 — Docker Ignore File
+----------------------------------------------------------------
+(Write your .dockerignore file here, with comments explaining each entry)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 6 — Environment Variables and ARG vs ENV
+----------------------------------------------------------------
+(Write your Dockerfile here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 7 — Docker Compose for a Full Stack App
+----------------------------------------------------------------
+(Write your docker-compose.yml here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 8 — Docker Compose with Build Context
+----------------------------------------------------------------
+(Write your docker-compose.yml here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 9 — Healthcheck in Dockerfile
+----------------------------------------------------------------
+(Write your Dockerfile here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 10 — Jenkins Pipeline: Build and Push Docker Image
+----------------------------------------------------------------
+(Write your Jenkinsfile here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 11 — Jenkins Pipeline: Multi-Stage Docker Build with Test
+----------------------------------------------------------------
+(Write your Jenkinsfile here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 12 — Docker Volumes
+----------------------------------------------------------------
+(Write your docker run command and docker-compose.yml here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 13 — Copying Files and WORKDIR Best Practices
+----------------------------------------------------------------
+(Write your Dockerfile here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 14 — Docker Networking
+----------------------------------------------------------------
+(Write all docker commands here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 15 — Entrypoint vs CMD
+----------------------------------------------------------------
+(Write both Dockerfiles here with comments)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 16 — Optimizing Docker Layer Caching
+----------------------------------------------------------------
+(Write the issues found and the corrected Dockerfile here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 17 — Docker Image Tagging Strategy in Jenkins
+----------------------------------------------------------------
+(Write your Jenkinsfile here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 18 — Docker Compose Override Files
+----------------------------------------------------------------
+(Write all three docker-compose files here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 19 — Securing a Dockerfile
+----------------------------------------------------------------
+(List the issues and write the corrected Dockerfile here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 20 — Full CI/CD Pipeline with Docker (Capstone)
+----------------------------------------------------------------
+(Write the complete Jenkinsfile here)
+
+
+
+
+================================================================
+                        END OF ANSWERS
+================================================================

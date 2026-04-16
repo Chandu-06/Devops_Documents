@@ -1,0 +1,559 @@
+================================================================================
+   PROJECT 3 — CODE EXPLANATION
+   Files: generate_log.sh | Dockerfile | Jenkinsfile
+================================================================================
+
+
+----------------------------------------------------------------
+WHAT IS THIS PROJECT?
+----------------------------------------------------------------
+This project builds a CI/CD pipeline on the company Jenkins server
+that automatically generates an application log file, packages it
+inside a Docker container, and archives it so anyone on the team
+can open Jenkins and download it at any time.
+
+Three files work together:
+  1. generate_log.sh  — the script that creates the log file
+  2. Dockerfile       — packages the script into a Docker container
+  3. Jenkinsfile      — defines the Jenkins pipeline that runs everything
+
+
+================================================================
+FILE 1 — generate_log.sh
+================================================================
+
+
+LINE 1: #!/bin/bash
+----------------------------------------------------------------
+Shebang line. Tells the OS to use the Bash shell to run this script.
+Must always be the first line of any shell script.
+
+
+LINE 2: echo "HSBC Log Generator v1.0"
+----------------------------------------------------------------
+Prints the tool name and version to the console when the script runs.
+This appears in the Jenkins console output so you can see the script started.
+
+
+LINE 3: echo "Timestamp: $(date)"
+----------------------------------------------------------------
+  $(date) = command substitution — runs the date command and inserts
+  the current date and time into the output.
+  This stamps when the log was generated.
+
+
+LINE 4: echo "Build Number: $BUILD_NUMBER"
+----------------------------------------------------------------
+  $BUILD_NUMBER = a built-in Jenkins environment variable.
+  Jenkins automatically sets this variable to the current build number
+  (1, 2, 3...) every time a pipeline runs.
+  This is important — it links the log file to the exact Jenkins build
+  that generated it, making it traceable.
+
+
+LINE 5: echo ""
+----------------------------------------------------------------
+Prints an empty line. Just for readability in the console output.
+
+
+LINE 6: LOG_FILE="application.log"
+----------------------------------------------------------------
+Creates a variable called LOG_FILE and sets its value to "application.log".
+Using a variable instead of hardcoding the filename in every line makes
+the script easier to maintain. If you want to rename the file later,
+you change it in one place only.
+
+
+LINE 7: echo "Generating application log.."
+----------------------------------------------------------------
+Status message telling Jenkins console output that log generation is starting.
+
+
+LINES 8-16: The log entry lines
+----------------------------------------------------------------
+Each of these lines appends one log entry to application.log:
+
+  echo "[$(date)] INFO: Application started" >> $LOG_FILE
+
+Breaking this down:
+  echo         = print text
+  [$(date)]    = inserts current timestamp inside square brackets
+                 $(date) runs the date command each time
+  INFO / WARNING / ERROR = log level indicators
+  The message  = describes what the simulated application is doing
+  >>           = append operator, adds the line to application.log
+                 without deleting previous lines
+  $LOG_FILE    = expands to "application.log"
+
+The log entries simulate a realistic application lifecycle:
+  - Application started
+  - Connecting to database
+  - Database connection successful
+  - High memory warning
+  - Processing transactions
+  - Transaction timeout error
+  - Retry attempt
+  - Transaction retry successful
+  - Application shutting down
+
+This mix of INFO, WARNING, and ERROR levels makes the log realistic
+and useful for demonstrating log processing in later pipelines.
+
+
+LINE 17: echo ""
+----------------------------------------------------------------
+Empty line for readability in console output.
+
+
+LINE 18: echo "Log file Generated: $LOG_FILE"
+----------------------------------------------------------------
+Confirmation message that the log file was created.
+$LOG_FILE expands to application.log.
+
+
+LINE 19: echo "Total lines: $(wc -l < $LOG_FILE)"
+----------------------------------------------------------------
+  wc -l        = word count command with -l flag, counts lines in a file
+  < $LOG_FILE  = feeds the file content as input to wc -l
+  $(...)       = command substitution — captures the line count as a number
+
+This prints the total number of lines written to the log file.
+Useful for verifying the script ran completely.
+
+
+LINE 20: echo "Log Generation completed successfully"
+----------------------------------------------------------------
+Final status message. When you see this in Jenkins console output,
+you know the script ran all the way through without errors.
+
+
+================================================================
+FILE 2 — Dockerfile
+================================================================
+
+
+LINE 1: FROM ubuntu:22.04
+----------------------------------------------------------------
+  FROM    = specifies the base image to build from
+  ubuntu  = the operating system
+  22.04   = the specific version (Ubuntu 22.04 LTS)
+
+Every Docker image starts from a base image. Think of it like
+choosing which operating system to install before adding your software.
+Ubuntu 22.04 is a stable, widely used Linux version.
+
+
+LINE 2: WORKDIR /app
+----------------------------------------------------------------
+  WORKDIR = sets the working directory inside the container
+  /app    = the folder inside the container where all commands will run
+
+This creates the /app directory inside the container and makes it
+the default location for all following commands. Like doing cd /app
+before everything else. It keeps files organized inside the container.
+
+
+LINE 3: COPY generate_log.sh .
+----------------------------------------------------------------
+  COPY              = copies a file from your local machine into the container
+  generate_log.sh   = the file to copy (from your project folder)
+  .                 = the destination inside the container
+                      (. means current directory, which is /app because of WORKDIR)
+
+This puts the generate_log.sh script inside the container at /app/generate_log.sh
+
+
+LINE 4: RUN chmod +x generate_log.sh
+----------------------------------------------------------------
+  RUN     = executes a command during the image build process
+  chmod   = change mode — modifies file permissions
+  +x      = adds execute permission
+
+By default, copied files may not have execute permission.
+This line makes the script executable so Docker can run it.
+This runs once when the image is built, not every time a container starts.
+
+
+LINE 5: CMD ["./generate_log.sh"]
+----------------------------------------------------------------
+  CMD     = the default command to run when a container starts
+  ["./generate_log.sh"] = run the script from the current directory (/app)
+
+CMD uses JSON array format (square brackets, quoted strings).
+This means every time a container is created from this image,
+it automatically runs generate_log.sh. No manual command needed.
+
+Difference between RUN and CMD:
+  RUN  = executes during image build (used for setup steps)
+  CMD  = executes when a container is started from the image
+
+
+================================================================
+FILE 3 — Jenkinsfile
+================================================================
+
+
+LINE 1: pipeline {
+----------------------------------------------------------------
+The opening of the Jenkins declarative pipeline block.
+Everything inside this block defines the pipeline.
+Declarative pipeline is the modern, structured way to write Jenkins pipelines.
+It is easier to read and maintain than the older scripted style.
+
+
+LINE 2: agent any
+----------------------------------------------------------------
+  agent = defines where the pipeline will run
+  any   = run on any available Jenkins agent (executor)
+
+Jenkins can have multiple agents (machines) connected to it.
+"any" means Jenkins can pick whichever agent is free.
+This is fine for our project since we have one Jenkins server.
+
+
+LINES 3-6: environment block
+----------------------------------------------------------------
+  environment {
+    IMAGE_NAME = "log-generator"
+    IMAGE_TAG  = "${BUILD_NUMBER}"
+  }
+
+This block defines environment variables available throughout the pipeline.
+
+  IMAGE_NAME = "log-generator"
+  The name of the Docker image that will be built.
+  Using a variable means you change the image name in one place only.
+
+  IMAGE_TAG = "${BUILD_NUMBER}"
+  The tag for the Docker image. BUILD_NUMBER is a Jenkins built-in variable.
+  So if this is build 5, the image tag will be 5.
+  This means every build creates a uniquely tagged image — log-generator:5
+  You can always go back and identify which build produced which image.
+
+
+STAGE 1: Checkout
+----------------------------------------------------------------
+  stage('Checkout') {
+    steps {
+      echo "Checking out Source Code"
+      checkout scm
+    }
+  }
+
+  echo        = prints a message to Jenkins console output
+  checkout scm = built-in Jenkins step that pulls the latest code
+                 from the source code repository configured in the job
+  scm         = Source Control Management — refers to the GitHub repo
+                connected to this Jenkins job
+
+This is always the first stage — Jenkins needs the code before doing anything.
+
+
+STAGE 2: Generate Log
+----------------------------------------------------------------
+  stage('Generate Log') {
+    steps {
+      echo "Running log generator script"
+      sh '''
+        cd log-generator
+        chmod +x generate_log.sh
+        ./generate_log.sh
+      '''
+    }
+  }
+
+  sh '''...'''  = runs shell commands on the Jenkins agent
+                 Triple quotes allow multi-line commands
+
+  cd log-generator     = navigate into the log-generator project folder
+  chmod +x generate_log.sh = make the script executable
+                             (needed in case permissions were not preserved in Git)
+  ./generate_log.sh    = run the script
+                         ./ means "in the current directory"
+
+After this stage, application.log is created in the log-generator folder
+on the Jenkins workspace.
+
+
+STAGE 3: Docker Build
+----------------------------------------------------------------
+  stage('Docker Build') {
+    steps {
+      echo "Building Docker Image"
+      sh '''
+        cd log-generator
+        docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+      '''
+    }
+  }
+
+  docker build         = builds a Docker image from a Dockerfile
+  -t                   = tag flag, gives the image a name and tag
+  ${IMAGE_NAME}        = expands to "log-generator"
+  ${IMAGE_TAG}         = expands to the current build number
+  .                    = the build context — use the current directory
+                         (Jenkins looks for Dockerfile here)
+
+So if this is build 7, the command becomes:
+  docker build -t log-generator:7 .
+
+This creates a Docker image named log-generator with tag 7.
+
+
+STAGE 4: Docker Run
+----------------------------------------------------------------
+  stage('Docker Run') {
+    steps {
+      echo "Running container to generate log"
+      sh "docker run --name log-container ${IMAGE_NAME}:${IMAGE_TAG}"
+      sh "docker cp log-container:/app/application.log log-generator/application.log"
+      sh "docker rm log-container"
+    }
+  }
+
+  docker run --name log-container ${IMAGE_NAME}:${IMAGE_TAG}
+    Starts a container from the image we just built.
+    --name log-container  = gives the container a fixed name so we can reference it
+    The container runs generate_log.sh automatically (because of CMD in Dockerfile)
+    and creates application.log inside the container at /app/application.log
+
+  docker cp log-container:/app/application.log log-generator/application.log
+    Copies the log file FROM the container TO the Jenkins workspace.
+    docker cp  = Docker copy command
+    log-container:/app/application.log  = source path inside the container
+    log-generator/application.log       = destination path in Jenkins workspace
+    This step is essential — files inside a container are not visible to Jenkins
+    unless explicitly copied out.
+
+  docker rm log-container
+    Removes the container after we have copied the file out.
+    If we don't remove it, the next build will fail because a container
+    with the name log-container already exists.
+    This is important cleanup — keeping Jenkins server tidy.
+
+
+STAGE 5: Archive Log
+----------------------------------------------------------------
+  stage('Archive Log') {
+    steps {
+      echo "Archiving generated log file"
+      archiveArtifacts artifacts: 'log-generator/application.log', fingerprint: true
+    }
+  }
+
+  archiveArtifacts = built-in Jenkins step that saves a file as a build artifact
+  artifacts:       = path to the file to archive (relative to Jenkins workspace)
+  fingerprint: true = Jenkins calculates a checksum (fingerprint) of the file
+                      This allows you to track which build produced which file
+                      and verify the file has not been changed
+
+After this stage, anyone can open Jenkins, click on the build,
+and download application.log directly from the browser.
+
+
+POST BLOCK
+----------------------------------------------------------------
+  post {
+    success {
+      echo "Pipeline succeeded. Log file generated for Build ${BUILD_NUMBER}"
+    }
+    failure {
+      echo "Pipeline failed. Check console output for Build ${BUILD_NUMBER}"
+    }
+    always {
+      echo "docker image prune -f || true"
+    }
+  }
+
+The post block runs after all stages complete, regardless of outcome.
+
+  success  = runs only if all stages passed
+  failure  = runs only if any stage failed
+  always   = runs every time, whether success or failure
+
+  docker image prune -f
+    Removes unused (dangling) Docker images from the server.
+    -f = force, no confirmation prompt needed
+    || true = even if the prune command fails (no images to prune),
+              the pipeline does not fail. || true ensures the exit code is 0.
+
+  This cleanup is very important in real environments. Every build creates
+  a new Docker image. Without cleanup, the server disk fills up over time
+  and Jenkins stops working.
+
+
+================================================================
+HOW THE 3 FILES WORK TOGETHER
+================================================================
+
+1. Jenkins triggers the pipeline (manually or via Git push)
+2. Jenkinsfile tells Jenkins what to do step by step
+3. Stage 2 runs generate_log.sh directly → creates application.log
+4. Stage 3 uses Dockerfile to build a Docker image
+5. Stage 4 runs a container from that image, copies the log out, cleans up
+6. Stage 5 archives application.log so it is downloadable from Jenkins
+
+
+================================================================
+POSSIBLE QUESTIONS FROM REVIEWERS — WITH ANSWERS
+================================================================
+
+
+Q1. What is the overall objective of this project?
+---------------------------------------------------
+A: The objective was to build a CI/CD pipeline on the company Jenkins server
+   that automatically generates an application log file using a shell script
+   packaged in Docker, and archives it as a downloadable build artifact.
+   It also gave me hands-on experience using the company GitHub repository
+   and following the team's Git branching strategy in a real environment.
+
+
+Q2. Why did you use Docker for this project? The script could run directly.
+---------------------------------------------------------------------------
+A: You are right that the script can run directly. But using Docker gives
+   two important advantages. First, it ensures the script runs in a clean,
+   consistent environment regardless of what software is installed on the
+   Jenkins server. Second, it is a realistic practice — in real projects,
+   applications are deployed as Docker containers. Learning to build images,
+   run containers, copy files out, and clean up is essential DevOps skill.
+
+
+Q3. What is the difference between RUN and CMD in a Dockerfile?
+----------------------------------------------------------------
+A: RUN executes a command during the image build process — it is used for
+   setup steps like installing software or changing permissions. The result
+   becomes part of the image.
+   CMD defines the default command to run when a container starts. It does
+   not run during build time. In this project, RUN chmod +x makes the script
+   executable during build, and CMD ./generate_log.sh runs the script
+   every time a container is started from this image.
+
+
+Q4. Why did you use IMAGE_TAG = BUILD_NUMBER?
+----------------------------------------------
+A: Tagging images with the build number makes every image uniquely identifiable.
+   If build 10 has a problem, you can look back at the Docker image from build 9
+   and understand exactly what changed. Without versioning, all builds would
+   overwrite the same tag and you would lose traceability. This is a standard
+   practice in professional DevOps environments.
+
+
+Q5. What does checkout scm do exactly?
+----------------------------------------
+A: checkout scm is a built-in Jenkins pipeline step that pulls the latest
+   code from the source code repository configured in the Jenkins job.
+   scm stands for Source Control Management. When you configure a Jenkins
+   job with a GitHub URL, checkout scm knows to pull from that GitHub repo
+   and branch. It is the standard way to get code into the Jenkins workspace
+   at the start of every pipeline.
+
+
+Q6. What is a Jenkins workspace?
+----------------------------------
+A: A Jenkins workspace is a folder on the Jenkins server where all the
+   files for a build are stored. When checkout scm runs, it copies your
+   GitHub repository files into this workspace. All subsequent stages
+   work with files in this workspace. Each job has its own workspace
+   so different jobs do not interfere with each other.
+
+
+Q7. Why did you do docker cp instead of just using a volume?
+-------------------------------------------------------------
+A: docker cp is simpler and more straightforward for this use case.
+   We run the container, it generates the log file internally, we copy
+   it out, and remove the container. Volumes add more complexity —
+   you need to mount a directory and manage paths carefully. For a
+   pipeline that runs a script and archives one file, docker cp is
+   clean and easy to understand and debug.
+
+
+Q8. What happens if docker rm fails in Stage 4?
+-------------------------------------------------
+A: If docker rm fails, the next build will fail at docker run because
+   a container named log-container already exists. Docker does not allow
+   two containers with the same name. To prevent this, we could add
+   docker rm -f log-container || true before the docker run command as
+   a safety step. This is something I would improve in the next version.
+
+
+Q9. What does fingerprint: true do in archiveArtifacts?
+---------------------------------------------------------
+A: fingerprint: true tells Jenkins to calculate a checksum (hash) of the
+   archived file. This creates a unique fingerprint for that exact file.
+   Jenkins stores this fingerprint so you can later verify which build
+   produced a specific file, and confirm the file has not been changed
+   after archiving. It is useful for audit trails and traceability.
+
+
+Q10. What does || true mean in the post block?
+-----------------------------------------------
+A: || is the OR operator in shell scripting. It means: if the command on
+   the left fails, run the command on the right instead.
+   true is a command that always succeeds (exit code 0).
+   So docker image prune -f || true means: try to prune Docker images,
+   and if it fails (for example if there are no images to prune), do not
+   fail the pipeline — just continue. This prevents a cleanup step from
+   breaking an otherwise successful pipeline.
+
+
+Q11. Why did you use the company Git branching strategy for this project?
+--------------------------------------------------------------------------
+A: Because this project was on the actual company Jenkins server using the
+   company GitHub repository. It was important to follow the same workflow
+   the team uses in real projects. I created a feature branch called
+   feature/log-generator from develop, did all my work there, and raised
+   a Pull Request to merge back into develop. This is how all development
+   work should be contributed — no direct pushes to develop or master.
+
+
+Q12. What is the post block and why is it important?
+-----------------------------------------------------
+A: The post block defines actions that run after all stages complete.
+   It has three sections — success, failure, and always.
+   success runs only when everything passed.
+   failure runs when something went wrong, letting us know to check logs.
+   always runs every time, which is where cleanup like Docker pruning happens.
+   Without a post block, you risk leaving behind artifacts, containers, or
+   images that pile up on the server over time. It is good pipeline hygiene.
+
+
+Q13. What would you improve in this project if given more time?
+----------------------------------------------------------------
+A: A few things I would improve:
+   First, add a safety docker rm -f log-container || true before docker run
+   to handle cases where a previous container was not cleaned up.
+   Second, push the Docker image to a registry like Docker Hub or the company
+   registry so images are stored centrally, not just on the Jenkins server.
+   Third, add email or Slack notifications in the post block so the team
+   is automatically informed of build results.
+   Fourth, fix the typos in the log messages — conncection, Prcessing, grecefully.
+
+
+Q14. How would this pipeline work in a real project scenario?
+--------------------------------------------------------------
+A: In a real project, this pattern would be used for automated log collection
+   after every deployment. The pipeline would be triggered automatically
+   via a GitHub webhook every time code is pushed. The log file would be
+   archived and available for the QA team or support team to review without
+   needing access to the server. The build number on each artifact makes it
+   easy to trace which deployment produced which logs. This is the foundation
+   of automated log management in CI/CD pipelines.
+
+
+Q15. What is the difference between CI and CD?
+-----------------------------------------------
+A: CI stands for Continuous Integration. It means automatically building
+   and testing code every time a developer pushes changes. The goal is to
+   catch problems early.
+   CD stands for Continuous Delivery or Continuous Deployment. Continuous
+   Delivery means the code is automatically prepared and ready to deploy
+   after passing tests — but a human approves the actual deployment.
+   Continuous Deployment goes one step further — deployment happens
+   automatically without any manual approval.
+   In this project, the pipeline does CI — it builds, runs, and archives
+   automatically on every trigger.
+
+
+================================================================================
+END OF FILE
+================================================================================

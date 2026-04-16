@@ -1,0 +1,405 @@
+================================================================
+       KUBERNETES PRACTICE QUESTIONS (Basic to Intermediate)
+================================================================
+Instructions:
+- Read each project scenario carefully
+- Write your answers in kubernetes_answers.txt
+- Each answer should contain actual YAML manifest files or kubectl commands
+================================================================
+
+----------------------------------------------------------------
+QUESTION 1 — Basic Pod
+----------------------------------------------------------------
+Your team wants to test a simple Nginx container on Kubernetes.
+
+Requirements:
+- Create a Pod manifest
+- Pod name: nginx-pod
+- Namespace: default
+- Container: nginx:1.25
+- Container port: 80
+- Add a label: app=nginx
+
+Task: Write the Pod manifest YAML.
+
+----------------------------------------------------------------
+QUESTION 2 — Deployment
+----------------------------------------------------------------
+You need to deploy a Node.js application to Kubernetes.
+
+Requirements:
+- Resource type: Deployment
+- Name: nodeapp-deployment
+- Namespace: dev
+- Replicas: 3
+- Image: mycompany/nodeapp:latest
+- Container port: 3000
+- Labels: app=nodeapp, env=dev
+- Restart policy: Always
+
+Task: Write the Deployment manifest YAML.
+
+----------------------------------------------------------------
+QUESTION 3 — ClusterIP Service
+----------------------------------------------------------------
+You have a backend Node.js Deployment (from Question 2) running
+in the dev namespace. Other services inside the cluster need to
+communicate with it.
+
+Requirements:
+- Service type: ClusterIP
+- Name: nodeapp-service
+- Namespace: dev
+- Selector: app=nodeapp
+- Port: 80
+- TargetPort: 3000
+
+Task: Write the ClusterIP Service manifest YAML.
+
+----------------------------------------------------------------
+QUESTION 4 — NodePort Service
+----------------------------------------------------------------
+The QA team needs to access a test application from outside
+the cluster (but within the company network) directly via a node IP.
+
+Requirements:
+- Service type: NodePort
+- Name: testapp-service
+- Namespace: qa
+- Selector: app=testapp
+- Port: 80
+- TargetPort: 8080
+- NodePort: 30080
+
+Task: Write the NodePort Service manifest YAML.
+
+----------------------------------------------------------------
+QUESTION 5 — ConfigMap
+----------------------------------------------------------------
+Your application needs some non-sensitive configuration values:
+- APP_ENV: production
+- APP_PORT: 3000
+- APP_LOG_LEVEL: info
+- APP_NAME: my-web-app
+
+Requirements:
+- ConfigMap name: app-config
+- Namespace: dev
+- Inject ALL these values as environment variables into a
+  Deployment called: webapp-deployment (image: myorg/webapp:1.0)
+  with 2 replicas
+
+Task: Write both the ConfigMap and the Deployment manifest YAML.
+
+----------------------------------------------------------------
+QUESTION 6 — Secret
+----------------------------------------------------------------
+Your application needs database credentials that must be stored
+securely in Kubernetes.
+
+Values to store:
+- DB_USER: admin
+- DB_PASSWORD: supersecret123
+- DB_HOST: postgres-service
+
+Requirements:
+- Secret name: db-secret
+- Namespace: dev
+- Type: Opaque
+- Inject these as environment variables in a Deployment:
+  name: backend-deployment, image: myorg/backend:1.0, replicas: 2
+- Values in the YAML must be base64 encoded
+
+Task: Write both the Secret and Deployment manifest YAML.
+      Also show the base64 encode commands for each value.
+
+----------------------------------------------------------------
+QUESTION 7 — Resource Requests and Limits
+----------------------------------------------------------------
+Your production Deployment is consuming too many resources
+and affecting other workloads on the same node.
+
+Requirements:
+- Deployment name: api-deployment
+- Namespace: production
+- Replicas: 3
+- Image: myorg/api:2.0
+- Container port: 8080
+- Resource Requests: CPU=250m, Memory=128Mi
+- Resource Limits: CPU=500m, Memory=256Mi
+
+Task: Write the Deployment manifest with resource requests and limits.
+
+----------------------------------------------------------------
+QUESTION 8 — Liveness and Readiness Probes
+----------------------------------------------------------------
+You have an API service and the team wants Kubernetes to:
+- Automatically restart the container if the app crashes (liveness)
+- Only send traffic when the app is fully ready (readiness)
+
+Requirements:
+- Deployment name: api-deployment
+- Image: myorg/api:latest
+- Port: 8080
+- Liveness Probe: HTTP GET /health, every 15s, initial delay 10s
+- Readiness Probe: HTTP GET /ready, every 10s, initial delay 5s
+- Both probes: failure threshold = 3
+
+Task: Write the Deployment manifest with both probes.
+
+----------------------------------------------------------------
+QUESTION 9 — Persistent Volume and Persistent Volume Claim
+----------------------------------------------------------------
+Your MySQL database Deployment needs persistent storage so data
+is not lost when the pod restarts.
+
+Requirements:
+- PersistentVolume name: mysql-pv
+  - Storage: 5Gi
+  - Access mode: ReadWriteOnce
+  - Host path: /data/mysql
+  - Reclaim policy: Retain
+
+- PersistentVolumeClaim name: mysql-pvc
+  - Namespace: dev
+  - Storage request: 5Gi
+  - Access mode: ReadWriteOnce
+
+- Deployment name: mysql-deployment
+  - Image: mysql:8
+  - Env: MYSQL_ROOT_PASSWORD=rootpass
+  - Mount the PVC to: /var/lib/mysql
+
+Task: Write the PV, PVC, and Deployment manifest YAMLs.
+
+----------------------------------------------------------------
+QUESTION 10 — Namespace and Resource Quota
+----------------------------------------------------------------
+Your company has three teams: dev, staging, production.
+Each team should have their own isolated namespace with limits.
+
+Requirements:
+- Create 3 Namespace manifests: dev, staging, production
+
+- For the dev namespace, create a ResourceQuota:
+  - Max pods: 10
+  - Max CPU requests: 4
+  - Max memory requests: 8Gi
+  - Max CPU limits: 8
+  - Max memory limits: 16Gi
+
+Task: Write the Namespace and ResourceQuota manifest YAMLs.
+
+----------------------------------------------------------------
+QUESTION 11 — Ingress
+----------------------------------------------------------------
+Your company has two services running in the production namespace:
+- frontend-service (port 80) → serve at path: /
+- api-service (port 8080) → serve at path: /api
+
+Both should be accessible via the domain: mycompany.com
+
+Requirements:
+- Ingress name: mycompany-ingress
+- Namespace: production
+- Use nginx ingress class
+- Host-based routing on: mycompany.com
+- Path-based routing as described above
+- Path type: Prefix
+
+Task: Write the Ingress manifest YAML.
+
+----------------------------------------------------------------
+QUESTION 12 — Horizontal Pod Autoscaler (HPA)
+----------------------------------------------------------------
+Your API deployment gets heavy traffic during business hours.
+The team wants Kubernetes to scale pods automatically.
+
+Requirements:
+- Target Deployment: api-deployment (namespace: production)
+- Minimum replicas: 2
+- Maximum replicas: 10
+- Scale up when CPU usage exceeds 70%
+- Scale up when Memory usage exceeds 80%
+
+Task: Write the HPA manifest YAML.
+
+----------------------------------------------------------------
+QUESTION 13 — Init Container
+----------------------------------------------------------------
+You have a web application that depends on a database being
+ready before it starts. The team wants to use an init container
+to wait for the database.
+
+Requirements:
+- Deployment name: webapp-deployment
+- Main container: myorg/webapp:latest, port 3000
+- Init container: use busybox image
+  - Command: wait until postgres-service:5432 is reachable
+  - Use: until nc -z postgres-service 5432; do sleep 2; done
+- Both init and main container should share the same pod spec
+
+Task: Write the Deployment manifest with the init container.
+
+----------------------------------------------------------------
+QUESTION 14 — ConfigMap as Volume (Mounted File)
+----------------------------------------------------------------
+Your Nginx deployment needs a custom nginx.conf file injected
+into the container instead of environment variables.
+
+nginx.conf content to inject:
+  server {
+      listen 80;
+      location / {
+          proxy_pass http://backend-service:3000;
+      }
+  }
+
+Requirements:
+- ConfigMap name: nginx-config
+- Mount it as a file at: /etc/nginx/conf.d/default.conf
+- Deployment name: nginx-deployment
+- Image: nginx:alpine
+- Port: 80
+
+Task: Write the ConfigMap and Deployment manifest YAMLs.
+
+----------------------------------------------------------------
+QUESTION 15 — Rolling Update and Rollback Strategy
+----------------------------------------------------------------
+Your team deploys frequently and needs zero-downtime deployments.
+They also want the ability to roll back if something goes wrong.
+
+Requirements:
+- Deployment name: webapp-deployment
+- Image: myorg/webapp:2.0
+- Replicas: 4
+- Strategy: RollingUpdate
+  - maxSurge: 1
+  - maxUnavailable: 0
+- Add annotation: kubernetes.io/change-cause="Updated to v2.0"
+
+Also write:
+- The kubectl command to check rollout status
+- The kubectl command to rollback to previous version
+- The kubectl command to view rollout history
+
+Task: Write the Deployment YAML and the kubectl commands.
+
+----------------------------------------------------------------
+QUESTION 16 — Multi-Container Pod (Sidecar Pattern)
+----------------------------------------------------------------
+Your team wants to add a log shipper (Fluentd) as a sidecar
+to a Node.js application pod. Both containers share the same
+log directory.
+
+Requirements:
+- Pod name: nodeapp-with-logger
+- Main container: myorg/nodeapp:latest
+  - Writes logs to: /var/log/app/app.log
+- Sidecar container: fluentd:latest
+  - Reads logs from: /var/log/app/app.log
+- Both containers must share the same volume: log-volume
+  - Use emptyDir volume type
+  - Mount path for both: /var/log/app
+
+Task: Write the Pod manifest YAML with sidecar pattern.
+
+----------------------------------------------------------------
+QUESTION 17 — CronJob
+----------------------------------------------------------------
+Your team needs a database backup job that runs automatically
+every day at 2:00 AM.
+
+Requirements:
+- CronJob name: db-backup-cronjob
+- Namespace: production
+- Schedule: every day at 2:00 AM
+- Image: myorg/db-backup:latest
+- Command: ["/bin/sh", "-c", "backup.sh"]
+- Env variable: DB_HOST=postgres-service
+- Keep last 3 successful jobs
+- Keep last 1 failed job
+- Restart policy: OnFailure
+
+Task: Write the CronJob manifest YAML.
+
+----------------------------------------------------------------
+QUESTION 18 — StatefulSet for Database
+----------------------------------------------------------------
+You need to deploy a MySQL database using StatefulSet so each
+pod gets a stable hostname and persistent storage.
+
+Requirements:
+- StatefulSet name: mysql-statefulset
+- Namespace: dev
+- Replicas: 1
+- Image: mysql:8
+- Env: MYSQL_ROOT_PASSWORD=rootpass, MYSQL_DATABASE=appdb
+- Port: 3306
+- Volume claim template:
+  - Name: mysql-storage
+  - Storage: 10Gi
+  - Access mode: ReadWriteOnce
+- A headless Service (clusterIP: None) named: mysql-headless
+
+Task: Write the StatefulSet and headless Service manifest YAMLs.
+
+----------------------------------------------------------------
+QUESTION 19 — RBAC (Role and RoleBinding)
+----------------------------------------------------------------
+A new developer joined your team. They should only be able to
+view (get, list, watch) Pods and Deployments in the dev namespace.
+They should NOT be able to create, delete, or modify anything.
+
+Requirements:
+- Role name: dev-viewer
+- Namespace: dev
+- Permissions: get, list, watch on pods and deployments
+
+- RoleBinding name: dev-viewer-binding
+- Bind to user: john.doe
+- Namespace: dev
+
+Task: Write the Role and RoleBinding manifest YAMLs.
+
+----------------------------------------------------------------
+QUESTION 20 — Full Production Deployment (Capstone)
+----------------------------------------------------------------
+You are setting up a production-grade deployment for a Java
+Spring Boot microservice on Kubernetes.
+
+Requirements — write ALL of the following manifests:
+
+1. Namespace: production
+
+2. Secret: app-secrets (namespace: production)
+   - DB_PASSWORD: prod@123
+   - JWT_SECRET: myjwtsecret
+
+3. ConfigMap: app-config (namespace: production)
+   - APP_ENV: production
+   - APP_PORT: 8080
+
+4. Deployment: springapp-deployment (namespace: production)
+   - Image: mycompany/springapp:1.0
+   - Replicas: 3
+   - Port: 8080
+   - Inject ConfigMap and Secret as env variables
+   - Resource requests: CPU=300m, Memory=256Mi
+   - Resource limits: CPU=600m, Memory=512Mi
+   - Liveness probe: GET /actuator/health, delay 30s, period 15s
+   - Readiness probe: GET /actuator/ready, delay 20s, period 10s
+   - Rolling update: maxSurge=1, maxUnavailable=0
+
+5. ClusterIP Service: springapp-service
+   - Port 80 → TargetPort 8080
+
+6. HPA: springapp-hpa
+   - Min: 3, Max: 10, CPU target: 75%
+
+Task: Write ALL manifest YAMLs in a single answer, separated clearly.
+
+================================================================
+                        END OF QUESTIONS
+================================================================

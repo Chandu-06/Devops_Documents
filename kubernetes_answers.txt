@@ -1,0 +1,173 @@
+================================================================
+           KUBERNETES PRACTICE — ANSWER SHEET
+================================================================
+Instructions:
+- Write your answers below each question reference
+- Include actual YAML manifests or kubectl commands
+- You can add comments using # to explain your thinking
+- For multi-manifest questions, separate each with ---
+================================================================
+
+----------------------------------------------------------------
+ANSWER 1 — Basic Pod
+----------------------------------------------------------------
+(Write your Pod manifest YAML here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 2 — Deployment
+----------------------------------------------------------------
+(Write your Deployment manifest YAML here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 3 — ClusterIP Service
+----------------------------------------------------------------
+(Write your Service manifest YAML here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 4 — NodePort Service
+----------------------------------------------------------------
+(Write your NodePort Service manifest YAML here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 5 — ConfigMap
+----------------------------------------------------------------
+(Write your ConfigMap and Deployment manifest YAMLs here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 6 — Secret
+----------------------------------------------------------------
+(Write base64 commands, Secret YAML, and Deployment YAML here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 7 — Resource Requests and Limits
+----------------------------------------------------------------
+(Write your Deployment manifest YAML here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 8 — Liveness and Readiness Probes
+----------------------------------------------------------------
+(Write your Deployment manifest YAML here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 9 — Persistent Volume and Persistent Volume Claim
+----------------------------------------------------------------
+(Write PV, PVC, and Deployment manifest YAMLs here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 10 — Namespace and Resource Quota
+----------------------------------------------------------------
+(Write Namespace and ResourceQuota manifest YAMLs here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 11 — Ingress
+----------------------------------------------------------------
+(Write your Ingress manifest YAML here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 12 — Horizontal Pod Autoscaler (HPA)
+----------------------------------------------------------------
+(Write your HPA manifest YAML here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 13 — Init Container
+----------------------------------------------------------------
+(Write your Deployment manifest with init container here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 14 — ConfigMap as Volume (Mounted File)
+----------------------------------------------------------------
+(Write ConfigMap and Deployment manifest YAMLs here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 15 — Rolling Update and Rollback Strategy
+----------------------------------------------------------------
+(Write the Deployment YAML and kubectl commands here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 16 — Multi-Container Pod (Sidecar Pattern)
+----------------------------------------------------------------
+(Write your Pod manifest YAML here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 17 — CronJob
+----------------------------------------------------------------
+(Write your CronJob manifest YAML here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 18 — StatefulSet for Database
+----------------------------------------------------------------
+(Write StatefulSet and headless Service manifest YAMLs here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 19 — RBAC (Role and RoleBinding)
+----------------------------------------------------------------
+(Write Role and RoleBinding manifest YAMLs here)
+
+
+
+
+----------------------------------------------------------------
+ANSWER 20 — Full Production Deployment (Capstone)
+----------------------------------------------------------------
+(Write ALL manifest YAMLs here, separated by ---)
+
+
+
+
+================================================================
+                        END OF ANSWERS
+================================================================

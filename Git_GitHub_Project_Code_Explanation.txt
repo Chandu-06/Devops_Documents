@@ -1,0 +1,405 @@
+================================================================================
+   GIT & GITHUB PROJECT — CODE EXPLANATION
+   File: log_processor.sh
+================================================================================
+
+
+----------------------------------------------------------------
+WHAT IS THIS FILE?
+----------------------------------------------------------------
+log_processor.sh is a Bash shell script that automatically processes
+any application log file. You give it a log file as input, and it:
+  - Extracts all ERROR lines and saves them to error.log
+  - Extracts all WARNING lines and saves them to warning.log
+  - Generates a summary report in summary.log with counts and timestamp
+
+
+================================================================
+LINE BY LINE EXPLANATION
+================================================================
+
+
+LINE 1: #version: 1.0.0
+----------------------------------------------------------------
+This is a comment. In Bash, anything starting with # is a comment
+and is not executed. This line just tells anyone reading the script
+what version it is. Good practice for tracking changes over time.
+
+
+LINE 2: #Author: Dev
+----------------------------------------------------------------
+Another comment. This tells who wrote the script.
+In company projects, this helps teams know who to contact
+if there is an issue with the script.
+
+
+LINE 3: #!/bin/bash
+----------------------------------------------------------------
+This is called a "shebang" line. It tells the operating system
+which interpreter to use to run this script.
+
+  /bin/bash  =  use the Bash shell to execute this file
+
+Without this line, the system might not know how to run the script.
+This must always be the very first executable line in a shell script.
+
+
+LINE 4-6: if [ -z "$1" ]; then
+----------------------------------------------------------------
+This is an input validation block. Let me break it down:
+
+  if        = start of a condition check
+  [ -z "$1" ] = check if the first argument passed to the script is empty
+  -z        = means "zero length" — true if the string is empty
+  $1        = refers to the first argument the user provides when running the script
+
+Example:
+  bash log_processor.sh app.log
+  Here, $1 = app.log
+
+  bash log_processor.sh
+  Here, $1 is empty, so -z "$1" is true and the if block runs
+
+This is defensive programming — always validate input before using it.
+
+
+LINE 7: echo "Usage: ./log_processor.sh <logfile>"
+----------------------------------------------------------------
+  echo  = prints text to the terminal screen
+
+If the user runs the script without providing a file, this line
+shows them the correct way to use it. This is called a usage message.
+Every good script should have one.
+
+
+LINE 8: exit 1
+----------------------------------------------------------------
+  exit  = stops the script immediately
+  1     = exit code meaning "something went wrong"
+
+Exit code 0 = success
+Exit code 1 = failure or error
+
+After showing the usage message, we stop the script because
+there is nothing more we can do without a file to process.
+
+
+LINE 9: fi
+----------------------------------------------------------------
+  fi = closes the if block (it is "if" spelled backwards)
+Every if in Bash must end with fi.
+
+
+LINE 10: file=$1
+----------------------------------------------------------------
+This creates a variable called "file" and assigns it the value
+of the first argument ($1).
+
+Using a variable name makes the code more readable.
+Instead of writing $1 everywhere, we write $file which is clearer.
+
+
+LINE 11-13: if [ ! -f "$file" ]; then
+----------------------------------------------------------------
+Second validation — checks if the file actually exists on disk.
+
+  !    = NOT (reverses the condition)
+  -f   = checks if the given path is a regular file
+  "$file" = the filename the user provided
+
+So this reads as: "If the file does NOT exist, then..."
+
+If the user provides a filename that doesn't exist on disk,
+we catch it here and give a clear error message.
+
+
+LINE 14: echo "Error: file not found $file"
+----------------------------------------------------------------
+Prints an error message showing which file was not found.
+Including the filename in the error message helps the user
+understand exactly what went wrong.
+
+
+LINE 15: exit 1
+----------------------------------------------------------------
+Exits the script with error code 1 because we cannot proceed
+without a valid file to process.
+
+
+LINE 16: fi
+----------------------------------------------------------------
+Closes the second if block.
+
+
+LINE 17-19: echo "HSBC Log Processor 1.0"
+           echo "Timestamp: $(date)"
+           echo "Processing file: $file"
+----------------------------------------------------------------
+These three lines print a header to the terminal when the script runs.
+
+  echo "HSBC Log Processor 1.0"  =  prints the tool name and version
+
+  echo "Timestamp: $(date)"
+    $(date) is called command substitution.
+    The $() syntax runs a command inside it and uses the output as text.
+    date is a Linux command that returns the current date and time.
+    So this prints something like: Timestamp: Tue Apr 15 10:30:00 UTC 2026
+
+  echo "Processing file: $file"  =  shows which file is being processed
+    $file = the variable we set earlier containing the filename
+
+
+LINE 20: echo "Find and save ERROR logs.."
+----------------------------------------------------------------
+Just a status message telling the user what the script is about to do.
+Good practice to keep users informed of progress.
+
+
+LINE 21: grep "ERROR" "$file" > error.log
+----------------------------------------------------------------
+This is the core command for ERROR extraction. Breaking it down:
+
+  grep        = a Linux tool that searches for text patterns in files
+  "ERROR"     = the pattern to search for (case sensitive)
+  "$file"     = the file to search in
+  >           = redirect operator — sends output to a file instead of screen
+  error.log   = the output file where matching lines are saved
+
+So this reads: Find every line containing the word ERROR in $file
+and save those lines to error.log.
+
+The > operator creates the file if it doesn't exist,
+or overwrites it if it already exists.
+
+
+LINE 22: error_count=$(grep -c "ERROR" "$file")
+----------------------------------------------------------------
+Counts how many ERROR lines were found.
+
+  grep -c     = -c flag tells grep to count matching lines instead of showing them
+  $(...)      = command substitution — captures the output of the command
+  error_count = variable that stores the count number
+
+Example: if 3 lines contain ERROR, error_count = 3
+
+
+LINE 23: echo "Total ERROR count: $error_count"
+----------------------------------------------------------------
+Prints the count to the terminal.
+$error_count expands to the actual number stored in the variable.
+
+
+LINE 24: echo "saved ERROR logs to error.log"
+----------------------------------------------------------------
+Confirmation message telling the user the file has been saved.
+
+
+LINE 25-28: WARNING section
+----------------------------------------------------------------
+  grep "WARNING" "$file" > warning.log
+  warning_count=$(grep -c "WARNING" "$file")
+
+Exactly the same logic as the ERROR section above,
+but searching for WARNING instead of ERROR.
+Results are saved to warning.log.
+
+
+LINE 29-36: Summary report generation
+----------------------------------------------------------------
+  summary_file="summary.log"
+  Creates a variable to store the output filename.
+
+  echo "Log Processing Summary" > "$summary_file"
+  Creates summary.log and writes the first line to it.
+  > overwrites the file (or creates it fresh).
+
+  echo "Processed file: $file" >> "$summary_file"
+  echo "Timestamp : $(date)" >> "$summary_file"
+  echo "Total Errors : $error_count" >> "$summary_file"
+  echo "Total Warnings: $warning_count" >> "$summary_file"
+
+  >> is the append operator — adds lines to the file WITHOUT overwriting.
+  This is important: if we used > each time, only the last line would remain.
+  Using >> keeps all previous lines and adds the new one at the bottom.
+
+
+LINE 37: echo "Summary Saved to $summary_file"
+----------------------------------------------------------------
+Confirmation message that the summary has been saved.
+
+
+LINE 38: echo "process Completed"
+----------------------------------------------------------------
+Final message indicating the script has finished successfully.
+
+
+================================================================
+HOW TO RUN THIS SCRIPT
+================================================================
+
+Step 1 — Make it executable:
+  chmod +x log_processor.sh
+
+Step 2 — Run it with a log file:
+  bash log_processor.sh app.log
+
+Step 3 — Check the output files created:
+  cat error.log      → shows all ERROR lines
+  cat warning.log    → shows all WARNING lines
+  cat summary.log    → shows the summary report
+
+
+================================================================
+INPUT FILE — app.log
+================================================================
+
+INFO: Application started
+ERROR: Database connection failed
+INFO: Retrying connection
+WARNING: Connection slow, retrying
+ERROR: Timeout occurred
+WARNING: Memory usage high
+INFO: Application stopped
+
+When you run the script with this file:
+  error.log   will contain 2 lines  (Database connection failed, Timeout occurred)
+  warning.log will contain 2 lines  (Connection slow, Memory usage high)
+  summary.log will show Total Errors: 2, Total Warnings: 2
+
+
+================================================================
+POSSIBLE QUESTIONS FROM REVIEWERS — WITH ANSWERS
+================================================================
+
+
+Q1. What is the purpose of this script?
+---------------------------------------
+A: This script automates log file analysis. Instead of manually opening
+   a log file and searching for errors and warnings, this script does it
+   automatically in seconds. It extracts ERROR lines, WARNING lines, saves
+   them to separate files, and produces a summary report with counts and
+   a timestamp.
+
+
+Q2. What does the shebang line #!/bin/bash do?
+-----------------------------------------------
+A: The shebang line tells the operating system which interpreter to use
+   to run the script. /bin/bash means use the Bash shell. Without this,
+   the system might use a different shell and the script may not behave
+   as expected. It must always be on the very first line of a shell script.
+
+
+Q3. Why did you validate the input at the beginning?
+------------------------------------------------------
+A: If someone runs the script without providing a file, or provides a
+   filename that doesn't exist, the script would fail with a confusing
+   error. Input validation catches these problems early and gives the
+   user a clear, helpful error message. This is called defensive
+   programming — always check your inputs before using them.
+
+
+Q4. What is the difference between > and >> operators?
+-------------------------------------------------------
+A: > is the overwrite operator. It creates a file or completely replaces
+   its contents every time it is used.
+   >> is the append operator. It adds new content to the end of an
+   existing file without deleting what was already there.
+   In this script, I use > for the first line of summary.log to create
+   it fresh, then >> for all following lines to keep adding to it.
+
+
+Q5. What does grep do and why did you use it?
+----------------------------------------------
+A: grep is a Linux command line tool used to search for text patterns
+   inside files. It returns every line that matches the pattern.
+   I used grep because it is fast, reliable, and built into every Linux
+   system. No installation needed. It is the standard tool for searching
+   log files in DevOps environments.
+
+
+Q6. What does the -c flag in grep -c do?
+-----------------------------------------
+A: The -c flag tells grep to count the number of matching lines instead
+   of printing them. So instead of showing all the ERROR lines, it just
+   returns the number — for example, 2. This count is then stored in
+   the error_count variable and used in the summary report.
+
+
+Q7. What does $() mean in $(date)?
+------------------------------------
+A: $() is called command substitution. It runs the command inside the
+   brackets and uses its output as a value. So $(date) runs the date
+   command and inserts the current date and time directly into the echo
+   statement. This is how you embed dynamic values into text in Bash.
+
+
+Q8. Why did you use a variable called "file" instead of just using $1 directly?
+---------------------------------------------------------------------------------
+A: Using a meaningful variable name like $file makes the code more
+   readable and easier to understand. If someone reads the script later,
+   $file is much clearer than $1. $1 just means "first argument" which
+   is not descriptive. Good variable naming is part of writing clean,
+   maintainable code.
+
+
+Q9. What happens if app.log has no ERROR lines?
+-------------------------------------------------
+A: The script will still run successfully. grep will find zero matches,
+   error.log will be created as an empty file, and error_count will be 0.
+   The summary will show Total Errors: 0. The script handles empty results
+   gracefully without any errors.
+
+
+Q10. What is the exit code and why does it matter?
+---------------------------------------------------
+A: An exit code is a number returned by a script or command when it finishes.
+   Exit code 0 means success. Exit code 1 means failure.
+   This matters in CI/CD pipelines — Jenkins and other tools check exit codes
+   to know if a step passed or failed. If a script exits with 1, Jenkins marks
+   the stage as failed and stops the pipeline. So using correct exit codes
+   is essential for automation.
+
+
+Q11. How is this script useful in a real DevOps environment?
+-------------------------------------------------------------
+A: In production environments, applications generate thousands of log lines
+   every hour. No one manually reads through them. This kind of script can
+   be integrated into a Jenkins pipeline to automatically parse logs after
+   every deployment, extract errors, and notify the team. It is the foundation
+   of automated log monitoring — a key DevOps practice.
+
+
+Q12. Did you face any challenges while building this?
+------------------------------------------------------
+A: Yes. Initially I made a mistake with the > and >> operators — I used >
+   for all lines in the summary, which meant each line overwrote the previous
+   one and only the last line remained. Once I understood the difference
+   between > (overwrite) and >> (append), I fixed it. Also, I learned that
+   chmod +x is needed to make the script executable before it can be run.
+
+
+Q13. Why did you follow the feature branch and Pull Request workflow?
+----------------------------------------------------------------------
+A: In companies, multiple developers work on the same codebase at the same
+   time. If everyone pushes directly to the main branch, it creates conflicts
+   and unstable code. Feature branches keep each person's work isolated.
+   A Pull Request allows the team to review the code before it is merged.
+   This is the standard Git workflow used in professional software teams
+   and I wanted to practice it correctly from the beginning.
+
+
+Q14. What is the difference between git add, git commit, and git push?
+-----------------------------------------------------------------------
+A: git add    = stages your changes, telling Git which files to include
+                in the next commit
+   git commit = saves those staged changes to your local Git history
+                with a message describing what you changed
+   git push   = sends your local commits to the remote GitHub repository
+                so others can see your work
+
+These three steps are the core Git workflow for saving and sharing code.
+
+
+================================================================================
+END OF FILE
+================================================================================
