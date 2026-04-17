@@ -1,171 +1,734 @@
 ================================================================
-              DOCKER PRACTICE — ANSWER SHEET
-================================================================
-Instructions:
-- Write your answers below each question reference
-- Include actual file content (Dockerfile, Jenkinsfile, YAML, etc.)
-- You can add comments using # to explain your thinking
+              DOCKER PRACTICE — ANSWER SHEET (WITH SOLUTIONS)
 ================================================================
 
 ----------------------------------------------------------------
 ANSWER 1 — Multi-Stage Node.js App
 ----------------------------------------------------------------
-(Write your Dockerfile here)
 
+# Stage 1: Build stage
+FROM node:18-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
 
+# Stage 2: Production stage
+FROM node:18-alpine AS production
+WORKDIR /app
 
+# Create a non-root user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Copy only necessary files from builder
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/src ./src
+
+# Switch to non-root user
+USER appuser
+
+EXPOSE 3000
+CMD ["node", "src/index.js"]
 
 ----------------------------------------------------------------
 ANSWER 2 — Python Flask App
 ----------------------------------------------------------------
-(Write your Dockerfile here)
 
+FROM python:3.11-slim
 
+WORKDIR /app
 
+# Install dependencies first (better layer caching)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY app.py .
+
+EXPOSE 5000
+
+CMD ["python", "app.py"]
 
 ----------------------------------------------------------------
-ANSWER 3 — Dockerfile for Java Spring Boot App
+ANSWER 3 — Java Spring Boot App
 ----------------------------------------------------------------
-(Write your Dockerfile here)
 
+# Stage 1: Build
+FROM maven:3.9-eclipse-temurin-17 AS builder
+WORKDIR /app
+COPY pom.xml .
+COPY src ./src
+RUN mvn clean package -DskipTests
 
+# Stage 2: Run
+FROM eclipse-temurin:17-jre-alpine AS production
+WORKDIR /app
 
+# Create non-root user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Copy JAR from build stage
+COPY --from=builder /app/target/app.jar app.jar
+
+USER appuser
+
+EXPOSE 8080
+CMD ["java", "-jar", "app.jar"]
 
 ----------------------------------------------------------------
-ANSWER 4 — Nginx Static Website
+ANSWER 4 — Nginx Static Website (React App)
 ----------------------------------------------------------------
-(Write your Dockerfile here)
 
+# Stage 1: Build React app
+FROM node:18-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
 
+# Stage 2: Serve with Nginx
+FROM nginx:alpine
+COPY --from=builder /app/build /usr/share/nginx/html
 
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
 
 ----------------------------------------------------------------
 ANSWER 5 — Docker Ignore File
 ----------------------------------------------------------------
-(Write your .dockerignore file here, with comments explaining each entry)
 
+# .dockerignore
 
+# Ignore node_modules — dependencies will be installed fresh inside container
+node_modules/
 
+# Ignore git history — not needed in the image
+.git/
+
+# Ignore .env — sensitive secrets should never be baked into the image
+.env
+
+# Ignore log files — runtime logs don't belong in the image
+logs/
+
+# Ignore the Dockerfile itself — no need to copy it into the image
+Dockerfile
+
+# Additional recommended ignores:
+.dockerignore
+*.md
+.gitignore
+.npmrc
+coverage/
+.DS_Store
 
 ----------------------------------------------------------------
-ANSWER 6 — Environment Variables and ARG vs ENV
+ANSWER 6 — ARG vs ENV in Dockerfile
 ----------------------------------------------------------------
-(Write your Dockerfile here)
 
+FROM node:18-alpine
 
+# ARG is only available at build time
+ARG BUILD_ENV=dev
 
+# LABEL to identify the maintainer
+LABEL maintainer="devops-team"
+
+# ENV is available at runtime, set from ARG
+ENV NODE_ENV=${BUILD_ENV}
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+
+EXPOSE 3000
+CMD ["node", "index.js"]
+
+# How to build:
+# docker build --build-arg BUILD_ENV=production -t myapp .
 
 ----------------------------------------------------------------
-ANSWER 7 — Docker Compose for a Full Stack App
+ANSWER 7 — Docker Compose Full Stack App
 ----------------------------------------------------------------
-(Write your docker-compose.yml here)
 
+version: '3.8'
 
+networks:
+  app-network:
+    driver: bridge
 
+volumes:
+  postgres-data:
+
+services:
+  database:
+    image: postgres:15
+    container_name: postgres-db
+    environment:
+      POSTGRES_DB: appdb
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secret123
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - app-network
+
+  backend:
+    image: backend:latest
+    container_name: backend-app
+    ports:
+      - "5000:5000"
+    depends_on:
+      - database
+    networks:
+      - app-network
+
+  frontend:
+    image: frontend:latest
+    container_name: frontend-app
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - app-network
 
 ----------------------------------------------------------------
 ANSWER 8 — Docker Compose with Build Context
 ----------------------------------------------------------------
-(Write your docker-compose.yml here)
 
+version: '3.8'
 
+networks:
+  internal-net:
+    driver: bridge
 
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "80:3000"
+    networks:
+      - internal-net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgres://localhost/db
+    networks:
+      - internal-net
 
 ----------------------------------------------------------------
 ANSWER 9 — Healthcheck in Dockerfile
 ----------------------------------------------------------------
-(Write your Dockerfile here)
 
+FROM node:18-alpine
 
+# Install curl (not included in alpine by default)
+RUN apk add --no-cache curl
 
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+
+EXPOSE 3000
+
+# Healthcheck: every 30s, timeout 10s, 3 retries before unhealthy
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+  CMD curl -f http://localhost:3000/health || exit 1
+
+CMD ["node", "src/index.js"]
 
 ----------------------------------------------------------------
 ANSWER 10 — Jenkins Pipeline: Build and Push Docker Image
 ----------------------------------------------------------------
-(Write your Jenkinsfile here)
 
+pipeline {
+    agent any
 
+    environment {
+        IMAGE_NAME = "mycompany/nodeapp"
+        IMAGE_TAG  = "${IMAGE_NAME}:${BUILD_NUMBER}"
+    }
 
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build Image') {
+            steps {
+                sh "docker build -t ${IMAGE_TAG} ."
+            }
+        }
+
+        stage('Push Image') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
+                    sh "docker push ${IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Cleanup') {
+            steps {
+                sh "docker rmi ${IMAGE_TAG}"
+            }
+        }
+    }
+}
 
 ----------------------------------------------------------------
-ANSWER 11 — Jenkins Pipeline: Multi-Stage Docker Build with Test
+ANSWER 11 — Jenkins Pipeline: Build, Test, Push
 ----------------------------------------------------------------
-(Write your Jenkinsfile here)
 
+pipeline {
+    agent any
 
+    environment {
+        IMAGE_NAME  = "mycompany/flaskapp"
+        IMAGE_LATEST = "${IMAGE_NAME}:latest"
+        IMAGE_BUILD  = "${IMAGE_NAME}:${BUILD_NUMBER}"
+    }
 
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh "docker build -t ${IMAGE_LATEST} -t ${IMAGE_BUILD} ."
+            }
+        }
+
+        stage('Run Tests') {
+            steps {
+                sh "docker run --rm ${IMAGE_LATEST} pytest tests/"
+            }
+        }
+
+        stage('Push to Registry') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
+                    sh "docker push ${IMAGE_LATEST}"
+                    sh "docker push ${IMAGE_BUILD}"
+                }
+            }
+        }
+
+        stage('Cleanup') {
+            steps {
+                sh "docker rmi ${IMAGE_LATEST} ${IMAGE_BUILD} || true"
+            }
+        }
+    }
+}
 
 ----------------------------------------------------------------
 ANSWER 12 — Docker Volumes
 ----------------------------------------------------------------
-(Write your docker run command and docker-compose.yml here)
+
+# --- docker run command ---
+docker run -d \
+  --name mysql-dev \
+  -e MYSQL_ROOT_PASSWORD=rootpass \
+  -e MYSQL_DATABASE=devdb \
+  -v mysql-data:/var/lib/mysql \
+  -p 3306:3306 \
+  mysql:8
 
 
+# --- docker-compose.yml equivalent ---
 
+version: '3.8'
+
+volumes:
+  mysql-data:
+
+services:
+  mysql:
+    image: mysql:8
+    container_name: mysql-dev
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: devdb
+    volumes:
+      - mysql-data:/var/lib/mysql
+    ports:
+      - "3306:3306"
 
 ----------------------------------------------------------------
-ANSWER 13 — Copying Files and WORKDIR Best Practices
+ANSWER 13 — Go Application Dockerfile
 ----------------------------------------------------------------
-(Write your Dockerfile here)
 
+# Stage 1: Build
+FROM golang:1.21-alpine AS builder
+WORKDIR /app
+COPY . .
+RUN go build -o myapp .
 
+# Stage 2: Run
+FROM alpine:latest
+WORKDIR /app
 
+# Create non-root user with UID 1001
+RUN addgroup -g 1001 appgroup && adduser -u 1001 -G appgroup -S appuser
+
+# Copy only the binary from builder
+COPY --from=builder /app/myapp /usr/local/bin/myapp
+
+USER appuser
+
+ENTRYPOINT ["/usr/local/bin/myapp"]
 
 ----------------------------------------------------------------
 ANSWER 14 — Docker Networking
 ----------------------------------------------------------------
-(Write all docker commands here)
 
+# Step 1: Create custom bridge network
+docker network create backend-net
 
+# Step 2: Run Redis container on the network
+docker run -d \
+  --name redis-container \
+  --network backend-net \
+  redis:latest
 
+# Step 3: Run Node.js API container on the same network
+docker run -d \
+  --name api-container \
+  --network backend-net \
+  -e REDIS_HOST=redis-container \
+  -p 3000:3000 \
+  myorg/nodeapi:latest
+
+# Because both containers are on the same network,
+# api-container can reach redis-container by hostname.
 
 ----------------------------------------------------------------
-ANSWER 15 — Entrypoint vs CMD
+ANSWER 15 — ENTRYPOINT vs CMD
 ----------------------------------------------------------------
-(Write both Dockerfiles here with comments)
+
+# --- Dockerfile A: ENTRYPOINT (always runs backup.sh, flags can be passed) ---
+FROM alpine:latest
+COPY backup.sh /usr/local/bin/backup.sh
+RUN chmod +x /usr/local/bin/backup.sh
+
+# ENTRYPOINT is fixed — backup.sh always runs
+# CMD provides default arguments, but user can override them
+ENTRYPOINT ["/usr/local/bin/backup.sh"]
+CMD ["--full"]
+
+# Usage:
+# docker run mybackup              → runs: backup.sh --full (default)
+# docker run mybackup --incremental → runs: backup.sh --incremental
 
 
+# --- Dockerfile B: CMD (backup.sh is default, but user can override entirely) ---
+FROM alpine:latest
+COPY backup.sh /usr/local/bin/backup.sh
+RUN chmod +x /usr/local/bin/backup.sh
 
+# CMD can be completely replaced by user
+CMD ["/usr/local/bin/backup.sh"]
+
+# Usage:
+# docker run mybackup              → runs: backup.sh
+# docker run mybackup /bin/sh      → opens a shell instead
+
+# KEY DIFFERENCE:
+# ENTRYPOINT: locks the executable, user can only add arguments
+# CMD: suggests default command, user can replace it entirely
 
 ----------------------------------------------------------------
 ANSWER 16 — Optimizing Docker Layer Caching
 ----------------------------------------------------------------
-(Write the issues found and the corrected Dockerfile here)
 
+# --- PROBLEM in the original Dockerfile ---
+# COPY . .  copies ALL files including source code BEFORE npm install
+# So every time ANY code file changes, Docker invalidates the cache
+# and re-runs npm install — even though package.json didn't change.
 
+# --- CORRECTED Dockerfile ---
 
+FROM node:18
+WORKDIR /app
+
+# Copy only package files first — this layer is cached
+# and only re-runs when package.json or package-lock.json changes
+COPY package*.json ./
+RUN npm install
+
+# Now copy the rest of the source code
+# If only source code changes, npm install cache is still used
+COPY . .
+
+CMD ["node", "index.js"]
+
+# WHY THIS WORKS:
+# Docker caches each layer. By copying package*.json first and running
+# npm install before copying source code, the npm install layer only
+# re-runs when dependencies change — not on every code change.
 
 ----------------------------------------------------------------
 ANSWER 17 — Docker Image Tagging Strategy in Jenkins
 ----------------------------------------------------------------
-(Write your Jenkinsfile here)
 
+pipeline {
+    agent any
 
+    environment {
+        IMAGE_NAME  = "myorg/webapp"
+        COMMIT_SHA  = ""
+        BRANCH_NAME = ""
+    }
 
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                script {
+                    COMMIT_SHA  = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                    BRANCH_NAME = env.GIT_BRANCH?.replaceAll('origin/', '') ?: 'unknown'
+                }
+            }
+        }
+
+        stage('Build Image') {
+            steps {
+                script {
+                    sh "docker build -t ${IMAGE_NAME}:${COMMIT_SHA} -t ${IMAGE_NAME}:${BRANCH_NAME} ."
+                    if (BRANCH_NAME == 'main') {
+                        sh "docker tag ${IMAGE_NAME}:${COMMIT_SHA} ${IMAGE_NAME}:latest"
+                    }
+                }
+            }
+        }
+
+        stage('Push Image') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
+                    sh "docker push ${IMAGE_NAME}:${COMMIT_SHA}"
+                    sh "docker push ${IMAGE_NAME}:${BRANCH_NAME}"
+                    script {
+                        if (BRANCH_NAME == 'main') {
+                            sh "docker push ${IMAGE_NAME}:latest"
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Cleanup') {
+            steps {
+                sh "docker rmi ${IMAGE_NAME}:${COMMIT_SHA} ${IMAGE_NAME}:${BRANCH_NAME} || true"
+            }
+        }
+    }
+}
 
 ----------------------------------------------------------------
 ANSWER 18 — Docker Compose Override Files
 ----------------------------------------------------------------
-(Write all three docker-compose files here)
+
+# --- docker-compose.yml (Base) ---
+
+version: '3.8'
+
+services:
+  web:
+    build: .
+    ports:
+      - "3000:3000"
 
 
+# --- docker-compose.override.yml (Development - auto loaded) ---
 
+version: '3.8'
+
+services:
+  web:
+    volumes:
+      - .:/app                  # Live reload: mount source code
+    environment:
+      NODE_ENV: development
+    ports:
+      - "9229:9229"             # Debug port
+
+
+# --- docker-compose.prod.yml (Production - manually specified) ---
+
+version: '3.8'
+
+services:
+  web:
+    image: myorg/web:latest     # Use pre-built image, not build
+    environment:
+      NODE_ENV: production
+    restart: always
+
+# Usage:
+# Development: docker-compose up                          (auto uses override)
+# Production:  docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
 
 ----------------------------------------------------------------
 ANSWER 19 — Securing a Dockerfile
 ----------------------------------------------------------------
-(List the issues and write the corrected Dockerfile here)
+
+# --- SECURITY ISSUES FOUND IN ORIGINAL ---
+
+# Issue 1: FROM ubuntu:latest
+#   - 'latest' tag is unpredictable; image can change unexpectedly
+#   - ubuntu is a heavy base image; use slim/alpine alternatives
+
+# Issue 2: apt-get installs nodejs and npm manually
+#   - Better to use the official node image which is maintained and secure
+
+# Issue 3: COPY . /app before WORKDIR
+#   - Minor ordering issue, but also copies all files including sensitive ones
+
+# Issue 4: ENV DB_PASSWORD=supersecret123
+#   - NEVER hardcode secrets in Dockerfile
+#   - These are visible in docker history and image layers
+
+# Issue 5: Running as root
+#   - No USER instruction means the app runs as root — a major security risk
+
+# Issue 6: No .dockerignore
+#   - Likely copies unnecessary/sensitive files into the image
 
 
+# --- CORRECTED & SECURE DOCKERFILE ---
 
+FROM node:18-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Create non-root user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Copy and install dependencies
+COPY package*.json ./
+RUN npm install --only=production
+
+# Copy application source
+COPY . .
+
+# Switch to non-root user
+USER appuser
+
+EXPOSE 3000
+
+CMD ["node", "server.js"]
+
+# NOTE: DB_PASSWORD should be passed at runtime via:
+# docker run -e DB_PASSWORD=<value> ...
+# Or use Docker Secrets / Kubernetes Secrets in production
 
 ----------------------------------------------------------------
 ANSWER 20 — Full CI/CD Pipeline with Docker (Capstone)
 ----------------------------------------------------------------
-(Write the complete Jenkinsfile here)
 
+pipeline {
+    agent any
 
+    environment {
+        IMAGE_NAME = "mycompany/springapp"
+        IMAGE_TAG  = "${IMAGE_NAME}:${BUILD_NUMBER}"
+    }
 
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build JAR') {
+            steps {
+                sh "mvn clean package -DskipTests"
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh "docker build -t ${IMAGE_TAG} ."
+            }
+        }
+
+        stage('Push Image') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
+                    sh "docker push ${IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Update K8s Manifest') {
+            steps {
+                // Replace the image tag in deployment.yaml with the current build number
+                sh "sed -i 's|${IMAGE_NAME}:.*|${IMAGE_TAG}|g' k8s/deployment.yaml"
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                sh "kubectl apply -f k8s/deployment.yaml"
+            }
+        }
+
+        stage('Cleanup') {
+            steps {
+                sh "docker rmi ${IMAGE_TAG} || true"
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Deployment Successful"
+        }
+        failure {
+            echo "Deployment Failed"
+        }
+    }
+}
 
 ================================================================
                         END OF ANSWERS
