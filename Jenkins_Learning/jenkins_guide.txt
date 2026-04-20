@@ -1,0 +1,581 @@
+================================================================
+        JENKINS — GUIDE FOR NEW JOINERS
+================================================================
+Author  : DevOps Team
+Purpose : Get new team members productive with Jenkins quickly
+Audience: Developers and DevOps engineers joining the team
+================================================================
+
+
+================================================================
+WHAT IS JENKINS AND WHY DO WE USE IT?
+================================================================
+
+Before Jenkins, deploying an application meant a developer had
+to manually build the code, run tests, package it, and deploy
+it to a server. This was slow, error-prone, and inconsistent
+across team members.
+
+Jenkins solves this by automating the entire process. Every time
+code is pushed, Jenkins picks it up, builds it, tests it, and
+deploys it — automatically, consistently, and without human
+intervention.
+
+In simple terms: Jenkins is the engine that powers your
+CI/CD pipeline (Continuous Integration / Continuous Deployment).
+
+  CI (Continuous Integration) — Code is automatically built
+     and tested every time someone pushes a change.
+
+  CD (Continuous Deployment) — Code that passes all checks
+     is automatically deployed to the target environment.
+
+The end result: faster releases, fewer manual errors, and
+confidence that what you deploy has been tested properly.
+
+
+================================================================
+HOW JENKINS WORKS — THE BIG PICTURE
+================================================================
+
+1. A developer pushes code to Git
+2. Jenkins detects the change (via webhook or polling)
+3. Jenkins reads the Jenkinsfile from the repository
+4. Jenkins executes the pipeline — stage by stage
+5. Results (pass/fail) are reported back
+
+The Jenkinsfile lives in your repository alongside your code.
+This is intentional — your pipeline is version-controlled
+just like your application code.
+
+Key Terms You Will Encounter:
+  Pipeline     — The full automated workflow (Build → Test → Deploy)
+  Stage        — A logical phase in the pipeline (e.g. "Build", "Test")
+  Step         — A single task inside a stage (e.g. run npm install)
+  Agent        — The machine that actually runs the pipeline
+  Build Number — Auto-incremented ID for each run (e.g. build #42)
+  Jenkinsfile  — The file that defines your pipeline
+
+
+================================================================
+PIPELINE TYPES
+================================================================
+
+Jenkins supports two pipeline styles:
+
+  Declarative Pipeline  — Structured, readable, and recommended
+                           for most use cases. This is what the
+                           team uses by default.
+
+  Scripted Pipeline     — Pure Groovy code, more flexible but
+                           harder to read and maintain. Use only
+                           when Declarative cannot cover the logic.
+
+When in doubt, start with Declarative. It has guardrails that
+prevent common mistakes.
+
+
+================================================================
+DECLARATIVE PIPELINE — SKELETON
+================================================================
+
+This is the structure every Declarative Jenkinsfile follows:
+
+  pipeline {
+      agent any
+
+      environment {
+          APP_NAME = 'my-app'
+          IMAGE_TAG = "${BUILD_NUMBER}"
+      }
+
+      tools {
+          maven 'Maven-3.9'
+          jdk   'JDK-17'
+      }
+
+      parameters {
+          string(name: 'IMAGE_TAG', defaultValue: 'latest')
+          booleanParam(name: 'RUN_TESTS', defaultValue: true)
+          choice(name: 'ENV', choices: ['dev', 'staging', 'prod'])
+      }
+
+      stages {
+          stage('Stage Name') {
+              steps {
+                  // your commands here
+              }
+          }
+      }
+
+      post {
+          success  { echo 'Pipeline passed'  }
+          failure  { echo 'Pipeline failed'  }
+          always   { echo 'Always runs'      }
+          unstable { echo 'Tests unstable'   }
+          aborted  { echo 'Pipeline aborted' }
+          changed  { echo 'Status changed'   }
+      }
+  }
+
+
+================================================================
+AGENT — WHERE YOUR PIPELINE RUNS
+================================================================
+
+The agent tells Jenkins which machine to run the pipeline on.
+Most teams use a shared Jenkins server with one or more agents.
+
+  agent any                               — Run on any available agent
+  agent none                              — No global agent (define per stage)
+  agent { label 'linux' }                 — Run on agent labelled 'linux'
+  agent { docker { image 'node:18-alpine' } }  — Run inside a Docker container
+
+Using a Docker agent per stage is powerful — it means you don't
+need Node.js or Maven installed on the Jenkins server itself.
+The pipeline pulls the right container and runs inside it.
+
+
+================================================================
+ENVIRONMENT VARIABLES
+================================================================
+
+Environment variables let you define values once and reuse them
+across all stages. This avoids hardcoding and makes the pipeline
+easier to maintain.
+
+  Built-in Variables (always available):
+  ----------------------------------------
+  BUILD_NUMBER    — Current build number (e.g. 42)
+  JOB_NAME        — Name of the Jenkins job
+  WORKSPACE       — Full path to the job's workspace on disk
+  GIT_BRANCH      — Current Git branch
+  GIT_COMMIT      — Full Git commit SHA
+  BRANCH_NAME     — Branch name (Multibranch pipelines only)
+
+  Defining Custom Variables:
+  ----------------------------------------
+  environment {
+      IMAGE_NAME = 'myorg/myapp'
+      IMAGE_TAG  = "${BUILD_NUMBER}"    // Evaluated at runtime
+  }
+
+  Using Variables in Steps:
+  ----------------------------------------
+  sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
+  echo "Running on branch: ${env.BRANCH_NAME}"
+
+
+================================================================
+PARAMETERS — MAKING PIPELINES INTERACTIVE
+================================================================
+
+Parameters let someone trigger the pipeline with custom inputs
+instead of hardcoded values. Useful for choosing environments,
+toggling test runs, or specifying image tags at deploy time.
+
+  parameters {
+      string(name: 'TAG', defaultValue: 'latest', description: 'Image tag')
+      booleanParam(name: 'RUN_TESTS', defaultValue: true)
+      choice(name: 'ENV', choices: ['dev', 'staging', 'prod'])
+      password(name: 'SECRET', defaultValue: '', description: 'A secret value')
+  }
+
+  // Reading parameters in steps:
+  echo "Deploying to: ${params.ENV}"
+  if (params.RUN_TESTS) { sh 'npm test' }
+
+
+================================================================
+WHEN CONDITIONS — RUNNING STAGES SELECTIVELY
+================================================================
+
+Not every stage should run on every branch or every trigger.
+The when block lets you control this cleanly.
+
+  // Run only on the main branch
+  when { branch 'main' }
+
+  // Run when any of these branches match
+  when { anyOf { branch 'main'; branch 'develop' } }
+
+  // Run based on a parameter value
+  when { expression { params.RUN_TESTS == true } }
+
+  // Run only when branch is main AND deploy parameter is true
+  when {
+      allOf {
+          branch 'main'
+          expression { params.DEPLOY == true }
+      }
+  }
+
+  // Run when NOT on main (e.g. feature branches)
+  when { not { branch 'main' } }
+
+
+================================================================
+CREDENTIALS — HANDLING SECRETS SAFELY
+================================================================
+
+Secrets like passwords, tokens, and SSH keys should never be
+written directly in the Jenkinsfile. Jenkins has a built-in
+Credentials Manager where secrets are stored securely and
+referenced by an ID in your pipeline.
+
+Your admin team stores the credentials. You just reference the ID.
+
+  // Username + Password (e.g. Docker Hub, Nexus)
+  withCredentials([usernamePassword(
+      credentialsId: 'dockerhub-creds',
+      usernameVariable: 'DOCKER_USER',
+      passwordVariable: 'DOCKER_PASS'
+  )]) {
+      sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+  }
+
+  // Secret Text (e.g. API token)
+  withCredentials([string(credentialsId: 'api-token', variable: 'TOKEN')]) {
+      sh 'curl -H "Authorization: Bearer $TOKEN" https://api.example.com'
+  }
+
+  // SSH Key
+  sshagent(credentials: ['prod-server-ssh']) {
+      sh 'ssh user@server.example.com "echo connected"'
+  }
+
+  Rule: Never hardcode credentials in a Jenkinsfile.
+        If you see a password in plain text in a pipeline, raise it.
+
+
+================================================================
+PARALLEL STAGES — SPEED UP YOUR PIPELINE
+================================================================
+
+Running stages in parallel reduces total pipeline time.
+For example, instead of running three test suites one after
+another (15 minutes total), run them at the same time (5 minutes).
+
+  stage('Test Suite') {
+      parallel {
+          stage('Unit Tests') {
+              steps { sh 'npm run test:unit' }
+          }
+          stage('Integration Tests') {
+              steps { sh 'npm run test:integration' }
+          }
+          stage('Security Scan') {
+              steps { sh 'npm audit' }
+          }
+      }
+  }
+
+  // Stop all parallel stages immediately if one fails:
+  parallel(failFast: true) { ... }
+
+  By default, all parallel stages complete even if one fails.
+  Use failFast: true only when there is no value in completing the rest.
+
+
+================================================================
+TOOLS BLOCK — MANAGING BUILD TOOL VERSIONS
+================================================================
+
+Different projects may need different versions of Maven or JDK.
+The tools block tells Jenkins to load the version configured in
+Global Tools — no manual PATH management needed.
+
+  tools {
+      maven 'Maven-3.9'    // Name must match Jenkins > Global Tool Config
+      jdk   'JDK-17'
+      nodejs 'NodeJS-18'
+  }
+
+  After declaring, the binaries are on PATH automatically:
+  sh 'mvn clean package'
+  sh 'node --version'
+
+
+================================================================
+ARCHIVING ARTIFACTS AND TEST RESULTS
+================================================================
+
+After a build, Jenkins can store the output (JAR files, reports)
+and publish test results in the UI for easy review.
+
+  // Archive a built file so it can be downloaded from Jenkins
+  archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+
+  // Publish JUnit test results in the Jenkins test tab
+  junit 'target/surefire-reports/*.xml'
+
+  // Safe versions that won't fail if files are missing
+  junit testResults: 'test-results/*.xml', allowEmptyResults: true
+  archiveArtifacts artifacts: 'logs/*.log', allowEmptyArchive: true
+
+
+================================================================
+INPUT STEP — MANUAL APPROVAL BEFORE PRODUCTION
+================================================================
+
+For production deployments, most teams require a human to review
+and approve before the pipeline proceeds. The input step pauses
+the pipeline and waits for a named person to click Approve in the
+Jenkins UI.
+
+Always wrap with a timeout so the pipeline does not hang forever
+if no one approves.
+
+  stage('Approval Gate') {
+      steps {
+          timeout(time: 24, unit: 'HOURS') {
+              input(
+                  message: 'Deploy to Production?',
+                  submitter: 'team-lead',
+                  ok: 'Approve Deployment'
+              )
+          }
+      }
+  }
+
+  If no one approves within the timeout, the pipeline is aborted
+  automatically. This keeps the build queue clean.
+
+
+================================================================
+RETRY AND TIMEOUT — HANDLING FLAKY STEPS
+================================================================
+
+External services and APIs are sometimes unreliable. Rather than
+failing the whole pipeline on a temporary hiccup, use retry and
+timeout to build resilience.
+
+  // Retry a flaky step up to 3 times before giving up
+  retry(3) {
+      sh 'curl https://external-api.example.com/trigger'
+  }
+
+  // Timeout for a specific stage
+  stage('Build') {
+      options { timeout(time: 10, unit: 'MINUTES') }
+      steps { sh 'mvn package' }
+  }
+
+  // Timeout for the entire pipeline (in options block at top)
+  options {
+      timeout(time: 30, unit: 'MINUTES')
+  }
+
+
+================================================================
+STASH AND UNSTASH — SHARING FILES BETWEEN STAGES
+================================================================
+
+When stages run on different agents, they do not share the same
+workspace. Stash saves files to the Jenkins master temporarily
+so they can be retrieved on any agent in a later stage.
+
+  // Save files after the build
+  stash includes: 'dist/**', name: 'build-output'
+
+  // Retrieve in a later stage (even on a different node)
+  unstash 'build-output'
+
+  Common use: Build on a Linux agent, deploy from a different node.
+
+
+================================================================
+SONARQUBE INTEGRATION — CODE QUALITY GATE
+================================================================
+
+SonarQube analyses your code for bugs, vulnerabilities, and
+code smells. The Quality Gate is a pass/fail check — if your
+code does not meet the quality threshold, the pipeline stops
+before deployment. This protects the team from shipping
+low-quality or insecure code.
+
+  stage('SonarQube Analysis') {
+      steps {
+          withSonarQubeEnv('SonarQube-Server') {
+              sh 'mvn sonar:sonar -Dsonar.projectKey=my-app'
+          }
+      }
+  }
+
+  stage('Quality Gate') {
+      steps {
+          timeout(time: 5, unit: 'MINUTES') {
+              waitForQualityGate abortPipeline: true
+          }
+      }
+  }
+
+  Do not skip the Quality Gate stage. It is there for a reason.
+
+
+================================================================
+DOCKER INSIDE JENKINS PIPELINE
+================================================================
+
+  // Build image tagged with the build number
+  sh "docker build -t myorg/myapp:${BUILD_NUMBER} ."
+
+  // Login to registry and push
+  withCredentials([usernamePassword(
+      credentialsId: 'dockerhub-creds',
+      usernameVariable: 'DOCKER_USER',
+      passwordVariable: 'DOCKER_PASS'
+  )]) {
+      sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+      sh "docker push myorg/myapp:${BUILD_NUMBER}"
+  }
+
+  // Run tests inside a container
+  sh "docker run --rm myorg/myapp:${BUILD_NUMBER} npm test"
+
+  // Cleanup — use || true to avoid failure if image is already gone
+  sh "docker rmi myorg/myapp:${BUILD_NUMBER} || true"
+
+
+================================================================
+KUBERNETES DEPLOYMENT FROM JENKINS
+================================================================
+
+  // Update image tag in manifest using sed
+  sh "sed -i 's|myorg/myapp:.*|myorg/myapp:${BUILD_NUMBER}|g' k8s/deployment.yaml"
+
+  // Apply the updated manifest
+  sh "kubectl apply -f k8s/deployment.yaml -n production"
+
+  // Wait for rollout to complete before marking pipeline success
+  sh "kubectl rollout status deployment/myapp -n production"
+
+  // Auto-rollback on failure
+  post {
+      failure {
+          sh "kubectl rollout undo deployment/myapp -n production"
+      }
+  }
+
+
+================================================================
+MULTIBRANCH PIPELINE — BRANCH-BASED BEHAVIOR
+================================================================
+
+A Multibranch Pipeline automatically creates a Jenkins job for
+every branch in your repository. This means feature branches,
+develop, and main all get their own pipeline runs.
+
+The BRANCH_NAME variable lets you control which stages run on
+which branches.
+
+  stage('Deploy to Dev') {
+      when { branch 'develop' }
+      steps { echo 'Deploying to dev environment...' }
+  }
+
+  stage('Deploy to Production') {
+      when { branch 'main' }
+      steps { echo 'Deploying to production...' }
+  }
+
+  stage('Unit Test Only') {
+      when { expression { env.BRANCH_NAME.startsWith('feature/') } }
+      steps { sh 'npm test' }
+  }
+
+  Recommended branch strategy:
+    feature/*  → Checkout, Build, Unit Test only
+    develop    → + Integration Test, Deploy to Dev
+    main       → All stages including Production deploy
+
+
+================================================================
+SHARED LIBRARIES — REUSABLE PIPELINE CODE
+================================================================
+
+If multiple pipelines share the same logic (e.g. Docker build steps,
+Slack notifications), that logic lives in a Shared Library rather
+than being copy-pasted into every Jenkinsfile.
+
+Your team's shared library is already registered in Jenkins.
+Ask your team lead for the library name and available functions.
+
+  @Library('company-pipeline-lib') _
+
+  pipeline {
+      agent any
+      stages {
+          stage('Build') {
+              steps { dockerBuild('myorg/myapp') }
+          }
+      }
+      post {
+          success { notifySlack('SUCCESS', '#deployments') }
+          failure { notifySlack('FAILURE', '#deployments') }
+      }
+  }
+
+
+================================================================
+COMMON PIPELINE OPTIONS
+================================================================
+
+  options {
+      timeout(time: 30, unit: 'MINUTES')             // Abort if too slow
+      disableConcurrentBuilds()                      // No parallel runs
+      buildDiscarder(logRotator(numToKeepStr: '10')) // Keep last 10 builds
+      timestamps()                                   // Timestamps in logs
+  }
+
+
+================================================================
+TROUBLESHOOTING QUICK REFERENCE
+================================================================
+
+  Stage skipped unexpectedly
+  → Check your when {} condition. Print env.BRANCH_NAME to confirm value.
+
+  Credentials not found
+  → Verify the credentialsId exactly matches what is in Jenkins Credentials.
+
+  Docker command not found on agent
+  → Jenkins agent needs Docker installed and the jenkins user must be
+    in the docker group: sudo usermod -aG docker jenkins
+
+  kubectl not found on agent
+  → Install kubectl on the Jenkins agent and verify it is on PATH.
+
+  Build works locally but fails in Jenkins
+  → Check tool versions. Use the tools {} block to load the correct JDK
+    or Maven version rather than relying on what is installed globally.
+
+  Pipeline hangs at input step
+  → Always wrap input with timeout() to prevent indefinite blocking.
+
+
+================================================================
+BEST PRACTICES
+================================================================
+
+  DO:
+  ✔ Keep Jenkinsfile in the root of your repository
+  ✔ Use environment {} for all reusable values
+  ✔ Store all secrets in Jenkins Credentials Manager — never in code
+  ✔ Add timeout() to every long-running stage
+  ✔ Use parallel stages to speed up test suites
+  ✔ Tag Docker images with BUILD_NUMBER, not just "latest"
+  ✔ Always clean up local Docker images after pushing
+  ✔ Use || true on cleanup commands to avoid false failures
+  ✔ Follow the team's shared library conventions
+
+  DON'T:
+  ✗ Never hardcode passwords, tokens, or keys in a Jenkinsfile
+  ✗ Don't push directly to the shared Jenkins server config
+    without discussing with the team first
+  ✗ Don't skip the Quality Gate — it protects the whole codebase
+  ✗ Don't use latest as the only Docker tag in production
+
+================================================================
+                    END OF JENKINS GUIDE
+================================================================
