@@ -1,0 +1,502 @@
+================================================================
+        GIT — GUIDE FOR NEW JOINERS
+================================================================
+Author  : DevOps Team
+Purpose : Get new team members productive with Git quickly
+Audience: Developers and DevOps engineers joining the team
+================================================================
+
+
+================================================================
+WHAT IS GIT AND WHY DO WE USE IT?
+================================================================
+
+Imagine three developers working on the same codebase at the
+same time — each making different changes. Without a system
+to manage this, they would constantly overwrite each other's
+work, lose changes, and have no idea what was changed, by whom,
+and when.
+
+Git solves this. It is a version control system that tracks
+every change made to every file in a project. Every change is
+recorded with a timestamp, the author's name, and a message
+explaining what was done. If something breaks, you can see
+exactly what changed and when — and roll it back.
+
+In our team, Git is the starting point of everything. Every
+pipeline run, every deployment, every code review begins with
+a push to Git. It is the single source of truth for all code.
+
+What Git gives you:
+  — A full history of every change ever made to the codebase
+  — The ability to work on features without affecting others
+  — A structured way to review, approve, and merge code changes
+  — The trigger for automated CI/CD pipelines via webhooks
+  — The ability to roll back to any previous state instantly
+
+
+================================================================
+HOW GIT WORKS — THE BIG PICTURE
+================================================================
+
+Git works with three areas you need to understand:
+
+  Working Directory — Where you make changes to files on your machine
+  Staging Area      — Where you prepare changes before committing
+  Local Repository  — Where commits are saved on your machine
+  Remote Repository — The shared repository on GitHub/GitLab/Bitbucket
+
+The typical flow looks like this:
+
+  You edit a file           → change is in Working Directory
+  git add filename          → change moves to Staging Area
+  git commit -m "message"   → change is saved to Local Repository
+  git push                  → change is pushed to Remote Repository
+
+  Other developers then pull your changes:
+  git pull                  → their Local Repository is updated
+
+
+================================================================
+ESSENTIAL GIT COMMANDS
+================================================================
+
+  -- Setup (first time only) --
+  git config --global user.name "Your Name"
+  git config --global user.email "you@company.com"
+  git config --global core.editor "vim"          — Set default editor
+
+  -- Starting a Repository --
+  git init                        — Initialise a new Git repo locally
+  git clone <url>                 — Clone an existing remote repository
+  git clone <url> foldername      — Clone into a specific folder name
+
+  -- Daily Workflow --
+  git status                      — See what has changed
+  git diff                        — See exact line-by-line changes
+  git add filename                — Stage a specific file
+  git add .                       — Stage all changed files
+  git commit -m "your message"    — Commit staged changes
+  git push                        — Push commits to remote
+  git pull                        — Pull latest changes from remote
+  git fetch                       — Fetch changes without merging
+
+  -- Branching --
+  git branch                      — List all local branches
+  git branch -a                   — List all branches (local + remote)
+  git branch feature/my-feature   — Create a new branch
+  git checkout feature/my-feature — Switch to a branch
+  git checkout -b feature/new     — Create and switch in one command
+  git branch -d feature/done      — Delete a local branch (safe)
+  git branch -D feature/done      — Force delete a local branch
+  git push origin --delete feature/done  — Delete a remote branch
+
+  -- Merging and Rebasing --
+  git merge feature/my-feature    — Merge a branch into current branch
+  git rebase main                 — Rebase current branch onto main
+  git merge --abort               — Cancel a merge in progress
+  git rebase --abort              — Cancel a rebase in progress
+
+  -- Viewing History --
+  git log                         — Full commit history
+  git log --oneline               — Compact one-line history
+  git log --oneline --graph       — Visual branch graph
+  git log --author="Name"         — Commits by a specific person
+  git show <commit_hash>          — Details of a specific commit
+  git diff main..feature/branch   — Diff between two branches
+
+  -- Undoing Changes --
+  git restore filename            — Discard changes in working directory
+  git restore --staged filename   — Unstage a file (keep the changes)
+  git reset --soft HEAD~1         — Undo last commit, keep changes staged
+  git reset --mixed HEAD~1        — Undo last commit, keep changes unstaged
+  git reset --hard HEAD~1         — Undo last commit, discard all changes
+  git revert <commit_hash>        — Create a new commit that undoes a commit
+
+  -- Stashing --
+  git stash                       — Temporarily save uncommitted changes
+  git stash pop                   — Restore the last stash
+  git stash list                  — See all saved stashes
+  git stash drop                  — Delete the last stash
+
+  -- Remote --
+  git remote -v                   — Show remote URLs
+  git remote add origin <url>     — Add a remote
+  git push -u origin main         — Push and set upstream tracking
+  git push origin feature/branch  — Push a specific branch to remote
+
+
+================================================================
+BRANCHING — WORKING WITHOUT BREAKING THINGS
+================================================================
+
+A branch is an isolated copy of the codebase where you can
+make changes freely without affecting the main code or your
+teammates' work. When your work is ready and reviewed, it
+is merged back.
+
+Think of it like a parallel universe. You make changes in your
+universe, someone reviews them, and then they are brought into
+the main universe.
+
+  -- Create and switch to a new branch --
+  git checkout -b feature/add-login
+
+  -- Push your branch to remote so others can see it --
+  git push origin feature/add-login
+
+  -- After your work is done and merged, clean up --
+  git branch -d feature/add-login
+  git push origin --delete feature/add-login
+
+  Rule: Never commit directly to main or develop.
+        Always work on a feature branch and raise a pull request.
+
+
+================================================================
+BRANCH NAMING CONVENTION
+================================================================
+
+Consistent branch names make it easy to understand what every
+branch is for at a glance. Our team follows this convention:
+
+  feature/short-description     — New feature work
+  bugfix/short-description      — Fixing a bug
+  hotfix/short-description      — Urgent fix directly from main
+  release/version-number        — Preparing a release
+  chore/short-description       — Config changes, dependency updates
+
+  Examples:
+  feature/docker-integration
+  bugfix/login-null-pointer
+  hotfix/payment-timeout
+  release/1.2.0
+  chore/update-maven-version
+
+  Keep branch names lowercase, use hyphens not underscores,
+  and keep them short but descriptive.
+
+
+================================================================
+GITFLOW — OUR BRANCHING STRATEGY
+================================================================
+
+GitFlow is the branching strategy the team follows. It defines
+which branches exist, what they are used for, and how code
+flows between them.
+
+  main
+    The production branch. Only stable, fully tested, and
+    approved code lives here. Direct commits are not allowed.
+    Code reaches main only through a pull request from release
+    or hotfix branches.
+
+  develop
+    The integration branch. All completed features are merged
+    here first. This is where the latest development state lives.
+    It is also the branch that triggers the CI pipeline for
+    integration testing.
+
+  feature/*
+    Short-lived branches created from develop. One branch per
+    feature. Merged back into develop via pull request when done.
+
+  release/*
+    Created from develop when preparing a new release.
+    Only bug fixes and release prep work happen here.
+    Merged into both main and develop when ready.
+
+  hotfix/*
+    Created from main when there is an urgent production bug.
+    Fixed here and merged back into both main and develop.
+
+  Flow diagram:
+
+  main ──────────────────────────────────────────► production
+    └── hotfix/* ──────────────────────────────► main + develop
+  develop ──────────────────────────────────────► integration CI
+    └── feature/* ────────────────────────────► develop (PR)
+    └── release/* ────────────────────────────► main + develop
+
+
+================================================================
+PULL REQUEST — THE CODE REVIEW PROCESS
+================================================================
+
+A Pull Request (PR) is a request to merge your branch into
+another branch. It is not just a technical step — it is the
+team's quality gate. Before any code reaches develop or main,
+it must be reviewed and approved by at least one other person.
+
+How it works:
+  1. You push your feature branch to remote
+  2. You open a Pull Request on GitHub/GitLab
+  3. A teammate reviews the code — adds comments, suggests changes
+  4. You address the feedback and push updates
+  5. Reviewer approves the PR
+  6. The branch is merged and deleted
+
+A good PR:
+  — Has a clear title describing what it does
+  — Is small and focused — one feature or fix per PR
+  — Has a description explaining why the change was made
+  — Passes all CI pipeline checks before review
+  — Does not include unrelated changes
+
+
+================================================================
+.GITIGNORE — WHAT NEVER GOES INTO GIT
+================================================================
+
+A .gitignore file tells Git which files and folders to ignore.
+Some files should never be committed — secrets, build output,
+OS files, IDE configuration. If they end up in the repository,
+they are visible to everyone with access.
+
+  # Secrets and environment files — NEVER commit these
+  .env
+  .env.local
+  *.key
+  *.pem
+
+  # Build output — generated, not source
+  target/
+  dist/
+  build/
+  out/
+
+  # Dependencies — reinstalled from package manager
+  node_modules/
+  .mvn/
+
+  # IDE files — personal to each developer
+  .idea/
+  .vscode/
+  *.iml
+
+  # OS files
+  .DS_Store
+  Thumbs.db
+
+  # Logs — runtime output, not source
+  *.log
+  logs/
+
+  Always create a .gitignore before your first commit.
+  If you accidentally commit a secret, assume it is compromised
+  and rotate it immediately — even if you remove it later,
+  it exists in Git history.
+
+
+================================================================
+COMMIT MESSAGES — WRITING THEM PROPERLY
+================================================================
+
+A good commit message tells the next person (or future you)
+exactly what changed and why — without having to read the code.
+
+  Format:
+  <type>: <short summary in present tense>
+
+  Types:
+  feat     — A new feature
+  fix      — A bug fix
+  chore    — Maintenance, config, dependency update
+  docs     — Documentation changes
+  refactor — Code change that is not a fix or feature
+  test     — Adding or updating tests
+  ci       — Changes to CI/CD pipeline
+
+  Good examples:
+  feat: add Docker build stage to Jenkins pipeline
+  fix: resolve null pointer in log generation script
+  chore: update base image version in Dockerfile
+  docs: add project workflow document
+  ci: scope Docker cleanup to pipeline image only
+
+  Bad examples:
+  "fixed stuff"
+  "changes"
+  "wip"
+  "asdfjkl"
+
+  Rule: If you cannot summarise your commit in one line,
+        it probably contains too many changes. Break it up.
+
+
+================================================================
+MERGE vs REBASE — WHEN TO USE WHICH
+================================================================
+
+Both merge and rebase are ways to bring changes from one branch
+into another. They produce the same end result but with a
+different commit history.
+
+  git merge
+    Creates a merge commit that ties the two branch histories
+    together. History shows exactly what happened and when.
+    Safe to use on shared branches.
+
+    Use when: merging a feature branch into develop via PR,
+              or when working on a shared branch.
+
+  git rebase
+    Replays your commits on top of another branch. Produces a
+    clean, linear history with no merge commits. Looks like your
+    work was done after the latest changes on the target branch.
+
+    Use when: cleaning up a local feature branch before
+              raising a pull request. Makes the PR easier to review.
+
+  Golden rule: Never rebase a branch that others are working on.
+               Rebase only your own local branch before pushing.
+
+
+================================================================
+TAGS — MARKING RELEASES
+================================================================
+
+Tags mark specific points in Git history — typically used to
+mark release versions. Unlike branches, tags do not move.
+
+  git tag                          — List all tags
+  git tag v1.0.0                   — Create a lightweight tag
+  git tag -a v1.0.0 -m "Release"  — Create an annotated tag
+  git push origin v1.0.0           — Push a specific tag to remote
+  git push origin --tags           — Push all tags to remote
+  git checkout v1.0.0              — Check out a specific tag
+
+
+================================================================
+GIT AND JENKINS — HOW THEY CONNECT
+================================================================
+
+In our CI/CD setup, Git and Jenkins are directly connected
+via a webhook. Here is what happens:
+
+  1. Developer pushes a commit to GitHub
+  2. GitHub sends an HTTP POST (webhook) to Jenkins instantly
+  3. Jenkins receives the notification and starts a new build
+  4. Jenkins checks out the latest code from the pushed branch
+  5. Jenkins reads the Jenkinsfile and runs the pipeline
+
+This means every push automatically triggers a build. There is
+no need to manually start Jenkins. The pipeline is the automated
+response to every code change.
+
+  Webhook setup is done once in GitHub:
+  Repository → Settings → Webhooks → Add webhook
+  Payload URL: http://your-jenkins-server/github-webhook/
+  Content type: application/json
+  Trigger: Just the push event
+
+
+================================================================
+COMMON SCENARIOS AND HOW TO HANDLE THEM
+================================================================
+
+  Scenario: You need to pull the latest changes before pushing
+  ─────────────────────────────────────────────────────────────
+  git pull --rebase origin develop
+  # Rebase keeps your commits on top of latest changes
+
+
+  Scenario: You have a merge conflict
+  ─────────────────────────────────────────────────────────────
+  1. git pull or git merge triggers a conflict
+  2. Git marks the conflicting file with conflict markers:
+       <<<<<<< HEAD
+       your version
+       =======
+       their version
+       >>>>>>> feature/branch
+  3. Open the file, decide which version to keep (or combine both)
+  4. Remove the conflict markers
+  5. git add the resolved file
+  6. git commit to complete the merge
+
+
+  Scenario: You committed to the wrong branch
+  ─────────────────────────────────────────────────────────────
+  # Undo the last commit (keep the changes)
+  git reset --soft HEAD~1
+
+  # Switch to the correct branch and commit there
+  git checkout correct-branch
+  git add .
+  git commit -m "your message"
+
+
+  Scenario: You want to undo a commit that is already pushed
+  ─────────────────────────────────────────────────────────────
+  # Use revert — it creates a new commit that undoes the change
+  # This is safe because it does not rewrite history
+  git revert <commit_hash>
+  git push
+
+
+  Scenario: You want to temporarily save work and switch branches
+  ─────────────────────────────────────────────────────────────
+  git stash             # Save current work
+  git checkout other-branch
+  # do your work there
+  git checkout original-branch
+  git stash pop         # Restore your saved work
+
+
+================================================================
+TROUBLESHOOTING QUICK REFERENCE
+================================================================
+
+  Permission denied when pushing
+  → Check your SSH key is added to GitHub/GitLab
+    or verify your HTTPS credentials are correct
+
+  Rejected push (non-fast-forward)
+  → Someone else pushed after your last pull
+    Run: git pull --rebase origin <branch> then push again
+
+  Accidentally staged a file you don't want to commit
+  → git restore --staged filename
+
+  Need to see what changed in the last commit
+  → git show HEAD
+
+  Need to find which commit introduced a bug
+  → git bisect start
+    git bisect bad             (current state is broken)
+    git bisect good <hash>     (this commit was working)
+    Git will narrow it down automatically
+
+  Detached HEAD state
+  → You have checked out a commit directly instead of a branch
+    Create a branch from here: git checkout -b recovery-branch
+    or go back to a branch: git checkout develop
+
+
+================================================================
+BEST PRACTICES
+================================================================
+
+  DO:
+  ✔ Always work on a feature branch — never directly on main or develop
+  ✔ Pull the latest changes before starting new work
+  ✔ Write meaningful commit messages every time
+  ✔ Keep commits small and focused — one logical change per commit
+  ✔ Always create a .gitignore before the first commit
+  ✔ Delete feature branches after they are merged
+  ✔ Use git status and git diff before every commit to review changes
+  ✔ Raise a pull request and get at least one review before merging
+
+  DON'T:
+  ✗ Never commit .env files or any file containing secrets
+  ✗ Never force push to a shared branch (main, develop)
+    git push --force can overwrite other people's work permanently
+  ✗ Never commit directly to main — always go through a PR
+  ✗ Don't use vague commit messages like "fix" or "changes"
+  ✗ Don't let a branch live for too long without merging —
+    the longer it lives, the harder the merge becomes
+
+================================================================
+                    END OF GIT GUIDE
+================================================================
