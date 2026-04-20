@@ -1,0 +1,525 @@
+================================================================
+        DOCKER — GUIDE FOR NEW JOINERS
+================================================================
+Author  : DevOps Team
+Purpose : Get new team members productive with Docker quickly
+Audience: Developers and DevOps engineers joining the team
+================================================================
+
+
+================================================================
+WHAT IS DOCKER AND WHY DO WE USE IT?
+================================================================
+
+A very common problem in software teams is: "it works on my
+machine but breaks in production." The reason is usually
+differences in operating systems, installed libraries, or
+environment configuration between machines.
+
+Docker solves this by packaging your application along with
+everything it needs — the runtime, libraries, config — into
+a single unit called a container. That container runs the same
+way on a developer's laptop, a test server, and in production.
+
+Think of a Docker container like a shipping container. Whatever
+you put inside it behaves the same regardless of where the ship
+takes it.
+
+In our team, Docker is used to:
+  — Build consistent, reproducible application images
+  — Push those images to a registry (our central image store)
+  — Deploy containers to Kubernetes in production
+  — Run isolated test environments in CI pipelines
+
+Key Terms You Will Encounter:
+  Image       — A read-only blueprint. Like a template.
+  Container   — A running instance of an image. Like a process.
+  Dockerfile  — A file with instructions to build an image
+  Registry    — A storage server for images (like a Git repo for images)
+  Volume      — Persistent storage that survives container restarts
+  Network     — How containers communicate with each other
+  Layer       — Each instruction in a Dockerfile creates a cached layer
+
+
+================================================================
+HOW DOCKER WORKS — THE BIG PICTURE
+================================================================
+
+1. You write a Dockerfile describing how to build your app
+2. Docker reads it and creates an image (docker build)
+3. That image is pushed to a registry (docker push)
+4. On the target server, the image is pulled and run (docker run)
+5. A container starts from that image and your app is live
+
+The image is immutable — once built, it does not change.
+If you need a change, you build a new image with a new tag.
+This means every deployment is predictable and traceable.
+
+
+================================================================
+ESSENTIAL DOCKER COMMANDS
+================================================================
+
+  -- Images --
+  docker images                          — List local images
+  docker pull nginx:alpine               — Download image from registry
+  docker build -t myapp:1.0 .            — Build image from Dockerfile
+  docker rmi myapp:1.0                   — Remove a local image
+  docker tag myapp:1.0 myorg/myapp:1.0   — Tag an image for a registry
+
+  -- Containers --
+  docker run -d -p 3000:3000 myapp:1.0   — Run container in background
+  docker run -it ubuntu /bin/bash        — Run interactively with a shell
+  docker run --rm myapp:1.0 npm test     — Run and auto-remove after exit
+  docker ps                              — List running containers
+  docker ps -a                           — List all containers (inc. stopped)
+  docker stop <container_id>             — Stop a running container
+  docker rm <container_id>               — Remove a stopped container
+  docker logs <container_id>             — View container output logs
+  docker logs -f <container_id>          — Follow live logs
+  docker exec -it <container_id> /bin/sh — Open a shell in a container
+  docker inspect <container_id>          — Detailed JSON info about a container
+
+  -- System Cleanup --
+  docker system prune                    — Remove unused containers/images
+  docker system prune -a                 — Remove everything not in use
+  docker stats                           — Live CPU/memory usage per container
+
+
+================================================================
+DOCKERFILE — INSTRUCTION REFERENCE
+================================================================
+
+  FROM        — The base image to build on top of
+  WORKDIR     — Set the working directory (created if it doesn't exist)
+  COPY        — Copy files from your machine into the image
+  ADD         — Like COPY but also handles URLs and tar files
+  RUN         — Execute a command during the image build
+  CMD         — Default command when the container starts (can be overridden)
+  ENTRYPOINT  — Fixed command that always runs (args can be appended)
+  ENV         — Set a runtime environment variable
+  ARG         — Build-time variable (not available after build)
+  EXPOSE      — Documents which port the app listens on
+  VOLUME      — Declares a mount point for external storage
+  USER        — Switch to a non-root user before running the app
+  LABEL       — Attach metadata (version, maintainer, etc.)
+  HEALTHCHECK — How Docker should check if the container is healthy
+
+
+================================================================
+DOCKERFILE — BASIC EXAMPLE (Node.js)
+================================================================
+
+  FROM node:18-alpine
+  WORKDIR /app
+  COPY package*.json ./
+  RUN npm install
+  COPY . .
+  EXPOSE 3000
+  CMD ["node", "src/index.js"]
+
+Simple and clean. The alpine base image keeps it small.
+
+
+================================================================
+MULTI-STAGE BUILD — WHY IT MATTERS
+================================================================
+
+Without multi-stage builds, your production image contains
+everything — build tools, test dependencies, intermediate files.
+This makes images large, slow to pull, and unnecessarily exposed
+to vulnerabilities.
+
+Multi-stage builds separate the build environment from the
+runtime environment. You build in a heavy image, then copy
+only the output into a lean final image.
+
+  # Stage 1: Build
+  FROM node:18-alpine AS builder
+  WORKDIR /app
+  COPY package*.json ./
+  RUN npm install
+  COPY . .
+  RUN npm run build
+
+  # Stage 2: Production only — no build tools, no dev dependencies
+  FROM node:18-alpine AS production
+  WORKDIR /app
+  COPY --from=builder /app/dist ./dist
+  COPY --from=builder /app/node_modules ./node_modules
+  EXPOSE 3000
+  CMD ["node", "dist/index.js"]
+
+The final image is lean, fast to pull, and contains nothing
+that is not needed to run the application.
+
+
+================================================================
+NON-ROOT USER — A SECURITY REQUIREMENT
+================================================================
+
+By default, processes inside a container run as root. This is
+a security risk — if the container is ever compromised, an
+attacker would have root-level access.
+
+Always create and switch to a non-root user in production images.
+
+  # Alpine-based images:
+  RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+  USER appuser
+
+  # Debian/Ubuntu-based images:
+  RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+  USER appuser
+
+This is a team standard. All production Dockerfiles should
+have a USER instruction before CMD or ENTRYPOINT.
+
+
+================================================================
+ARG vs ENV — KNOWING THE DIFFERENCE
+================================================================
+
+These two look similar but serve different purposes:
+
+  ARG  — Available only during docker build. Gone after.
+  ENV  — Available inside the running container at runtime.
+
+  ARG BUILD_ENV=dev
+  ENV NODE_ENV=${BUILD_ENV}    # Set runtime var from build-time ARG
+
+  # Pass ARG at build time:
+  docker build --build-arg BUILD_ENV=production -t myapp .
+
+  A common mistake is storing secrets in ENV instructions.
+  ENV values are visible in docker inspect and image history.
+  Never put passwords in ENV. Use runtime injection instead:
+  docker run -e DB_PASSWORD=secret myapp
+
+
+================================================================
+LAYER CACHING — WRITING EFFICIENT DOCKERFILES
+================================================================
+
+Docker caches each layer. If a layer hasn't changed, Docker
+reuses the cached version instead of rebuilding it. This makes
+builds much faster.
+
+The rule is: put things that change rarely near the top,
+and things that change frequently near the bottom.
+
+  BAD — npm install reruns on every code change:
+  COPY . .
+  RUN npm install
+
+  GOOD — npm install only reruns when package.json changes:
+  COPY package*.json ./
+  RUN npm install
+  COPY . .
+
+This single change can reduce build times from minutes to seconds
+on most code changes.
+
+
+================================================================
+.DOCKERIGNORE — KEEP THE BUILD CLEAN
+================================================================
+
+Just like .gitignore, a .dockerignore file tells Docker what
+not to include in the build context. Without it, you risk
+copying sensitive files into the image or slowing down builds.
+
+  node_modules/     — Reinstalled fresh inside the container
+  .git/             — Git history is not needed in the image
+  .env              — Secrets must never be baked into images
+  logs/             — Runtime logs do not belong in the image
+  Dockerfile        — No need to copy it into the image
+  .dockerignore     — Self-exclusion
+  *.md              — Documentation is not needed at runtime
+  coverage/         — Test reports are not needed at runtime
+
+Always create a .dockerignore before building any image.
+
+
+================================================================
+HEALTHCHECK — LETTING DOCKER KNOW YOUR APP IS ALIVE
+================================================================
+
+A healthcheck tells Docker (and Kubernetes) how to verify that
+your container is actually working — not just running.
+
+Without it, a container with a crashed application still shows
+as "running". With a healthcheck, it shows as "unhealthy" and
+can be automatically restarted.
+
+  HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD curl -f http://localhost:3000/health || exit 1
+
+  # curl is not in alpine by default — install it first:
+  RUN apk add --no-cache curl
+
+  # Check container health from the CLI:
+  docker inspect --format='{{.State.Health.Status}}' <container_id>
+
+
+================================================================
+DOCKER RUN — COMMON FLAGS
+================================================================
+
+  -d                    Run in detached (background) mode
+  -p 8080:3000          Map host port 8080 → container port 3000
+  --name mycontainer    Give the container a name
+  -e NODE_ENV=prod      Set an environment variable
+  --env-file .env       Load multiple env vars from a file
+  -v myvolume:/data     Mount a named volume
+  -v $(pwd):/app        Mount current directory (dev only)
+  --network mynet       Connect to a specific Docker network
+  --rm                  Auto-remove container when it exits
+  --restart always      Always restart if the container stops
+
+
+================================================================
+VOLUMES — KEEPING DATA AFTER RESTARTS
+================================================================
+
+Containers are stateless by design. When a container is removed,
+everything inside it is gone. Volumes solve this by storing data
+outside the container's lifecycle.
+
+  -- Named Volume (recommended for production) --
+  docker volume create mydata
+  docker run -v mydata:/var/lib/mysql mysql:8
+
+  -- Bind Mount (good for development — mounts a local folder) --
+  docker run -v $(pwd)/src:/app/src myapp
+
+  -- Volume Commands --
+  docker volume ls                 — List all volumes
+  docker volume inspect mydata     — Inspect a volume
+  docker volume rm mydata          — Remove a volume
+  docker volume prune              — Remove all unused volumes
+
+Use named volumes in production. Use bind mounts in development
+for live code reloading.
+
+
+================================================================
+DOCKER NETWORKING — HOW CONTAINERS TALK TO EACH OTHER
+================================================================
+
+By default, containers are isolated. To allow two containers
+to communicate, they need to be on the same network.
+
+  -- Network Types --
+  bridge    — Default. Containers on same bridge talk by name or IP.
+  host      — Container shares the host's network directly.
+  none      — No network access at all.
+
+  -- Commands --
+  docker network create mynet                 — Create a network
+  docker network ls                           — List networks
+  docker network inspect mynet                — Inspect a network
+  docker network rm mynet                     — Remove a network
+
+  -- Example: API container connecting to Redis --
+  docker network create backend-net
+  docker run -d --name redis --network backend-net redis:alpine
+  docker run -d --name api --network backend-net -e REDIS_HOST=redis myapi
+
+  When two containers are on the same network, they can reach
+  each other using the container NAME as a hostname.
+  The api container above reaches Redis at hostname "redis" — not
+  localhost, not an IP address.
+
+
+================================================================
+DOCKER COMPOSE — MANAGING MULTI-CONTAINER APPS
+================================================================
+
+Running multiple containers with docker run commands gets messy
+fast. Docker Compose lets you define all your services, networks,
+and volumes in a single YAML file and manage them together.
+
+  version: '3.8'
+
+  networks:
+    app-network:
+      driver: bridge
+
+  volumes:
+    db-data:
+
+  services:
+    web:
+      build: .
+      ports:
+        - "80:3000"
+      environment:
+        NODE_ENV: production
+      depends_on:
+        - database
+      networks:
+        - app-network
+      restart: always
+
+    database:
+      image: postgres:15
+      environment:
+        POSTGRES_DB: mydb
+        POSTGRES_USER: admin
+        POSTGRES_PASSWORD: secret
+      volumes:
+        - db-data:/var/lib/postgresql/data
+      networks:
+        - app-network
+
+
+================================================================
+DOCKER COMPOSE — COMMON COMMANDS
+================================================================
+
+  docker-compose up                  — Start all services
+  docker-compose up -d               — Start in background
+  docker-compose up --build          — Rebuild images before starting
+  docker-compose down                — Stop and remove containers
+  docker-compose down -v             — Also remove volumes
+  docker-compose ps                  — List running services
+  docker-compose logs -f             — Follow all service logs
+  docker-compose logs -f web         — Follow a specific service
+  docker-compose exec web /bin/sh    — Shell into a running service
+  docker-compose restart web         — Restart a specific service
+
+
+================================================================
+DOCKER COMPOSE OVERRIDE FILES
+================================================================
+
+Different environments need different config. Override files
+let you keep a clean base config and layer environment-specific
+settings on top.
+
+  docker-compose.yml              — Base config (shared settings)
+  docker-compose.override.yml     — Auto-loaded for development
+  docker-compose.prod.yml         — Manually specified for production
+
+  # Development (override is auto-loaded):
+  docker-compose up
+
+  # Production (explicitly specify files):
+  docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
+
+
+================================================================
+IMAGE TAGGING STRATEGY
+================================================================
+
+Tagging tells you exactly what is running in production.
+A tag of "latest" tells you nothing — was it built today or
+six months ago? Always use meaningful, traceable tags.
+
+  # Tag with build number (from Jenkins):
+  docker build -t myorg/myapp:${BUILD_NUMBER} .
+
+  # Tag with git commit SHA:
+  docker build -t myorg/myapp:$(git rev-parse --short HEAD) .
+
+  # Tag as latest only for main/release branches:
+  docker tag myorg/myapp:42 myorg/myapp:latest
+
+  Rule: Always use a versioned tag in production.
+        "latest" is fine as an alias, but never the only tag.
+
+
+================================================================
+PUSHING AND PULLING FROM A REGISTRY
+================================================================
+
+  # Docker Hub:
+  docker login
+  docker push myorg/myapp:1.0
+  docker pull myorg/myapp:1.0
+
+  # Private Registry (Nexus, ECR, etc.):
+  docker login registry.mycompany.com
+  docker tag myapp:1.0 registry.mycompany.com/myapp:1.0
+  docker push registry.mycompany.com/myapp:1.0
+  docker pull registry.mycompany.com/myapp:1.0
+
+
+================================================================
+ENTRYPOINT vs CMD
+================================================================
+
+  ENTRYPOINT — The fixed command. Always runs. User can append args.
+  CMD        — The default command. User can replace it entirely.
+
+  # With ENTRYPOINT:
+  ENTRYPOINT ["backup.sh"]
+  CMD ["--full"]                   # Default arg, replaceable
+
+  docker run mybackup                  → backup.sh --full
+  docker run mybackup --incremental    → backup.sh --incremental
+
+  # With CMD only:
+  CMD ["node", "index.js"]
+
+  docker run myapp                     → node index.js
+  docker run myapp /bin/sh             → /bin/sh (CMD is replaced)
+
+  Rule: Use ENTRYPOINT when the container has one fixed purpose.
+        Use CMD when you want a sensible default that can be overridden.
+
+
+================================================================
+TROUBLESHOOTING QUICK REFERENCE
+================================================================
+
+  Container exits immediately
+  → Run with -it to see the output. Check CMD/ENTRYPOINT is correct.
+    docker run -it myapp /bin/sh
+
+  Port already in use
+  → Change the host port: docker run -p 8081:3000 myapp
+
+  Permission denied inside container
+  → Check the USER instruction. Ensure files are readable by that user.
+
+  Changes not reflected in image
+  → Check .dockerignore is not excluding your source files.
+    Rebuild without cache: docker build --no-cache -t myapp .
+
+  Container cannot reach another container
+  → Both containers must be on the same Docker network.
+    Use the container NAME as hostname, not localhost or IP.
+
+  Image is too large
+  → Use alpine base images and multi-stage builds.
+    Clean up package manager cache in the same RUN instruction:
+    RUN apt-get update && apt-get install -y curl \
+        && rm -rf /var/lib/apt/lists/*
+
+
+================================================================
+BEST PRACTICES
+================================================================
+
+  DO:
+  ✔ Always use a specific image tag in Dockerfiles — never FROM ubuntu:latest
+  ✔ Use multi-stage builds for all production images
+  ✔ Run containers as a non-root user
+  ✔ Always create a .dockerignore file
+  ✔ Copy package.json before source code for better layer caching
+  ✔ Use named volumes for production data
+  ✔ Use HEALTHCHECK in production Dockerfiles
+  ✔ Tag images with build number or commit SHA
+  ✔ Clean up unused images regularly (docker system prune)
+
+  DON'T:
+  ✗ Never store secrets or passwords in ENV instructions in a Dockerfile
+  ✗ Never commit a .env file into the image
+  ✗ Don't run multiple applications inside a single container
+  ✗ Don't use "latest" as the only tag in production deployments
+
+================================================================
+                    END OF DOCKER GUIDE
+================================================================
