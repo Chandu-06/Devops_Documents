@@ -1,0 +1,821 @@
+================================================================
+        KUBERNETES — GUIDE FOR NEW JOINERS
+================================================================
+Author  : DevOps Team
+Purpose : Get new team members productive with Kubernetes quickly
+Audience: Developers and DevOps engineers joining the team
+================================================================
+
+
+================================================================
+WHAT IS KUBERNETES AND WHY DO WE USE IT?
+================================================================
+
+Once you have your application packaged as a Docker container,
+you need something to run it in production reliably. That is
+where Kubernetes comes in.
+
+Kubernetes (K8s) is a container orchestration platform. It takes
+your containers and manages them across a cluster of machines —
+deciding where to run them, keeping them healthy, scaling them up
+when traffic increases, and recovering them automatically when
+something goes wrong.
+
+Without Kubernetes, running containers in production means
+managing servers manually — tracking which container runs on
+which machine, restarting crashed containers, manually scaling
+during peak load. That does not scale.
+
+With Kubernetes, you declare what you want (e.g. "I want 3
+copies of this container running at all times") and Kubernetes
+makes it happen and keeps it that way.
+
+In our team, Kubernetes is used to:
+  — Run all production workloads as containers
+  — Automatically scale services based on load
+  — Deploy new versions with zero downtime
+  — Isolate environments (dev, staging, production) within a cluster
+
+Key Terms You Will Encounter:
+  Cluster      — The group of machines (nodes) running Kubernetes
+  Node         — A single machine in the cluster
+  Pod          — The smallest unit. Wraps one or more containers.
+  Deployment   — Manages replicas of a Pod and handles updates
+  Service      — A stable network address to reach your Pods
+  Namespace    — Logical separation within a cluster (like folders)
+  ConfigMap    — Non-sensitive config stored in the cluster
+  Secret       — Sensitive data (passwords, tokens) stored securely
+  Ingress      — Controls HTTP/HTTPS traffic into the cluster
+  HPA          — Horizontal Pod Autoscaler — scales pods automatically
+
+
+================================================================
+HOW KUBERNETES WORKS — THE BIG PICTURE
+================================================================
+
+Kubernetes works on a declarative model. You do not tell it
+what steps to take. You describe the desired state, and
+Kubernetes figures out how to get there and keeps it that way.
+
+1. You write a YAML manifest describing what you want
+   (e.g. 3 replicas of my app, 512MB memory each)
+2. You apply it: kubectl apply -f deployment.yaml
+3. Kubernetes schedules your pods on available nodes
+4. If a pod crashes, Kubernetes restarts it automatically
+5. If a node fails, Kubernetes moves the pods to healthy nodes
+
+You interact with the cluster through kubectl, the command-line
+tool for Kubernetes.
+
+
+================================================================
+ESSENTIAL kubectl COMMANDS
+================================================================
+
+  -- Context and Cluster --
+  kubectl config get-contexts                — List configured clusters
+  kubectl config use-context <name>          — Switch cluster
+  kubectl config current-context             — Show active cluster
+
+  -- Namespaces --
+  kubectl get namespaces                     — List all namespaces
+  kubectl create namespace dev               — Create a namespace
+
+  -- Pods --
+  kubectl get pods                           — List pods (default namespace)
+  kubectl get pods -n dev                    — List pods in 'dev' namespace
+  kubectl get pods -A                        — List pods across all namespaces
+  kubectl describe pod <name> -n dev         — Full pod details and events
+  kubectl logs <pod-name> -n dev             — View pod logs
+  kubectl logs -f <pod-name> -n dev          — Follow live logs
+  kubectl exec -it <pod-name> -- /bin/sh     — Shell into a running pod
+  kubectl delete pod <pod-name> -n dev       — Delete a pod (Deployment restarts it)
+
+  -- Deployments --
+  kubectl get deployments -n dev
+  kubectl describe deployment <name> -n dev
+  kubectl scale deployment <name> --replicas=5 -n dev
+  kubectl rollout status deployment/<name> -n dev
+  kubectl rollout history deployment/<name> -n dev
+  kubectl rollout undo deployment/<name> -n dev
+  kubectl rollout undo deployment/<name> --to-revision=2 -n dev
+
+  -- Apply / Delete --
+  kubectl apply -f deployment.yaml           — Create or update resource
+  kubectl apply -f k8s/                      — Apply all YAMLs in a folder
+  kubectl delete -f deployment.yaml          — Delete resource
+
+  -- General --
+  kubectl get all -n dev                     — All resources in namespace
+  kubectl get events -n dev                  — Recent cluster events
+  kubectl top pods -n dev                    — CPU/memory per pod
+  kubectl top nodes                          — CPU/memory per node
+
+  -- Handy Shortcuts --
+  po  = pods    |  svc = services  |  dep = deployments
+  ns  = namespaces  |  cm = configmaps  |  ing = ingresses
+  pvc = persistentvolumeclaims  |  pv = persistentvolumes
+
+  kubectl get po -n dev
+  kubectl get svc -n production
+
+  -- Output Formats --
+  kubectl get pods -o wide          — Extra info (node, IP)
+  kubectl get pods -o yaml          — Full YAML output
+  kubectl get pods --show-labels    — Show labels
+
+  -- Validate Without Applying --
+  kubectl apply -f manifest.yaml --dry-run=client
+
+
+================================================================
+MANIFEST FILE — STRUCTURE
+================================================================
+
+Every Kubernetes resource is defined in a YAML manifest.
+All manifests share the same four top-level fields:
+
+  apiVersion: apps/v1     — API group and version for this resource
+  kind: Deployment        — The type of resource
+  metadata:               — Name, namespace, labels, annotations
+    name: my-deployment
+    namespace: dev
+  spec:                   — The desired state you are declaring
+
+
+================================================================
+POD
+================================================================
+
+A Pod is the smallest deployable unit in Kubernetes. It wraps
+one or more containers that share the same network and storage.
+
+In practice, you rarely create Pods directly. You create a
+Deployment, and the Deployment creates and manages Pods for you.
+If you create a Pod directly and it crashes, nothing restarts it.
+
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: nginx-pod
+    namespace: default
+    labels:
+      app: nginx
+  spec:
+    containers:
+      - name: nginx
+        image: nginx:1.25
+        ports:
+          - containerPort: 80
+
+
+================================================================
+DEPLOYMENT — THE RIGHT WAY TO RUN YOUR APP
+================================================================
+
+A Deployment manages a set of identical Pods (replicas) and
+handles rolling updates and rollbacks. This is how all
+applications should be run in Kubernetes.
+
+If a Pod crashes, the Deployment creates a new one automatically.
+If you push a bad update, you can roll back with one command.
+
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: webapp-deployment
+    namespace: dev
+  spec:
+    replicas: 3
+    selector:
+      matchLabels:
+        app: webapp             # Deployment finds its pods by this label
+    template:
+      metadata:
+        labels:
+          app: webapp           # Pod label — must match selector above
+      spec:
+        containers:
+          - name: webapp
+            image: myorg/webapp:1.0
+            ports:
+              - containerPort: 3000
+
+  IMPORTANT: selector.matchLabels must match template.metadata.labels.
+             This is how the Deployment knows which Pods it owns.
+
+
+================================================================
+SERVICE — STABLE NETWORK ACCESS TO YOUR PODS
+================================================================
+
+Pods are temporary. They get created, replaced, and rescheduled
+with new IP addresses constantly. You cannot rely on a Pod's IP.
+
+A Service gives you a stable DNS name and IP that always points
+to the right Pods — regardless of how many times they restart.
+
+  -- ClusterIP (default — internal cluster traffic only) --
+  spec:
+    type: ClusterIP
+    selector:
+      app: webapp
+    ports:
+      - port: 80          # Port the Service listens on
+        targetPort: 3000  # Port the Pod actually listens on
+
+  -- NodePort (accessible from outside the cluster via node IP) --
+  spec:
+    type: NodePort
+    selector:
+      app: webapp
+    ports:
+      - port: 80
+        targetPort: 3000
+        nodePort: 30080   # Must be 30000–32767
+
+  -- LoadBalancer (cloud provider gives you an external IP) --
+  spec:
+    type: LoadBalancer
+    selector:
+      app: webapp
+    ports:
+      - port: 80
+        targetPort: 3000
+
+  In production, use ClusterIP for internal services and
+  expose external traffic through an Ingress resource.
+
+
+================================================================
+CONFIGMAP — EXTERNALISE YOUR CONFIGURATION
+================================================================
+
+Hardcoding configuration values like port numbers, log levels,
+or feature flags inside your application image is bad practice.
+If you change a value, you have to rebuild the whole image.
+
+ConfigMaps let you store configuration outside the image and
+inject it into your containers at runtime.
+
+  apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: app-config
+    namespace: dev
+  data:
+    APP_ENV: "production"
+    APP_PORT: "3000"
+    LOG_LEVEL: "info"
+
+  -- Inject all keys as environment variables --
+  envFrom:
+    - configMapRef:
+        name: app-config
+
+  -- Inject a specific key --
+  env:
+    - name: APP_PORT
+      valueFrom:
+        configMapKeyRef:
+          name: app-config
+          key: APP_PORT
+
+  -- Mount as a config file (e.g. nginx.conf) --
+  volumes:
+    - name: config-vol
+      configMap:
+        name: nginx-config
+
+  volumeMounts:
+    - name: config-vol
+      mountPath: /etc/nginx/conf.d/default.conf
+      subPath: default.conf
+
+
+================================================================
+SECRET — STORING SENSITIVE DATA
+================================================================
+
+Secrets work like ConfigMaps but for sensitive values — passwords,
+API tokens, database credentials. The values are base64 encoded
+in the manifest.
+
+  # Encode values before adding to manifest:
+  echo -n 'mypassword' | base64       → bXlwYXNzd29yZA==
+
+  apiVersion: v1
+  kind: Secret
+  metadata:
+    name: db-secret
+    namespace: dev
+  type: Opaque
+  data:
+    DB_PASSWORD: bXlwYXNzd29yZA==
+
+  -- Inject as environment variables --
+  envFrom:
+    - secretRef:
+        name: db-secret
+
+  -- Inject a specific key --
+  env:
+    - name: DB_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: db-secret
+          key: DB_PASSWORD
+
+  Important: Base64 is encoding, not encryption. Secrets are not
+             encrypted by default in Kubernetes. For highly sensitive
+             values, ask the team about the secrets management approach
+             in use (e.g. sealed secrets, external vault).
+
+
+================================================================
+RESOURCE REQUESTS AND LIMITS
+================================================================
+
+Without resource limits, a single poorly behaved pod can consume
+all the CPU or memory on a node and starve every other workload.
+
+Requests tell the scheduler how much resource a pod needs.
+Limits cap the maximum a pod can use.
+
+  resources:
+    requests:
+      cpu: "250m"       # Minimum guaranteed (250 millicores = 0.25 core)
+      memory: "128Mi"   # Minimum guaranteed memory
+    limits:
+      cpu: "500m"       # Hard cap on CPU
+      memory: "256Mi"   # Hard cap on memory
+
+  CPU Units:    1000m = 1 core.  250m = 0.25 core.
+  Memory Units: Mi = Mebibytes. Gi = Gibibytes.
+
+  Always define both requests and limits for every container
+  in production. HPA also requires requests to work correctly.
+
+
+================================================================
+LIVENESS AND READINESS PROBES
+================================================================
+
+Probes are how Kubernetes checks on the health of your containers.
+
+  Liveness Probe — "Is this container still working?"
+    If it fails, Kubernetes restarts the container.
+    Use this to recover from deadlocks or crash states.
+
+  Readiness Probe — "Is this container ready to serve traffic?"
+    If it fails, the pod is removed from the Service endpoints.
+    Traffic stops going to it until it recovers.
+
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 10   # Wait 10s before first check
+    periodSeconds: 15         # Check every 15 seconds
+    failureThreshold: 3       # Restart after 3 consecutive failures
+
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 8080
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    failureThreshold: 3
+
+  Other probe types:
+    exec:     { command: ["cat", "/tmp/healthy"] }
+    tcpSocket: { port: 3306 }
+
+
+================================================================
+PERSISTENT VOLUME AND PERSISTENT VOLUME CLAIM
+================================================================
+
+Containers are stateless. When a pod is deleted, its local data
+is gone. For databases and other stateful apps, you need storage
+that outlives the pod.
+
+PersistentVolume (PV) is a piece of storage provisioned in the cluster.
+PersistentVolumeClaim (PVC) is a request for that storage by a pod.
+
+  -- PersistentVolume --
+  apiVersion: v1
+  kind: PersistentVolume
+  metadata:
+    name: mysql-pv
+  spec:
+    capacity:
+      storage: 5Gi
+    accessModes:
+      - ReadWriteOnce
+    persistentVolumeReclaimPolicy: Retain
+    hostPath:
+      path: /data/mysql
+
+  -- PersistentVolumeClaim --
+  apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: mysql-pvc
+    namespace: dev
+  spec:
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 5Gi
+
+  -- Mount PVC in a Deployment --
+  volumes:
+    - name: mysql-storage
+      persistentVolumeClaim:
+        claimName: mysql-pvc
+
+  volumeMounts:
+    - name: mysql-storage
+      mountPath: /var/lib/mysql
+
+  Access Modes:
+    ReadWriteOnce (RWO) — One node reads and writes at a time
+    ReadOnlyMany  (ROX) — Many nodes read, none write
+    ReadWriteMany (RWX) — Many nodes read and write
+
+
+================================================================
+ROLLING UPDATE AND ROLLBACK
+================================================================
+
+A rolling update replaces old pods with new ones gradually,
+ensuring some pods are always available to serve traffic.
+This gives you zero-downtime deployments.
+
+  spec:
+    strategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxSurge: 1          # One extra pod is created during the update
+        maxUnavailable: 0    # No pod is removed until a new one is ready
+
+  -- Commands --
+  kubectl rollout status deployment/webapp       — Watch update progress
+  kubectl rollout history deployment/webapp      — View revision history
+  kubectl rollout undo deployment/webapp         — Rollback to previous version
+  kubectl rollout undo deployment/webapp --to-revision=2  — Specific revision
+
+  If a deployment causes problems, rollback immediately with
+  kubectl rollout undo. Do not wait.
+
+
+================================================================
+HORIZONTAL POD AUTOSCALER (HPA)
+================================================================
+
+HPA automatically scales the number of pod replicas based on
+observed CPU or memory usage. During peak hours it scales up,
+during quiet periods it scales back down.
+
+  apiVersion: autoscaling/v2
+  kind: HorizontalPodAutoscaler
+  metadata:
+    name: webapp-hpa
+    namespace: production
+  spec:
+    scaleTargetRef:
+      apiVersion: apps/v1
+      kind: Deployment
+      name: webapp-deployment
+    minReplicas: 2
+    maxReplicas: 10
+    metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 70
+
+  HPA requires Metrics Server to be installed in the cluster,
+  and it requires pods to have resource requests defined.
+  Without requests, HPA has no baseline to calculate utilisation.
+
+
+================================================================
+INGRESS — ROUTING EXTERNAL HTTP TRAFFIC
+================================================================
+
+Services of type ClusterIP are only reachable inside the cluster.
+To expose applications to the outside world over HTTP/HTTPS,
+use an Ingress resource instead of NodePort or LoadBalancer.
+
+Ingress gives you path-based and host-based routing in one place.
+
+  apiVersion: networking.k8s.io/v1
+  kind: Ingress
+  metadata:
+    name: myapp-ingress
+    namespace: production
+    annotations:
+      kubernetes.io/ingress.class: nginx
+  spec:
+    rules:
+      - host: myapp.example.com
+        http:
+          paths:
+            - path: /api
+              pathType: Prefix
+              backend:
+                service:
+                  name: api-service
+                  port:
+                    number: 8080
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: frontend-service
+                  port:
+                    number: 80
+
+  Path Types:
+    Prefix — Matches /api, /api/users, /api/v1/anything
+    Exact  — Matches only the exact path specified
+
+
+================================================================
+NAMESPACE AND RESOURCE QUOTA
+================================================================
+
+Namespaces give you logical isolation inside a cluster. Different
+teams or environments (dev, staging, production) can run in the
+same cluster without interfering with each other.
+
+Resource Quotas set limits on how much CPU, memory, and how many
+pods a namespace can use. This prevents one team's workload from
+consuming all cluster resources.
+
+  apiVersion: v1
+  kind: Namespace
+  metadata:
+    name: dev
+
+  ---
+
+  apiVersion: v1
+  kind: ResourceQuota
+  metadata:
+    name: dev-quota
+    namespace: dev
+  spec:
+    hard:
+      pods: "10"
+      requests.cpu: "4"
+      requests.memory: "8Gi"
+      limits.cpu: "8"
+      limits.memory: "16Gi"
+
+
+================================================================
+INIT CONTAINERS
+================================================================
+
+Init containers run and complete before the main application
+container starts. They are used to perform setup tasks — like
+waiting for a database to be ready or downloading configuration.
+
+  spec:
+    initContainers:
+      - name: wait-for-db
+        image: busybox
+        command:
+          - sh
+          - -c
+          - until nc -z postgres-service 5432; do echo "Waiting for DB..."; sleep 2; done
+
+    containers:
+      - name: webapp
+        image: myorg/webapp:latest
+
+  The main container will not start until all init containers
+  complete successfully. This removes race conditions between
+  services starting in the wrong order.
+
+
+================================================================
+SIDECAR PATTERN
+================================================================
+
+A sidecar is a second container running alongside your main
+application container inside the same Pod. Both containers share
+the same network and can share volumes.
+
+Common uses: shipping logs to a central system, running a proxy,
+or watching for config changes.
+
+  spec:
+    containers:
+      - name: app
+        image: myorg/app:latest
+        volumeMounts:
+          - name: shared-logs
+            mountPath: /var/log/app
+
+      - name: log-shipper         # Sidecar reads what app writes
+        image: fluentd:latest
+        volumeMounts:
+          - name: shared-logs
+            mountPath: /var/log/app
+
+    volumes:
+      - name: shared-logs
+        emptyDir: {}              # Shared in-memory volume
+
+
+================================================================
+STATEFULSET — FOR DATABASES AND STATEFUL APPS
+================================================================
+
+Deployments treat all pods as identical and interchangeable.
+For databases, this does not work — each instance needs a stable
+identity and its own dedicated storage.
+
+StatefulSets give each pod a stable name (mysql-0, mysql-1),
+a stable network identity, and its own PersistentVolumeClaim.
+
+  apiVersion: apps/v1
+  kind: StatefulSet
+  metadata:
+    name: mysql-statefulset
+    namespace: dev
+  spec:
+    serviceName: mysql-headless
+    replicas: 1
+    selector:
+      matchLabels:
+        app: mysql
+    template:
+      metadata:
+        labels:
+          app: mysql
+      spec:
+        containers:
+          - name: mysql
+            image: mysql:8
+            env:
+              - name: MYSQL_ROOT_PASSWORD
+                value: "rootpass"
+            volumeMounts:
+              - name: mysql-storage
+                mountPath: /var/lib/mysql
+    volumeClaimTemplates:
+      - metadata:
+          name: mysql-storage
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 10Gi
+
+  StatefulSets require a headless Service (clusterIP: None)
+  so each pod gets its own DNS entry.
+
+
+================================================================
+CRONJOB — SCHEDULED TASKS
+================================================================
+
+A CronJob runs a job on a schedule, just like a cron job on Linux.
+Common uses: database backups, sending reports, cleaning up stale data.
+
+  apiVersion: batch/v1
+  kind: CronJob
+  metadata:
+    name: backup-job
+    namespace: production
+  spec:
+    schedule: "0 2 * * *"           # Every day at 2:00 AM
+    successfulJobsHistoryLimit: 3
+    failedJobsHistoryLimit: 1
+    jobTemplate:
+      spec:
+        template:
+          spec:
+            restartPolicy: OnFailure
+            containers:
+              - name: backup
+                image: myorg/backup:latest
+                command: ["/bin/sh", "-c", "backup.sh"]
+
+  Cron schedule format  →  minute hour day month weekday
+  "0 2 * * *"           →  Every day at 2:00 AM
+  "0 * * * *"           →  Every hour
+  "*/5 * * * *"         →  Every 5 minutes
+  "0 2 * * 0"           →  Every Sunday at 2:00 AM
+
+
+================================================================
+RBAC — WHO CAN DO WHAT IN THE CLUSTER
+================================================================
+
+RBAC (Role-Based Access Control) controls which users and
+services can perform which actions on which resources.
+This is important for security and audit compliance.
+
+  Role       — Defines permissions within a specific namespace
+  ClusterRole — Defines permissions across the whole cluster
+  RoleBinding — Assigns a Role to a user or group
+
+  -- Role (read-only access to pods and deployments) --
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: Role
+  metadata:
+    name: dev-viewer
+    namespace: dev
+  rules:
+    - apiGroups: ["", "apps"]
+      resources: ["pods", "deployments"]
+      verbs: ["get", "list", "watch"]
+
+  -- RoleBinding (assign role to a user) --
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: RoleBinding
+  metadata:
+    name: dev-viewer-binding
+    namespace: dev
+  subjects:
+    - kind: User
+      name: john.doe
+      apiGroup: rbac.authorization.k8s.io
+  roleRef:
+    kind: Role
+    name: dev-viewer
+    apiGroup: rbac.authorization.k8s.io
+
+  Common Verbs:
+    get, list, watch    — Read access
+    create, update      — Write access
+    delete              — Delete access
+    patch               — Partial update
+
+
+================================================================
+TROUBLESHOOTING QUICK REFERENCE
+================================================================
+
+  Pod stuck in Pending
+  → kubectl describe pod <name> — check the Events section at the bottom
+    Usually caused by insufficient CPU/memory on nodes, or no matching node
+
+  Pod in CrashLoopBackOff
+  → kubectl logs <pod> — read the application error
+    kubectl describe pod <pod> — check the exit code
+
+  Pod in ImagePullBackOff
+  → Wrong image name, wrong tag, or missing registry credentials
+    kubectl describe pod <pod> will show the exact error
+
+  Service not routing traffic to pods
+  → The selector in the Service must exactly match the labels on the Pods
+    kubectl get endpoints <service-name> — if empty, selector is wrong
+
+  PVC stuck in Pending
+  → No PersistentVolume matches the claim's access mode or storage size
+
+  HPA not scaling
+  → Metrics Server not installed, or pods have no resource requests defined
+    kubectl top pods will also fail without Metrics Server
+
+  kubectl returns Forbidden
+  → Your user does not have the required RBAC permissions
+    Ask the team admin to check your Role/RoleBinding
+
+
+================================================================
+BEST PRACTICES
+================================================================
+
+  DO:
+  ✔ Always specify a namespace in every manifest — never rely on default
+  ✔ Always set resource requests and limits on every container
+  ✔ Use Deployments instead of bare Pods — Deployments self-heal
+  ✔ Use ConfigMaps for config and Secrets for sensitive values
+  ✔ Add readiness probes to prevent traffic going to unready pods
+  ✔ Add liveness probes to auto-restart crashed containers
+  ✔ Use RollingUpdate with maxUnavailable: 0 for zero-downtime deploys
+  ✔ Test manifests with --dry-run=client before applying to production
+  ✔ Roll back immediately with kubectl rollout undo when something breaks
+
+  DON'T:
+  ✗ Never store real secrets in plain text manifests committed to Git
+  ✗ Don't run containers as root in production
+  ✗ Don't use the latest image tag in production — use versioned tags
+  ✗ Don't delete pods manually in a Deployment — it restarts them anyway
+  ✗ Don't skip resource limits — one pod without limits can crash a node
+
+================================================================
+                  END OF KUBERNETES GUIDE
+================================================================
