@@ -1,0 +1,271 @@
+================================================================================
+  ANSIBLE LEARNING DOCUMENT
+  02 - Architecture & Components
+  HSBC DevOps Learning Sprint | Week: Ansible | Level: Fresher to Intermediate
+================================================================================
+
+--------------------------------------------------------------------------------
+THE BIG PICTURE
+--------------------------------------------------------------------------------
+
+Before you write a single line of Ansible code, you need to understand HOW
+Ansible works under the hood. This section covers the architecture — what are
+the parts of Ansible, how do they relate to each other, and what happens when
+you run an Ansible command?
+
+
+--------------------------------------------------------------------------------
+CORE COMPONENTS
+--------------------------------------------------------------------------------
+
+1. CONTROL NODE
+   -------------
+   The Control Node is the machine where Ansible is INSTALLED.
+   This is where you write your Ansible files and RUN Ansible commands from.
+
+     - Can be your laptop, a dedicated server, or Jenkins
+     - Must run Linux or macOS (Windows NOT supported as control node natively)
+     - Must have Python 3 and Ansible installed
+     - Does NOT need any special setup on the target servers
+
+   HSBC EXAMPLE:
+     Your Jenkins server could be the Control Node. When a pipeline runs,
+     Jenkins calls Ansible, which then configures your application servers.
+
+
+2. MANAGED NODES (Target Hosts)
+   ------------------------------
+   Managed Nodes are the servers that Ansible manages — the targets.
+   These are the servers you want to configure, deploy to, or automate.
+
+     - Can be any number of servers — 1 or 1000
+     - Must have Python 3 installed (usually already present on Linux)
+     - Must be accessible via SSH from the Control Node
+     - NO Ansible installation needed here — that's the beauty of agentless!
+
+
+3. INVENTORY
+   ----------
+   The Inventory is a FILE (or script) that lists all Managed Nodes.
+   Think of it as your address book of servers.
+
+   Simple inventory example (inventory.ini):
+   ------------------------------------------
+     [web_servers]
+     192.168.1.10
+     192.168.1.11
+     192.168.1.12
+
+     [db_servers]
+     192.168.1.20
+     db.hsbc.internal
+
+   Here we have two GROUPS: web_servers (3 servers) and db_servers (2 servers).
+   You can run tasks on ALL servers, or target just one group.
+
+
+4. MODULES
+   --------
+   Modules are the actual UNITS OF WORK in Ansible.
+   Every task you write uses a module. A module does one specific thing.
+
+     Module Name         | What It Does
+     --------------------+--------------------------------------------------
+     apt / yum           | Install/remove packages
+     copy                | Copy files from control node to managed node
+     template            | Copy a file with variables replaced
+     service             | Start, stop, restart, or enable system services
+     command / shell     | Run arbitrary shell commands
+     file                | Create/delete files and directories
+     user                | Create/delete system users
+     git                 | Clone or update a Git repository
+     docker_container    | Manage Docker containers
+     uri                 | Make HTTP requests (call APIs)
+
+
+5. PLAYBOOKS
+   ----------
+   A Playbook is a YAML file where you write a series of tasks to be executed.
+   If modules are individual actions, a playbook is the full instruction manual.
+
+   Simple playbook example:
+   -------------------------
+     ---
+     - name: Configure Web Server
+       hosts: web_servers
+       tasks:
+         - name: Install Nginx
+           apt:
+             name: nginx
+             state: present
+
+         - name: Start Nginx
+           service:
+             name: nginx
+             state: started
+
+   (Covered in depth in document 05 - Playbooks)
+
+
+6. ROLES
+   ------
+   Roles are a way to ORGANIZE your playbooks into a reusable structure.
+   Think of a Role as a packaged set of tasks for a specific purpose —
+   like a "Web Server Role" or a "Database Role."
+
+   (Covered in depth in document 10 - Roles)
+
+
+7. ANSIBLE GALAXY
+   ---------------
+   Ansible Galaxy is the online marketplace for sharing and downloading
+   pre-built Roles created by the community.
+
+   Instead of writing a role from scratch to configure MySQL, you can download
+   one that thousands of people have already tested.
+
+   Website: https://galaxy.ansible.com
+   (Like npm for Node.js or PyPI for Python, but for Ansible Roles.)
+
+
+8. PLUGINS
+   --------
+   Plugins extend Ansible's core functionality:
+
+     - Connection plugins  --> How Ansible connects (SSH, WinRM for Windows)
+     - Lookup plugins      --> Fetch data from external sources
+     - Filter plugins      --> Transform data within playbooks
+     - Callback plugins    --> Customize output (logging, Slack notifications)
+
+
+--------------------------------------------------------------------------------
+HOW ANSIBLE WORKS — STEP BY STEP
+--------------------------------------------------------------------------------
+
+Let's trace exactly what happens when you run an Ansible command:
+
+  COMMAND YOU RUN:
+    ansible-playbook deploy_app.yml -i inventory.ini
+
+  WHAT HAPPENS INTERNALLY:
+
+    Step 1 --> Ansible reads the Inventory file to know WHICH servers to use.
+
+    Step 2 --> Ansible reads the Playbook (deploy_app.yml) to know WHAT to do.
+
+    Step 3 --> Ansible establishes SSH connections to each target server.
+
+    Step 4 --> Ansible GENERATES Python scripts from your tasks (using modules)
+               and copies them to the target servers in a temp directory.
+
+    Step 5 --> Ansible EXECUTES those Python scripts on the target servers.
+
+    Step 6 --> Ansible COLLECTS the results (success/failure/changed) and
+               shows them in your terminal.
+
+    Step 7 --> Ansible REMOVES the temporary scripts from the target servers.
+
+  KEY INSIGHT:
+    Ansible never leaves anything behind on the target servers.
+    No permanent agent, no leftover files. Clean every time.
+
+
+--------------------------------------------------------------------------------
+SSH & AUTHENTICATION
+--------------------------------------------------------------------------------
+
+Since Ansible uses SSH, you need a way to authenticate. Two main methods:
+
+METHOD 1: SSH KEY-BASED AUTHENTICATION (Recommended)
+  You generate an SSH key pair (public + private key).
+  The public key is placed on every target server.
+  When Ansible connects, it uses the private key — no password needed.
+
+  # Generate SSH key pair (run once on control node)
+  ssh-keygen -t rsa -b 4096
+
+  # Copy public key to a target server
+  ssh-copy-id user@192.168.1.10
+
+
+METHOD 2: PASSWORD AUTHENTICATION
+  You can use passwords, but you'll need to pass extra flags.
+  Less secure, not recommended for production.
+
+  ansible-playbook playbook.yml -i inventory.ini --ask-pass
+
+
+--------------------------------------------------------------------------------
+THE ansible.cfg CONFIGURATION FILE
+--------------------------------------------------------------------------------
+
+Ansible looks for a configuration file called ansible.cfg.
+This file sets defaults so you don't have to specify the same options every time.
+
+  Example ansible.cfg:
+  ---------------------
+    [defaults]
+    inventory          = ./inventory.ini     # default inventory file
+    remote_user        = ubuntu              # SSH user to connect as
+    private_key_file   = ~/.ssh/id_rsa       # SSH key to use
+    host_key_checking  = False               # skip SSH fingerprint confirmation
+
+    [privilege_escalation]
+    become             = True                # run tasks as sudo (root)
+    become_method      = sudo
+    become_user        = root
+
+SEARCH ORDER (highest to lowest priority):
+  1. Current directory    --> ./ansible.cfg
+  2. Home directory       --> ~/.ansible.cfg
+  3. System-wide          --> /etc/ansible/ansible.cfg
+
+
+--------------------------------------------------------------------------------
+VISUAL OVERVIEW OF ANSIBLE ARCHITECTURE
+--------------------------------------------------------------------------------
+
+  +------------------+
+  |  Control Node    |  <-- Your laptop or Jenkins server
+  |  (Ansible lives  |
+  |   here)          |
+  +------------------+
+          |
+          |  SSH connections
+          |
+    +-----+--------+--------+
+    |              |        |
+    v              v        v
+  +-------+    +-------+  +-------+
+  | Web   |    | App   |  |  DB   |
+  | Server|    | Server|  | Server|
+  +-------+    +-------+  +-------+
+   Managed      Managed    Managed
+   Node         Node       Node
+
+  Ansible reads the Inventory to know about these servers.
+  Ansible reads the Playbook to know what to do on them.
+  Ansible uses Modules to do the actual work.
+
+
+--------------------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------------------
+
+  Component      | Role
+  ---------------+------------------------------------------------------
+  Control Node   | Where Ansible is installed and run from
+  Managed Nodes  | Target servers being managed
+  Inventory      | List of all managed servers and their groups
+  Modules        | Individual units of work (install, copy, restart...)
+  Playbooks      | YAML files containing ordered lists of tasks
+  Roles          | Reusable, organized collection of tasks and files
+  Ansible Galaxy | Online repository of community-built Roles
+  ansible.cfg    | Configuration file with defaults for Ansible behavior
+
+
+--------------------------------------------------------------------------------
+NEXT: 03 - Inventory
+  Deep dive into static and dynamic inventory, groups, host variables,
+  and targeting patterns.
+--------------------------------------------------------------------------------

@@ -1,0 +1,181 @@
+================================================================================
+  ANSIBLE LEARNING DOCUMENT
+  01 - Introduction to Ansible
+  HSBC DevOps Learning Sprint | Week: Ansible | Level: Fresher to Intermediate
+================================================================================
+
+--------------------------------------------------------------------------------
+WHAT IS ANSIBLE?
+--------------------------------------------------------------------------------
+
+Imagine you just joined a company and they ask you to install the same software
+on 50 computers. Doing it one-by-one would take days and you might make
+mistakes. Ansible is a tool that lets you write instructions ONCE and
+automatically apply them to as many computers (servers) as you want — all at
+the same time.
+
+In simple terms, Ansible is an IT automation tool that helps you:
+
+  - Configure servers     --> Install software, change settings, manage files
+  - Deploy applications   --> Push your code to servers automatically
+  - Manage infrastructure --> Create/delete cloud resources
+  - Orchestrate tasks     --> Run tasks in a specific order across many servers
+
+
+--------------------------------------------------------------------------------
+THE REAL-WORLD PROBLEM ANSIBLE SOLVES
+--------------------------------------------------------------------------------
+
+SCENARIO WITHOUT ANSIBLE:
+  You are a DevOps Engineer at HSBC. You need to:
+    - Install Java 17 on 30 application servers
+    - Configure the same firewall rules on all of them
+    - Deploy a new version of the banking app
+    - Restart services in a specific order
+
+  Without Ansible: You SSH into each server manually, type the same commands
+  30 times, hope you don't make a typo, spend hours doing repetitive work.
+
+SCENARIO WITH ANSIBLE:
+  You write it once. Run it once. Done in minutes.
+  Every server is identical. No human error. Fully repeatable.
+
+
+--------------------------------------------------------------------------------
+KEY CHARACTERISTICS OF ANSIBLE
+--------------------------------------------------------------------------------
+
+1. AGENTLESS
+   -----------
+   Most automation tools require you to install a special "agent" program on
+   every server you want to manage. Ansible does NOT need this.
+
+   Ansible connects to your servers using SSH (Secure Shell) — the same way
+   you would log in manually. The server just needs Python installed (which
+   almost all Linux servers already have).
+
+   ANALOGY: Instead of putting a special phone in every house (agent-based),
+   Ansible just calls each house on the regular phone line (SSH).
+
+
+2. IDEMPOTENT
+   -----------
+   This is one of the most important concepts in Ansible.
+
+   Idempotent means: running the same task multiple times produces the SAME
+   result — no unintended side effects.
+
+   Example: You write a task that says "Install Nginx web server."
+   If Nginx is already installed, Ansible will NOT install it again or break
+   anything. It simply says "already done" and moves on.
+
+   ANALOGY: If you tell someone "Put the salt on the table" and the salt is
+   already there, a sensible person doesn't add MORE salt — they see it's done.
+   That's idempotency.
+
+
+3. DECLARATIVE (mostly)
+   ---------------------
+   With Ansible, you describe the DESIRED STATE of your system, not the exact
+   steps to get there.
+
+   You say: "I want Nginx installed and running."
+   Ansible figures out HOW to make that happen.
+
+
+4. HUMAN-READABLE
+   ---------------
+   Ansible uses YAML (Yet Another Markup Language) for its configuration files.
+   YAML looks almost like plain English.
+
+   Example:
+   --------
+     - name: Install Nginx web server
+       apt:
+         name: nginx
+         state: present
+
+   Even a non-technical person can roughly understand what this does.
+
+
+5. PUSH-BASED
+   -----------
+   Ansible PUSHES commands FROM your control machine (your laptop or a central
+   server like Jenkins) TO the target servers.
+
+   You do not need to go to each server — everything is controlled from one
+   place.
+
+
+--------------------------------------------------------------------------------
+WHERE DOES ANSIBLE FIT IN DEVOPS?
+--------------------------------------------------------------------------------
+
+In a typical DevOps pipeline (like what you are building at HSBC), Ansible
+usually appears in the Configuration Management and Deployment stages:
+
+  Stage                     | Ansible's Role
+  --------------------------+----------------------------------------
+  Code Commit (Git)         | Not Ansible's job
+  Build (Jenkins, Maven)    | Not Ansible's job
+  Test (JUnit, SonarQube)   | Not Ansible's job
+  CONFIGURATION MANAGEMENT  | Ansible configures servers  <-- HERE
+  DEPLOYMENT                | Ansible deploys the app     <-- HERE
+  Monitoring                | Ansible can set up monitoring tools
+
+HSBC CONTEXT:
+  In your team's pipeline, Jenkins might build your Docker image and then
+  call an Ansible playbook to deploy it to the target servers. That's a
+  very common real-world pattern.
+
+
+--------------------------------------------------------------------------------
+ANSIBLE VS OTHER TOOLS
+--------------------------------------------------------------------------------
+
+  Tool        | Description
+  ------------+--------------------------------------------------------------
+  Ansible     | Agentless, SSH-based, YAML, easy learning curve, push-based
+  Chef        | Agent-based, uses Ruby, steeper learning curve, pull-based
+  Puppet      | Agent-based, its own DSL language, complex, pull-based
+  Terraform   | Provisions infrastructure (creates servers) — not configuration
+  Jenkins     | CI/CD pipeline tool — often TRIGGERS Ansible playbooks
+
+  KEY DIFFERENCE between Ansible and Terraform:
+    - Terraform: "Create me 5 servers on AWS" (provisioning)
+    - Ansible:   "Now configure those 5 servers" (configuration management)
+    They are often used TOGETHER.
+
+
+--------------------------------------------------------------------------------
+WHAT CAN ANSIBLE MANAGE?
+--------------------------------------------------------------------------------
+
+  - Linux servers       --> Ubuntu, RHEL, CentOS, Debian (most common)
+  - Windows servers     --> Limited but supported
+  - Cloud platforms     --> AWS, Azure, GCP (using special modules)
+  - Network devices     --> Cisco, Juniper routers and switches
+  - Containers          --> Docker, Kubernetes
+  - Databases           --> MySQL, PostgreSQL
+
+
+--------------------------------------------------------------------------------
+SUMMARY — KEY TERMS
+--------------------------------------------------------------------------------
+
+  Term           | One-Line Explanation
+  ---------------+------------------------------------------------------
+  Ansible        | IT automation tool for configuring servers & deploying apps
+  Agentless      | No software needed on target servers — uses SSH
+  Idempotent     | Safe to run multiple times — won't break what's correct
+  YAML           | Human-readable language Ansible uses for its files
+  Push-based     | Commands sent FROM your machine TO target servers
+  Control Node   | The machine where Ansible is installed and run from
+  Managed Node   | The target servers Ansible manages
+
+
+--------------------------------------------------------------------------------
+NEXT: 02 - Architecture & Components
+  Learn about Control Nodes, Managed Nodes, Inventory, Modules, and how
+  they all connect together.
+--------------------------------------------------------------------------------

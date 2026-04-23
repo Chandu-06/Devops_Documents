@@ -1,0 +1,351 @@
+================================================================================
+  ANSIBLE LEARNING DOCUMENT
+  09 - Handlers
+  HSBC DevOps Learning Sprint | Week: Ansible | Level: Fresher to Intermediate
+================================================================================
+
+--------------------------------------------------------------------------------
+WHAT IS A HANDLER?
+--------------------------------------------------------------------------------
+
+A Handler is a special type of task that ONLY runs when explicitly NOTIFIED
+by another task.
+
+Handlers are perfect for actions that should happen as a RESULT of a change —
+like restarting a web server only if its config file was updated.
+
+
+THE PROBLEM HANDLERS SOLVE:
+  You have a playbook that updates the nginx configuration file.
+  After updating the config, nginx needs to be restarted.
+
+  BUT you only want to restart nginx if the config actually changed — NOT
+  every single time the playbook runs (that would cause unnecessary downtime).
+
+  WITHOUT HANDLERS:
+    You restart nginx every time the playbook runs — even if nothing changed.
+
+  WITH HANDLERS:
+    Nginx restarts ONLY when the config file actually changed.
+
+
+--------------------------------------------------------------------------------
+HOW HANDLERS WORK — STEP BY STEP
+--------------------------------------------------------------------------------
+
+  Step 1 --> A regular task uses "notify:" with a handler name.
+  Step 2 --> If that task results in "changed" status → handler is QUEUED.
+  Step 3 --> If that task results in "ok" (nothing changed) → handler is NOT queued.
+  Step 4 --> After ALL tasks in the play finish → Ansible runs queued handlers.
+
+  KEY BEHAVIOR:
+    Even if 5 different tasks all notify the same handler,
+    it only runs ONCE — at the end of the play.
+    This prevents redundant restarts.
+
+
+--------------------------------------------------------------------------------
+BASIC HANDLER EXAMPLE
+--------------------------------------------------------------------------------
+
+  ---
+  - name: Configure and start nginx
+    hosts: web_servers
+    become: true
+
+    tasks:
+      - name: Install nginx
+        apt:
+          name: nginx
+          state: present
+
+      - name: Copy nginx config
+        template:
+          src: templates/nginx.conf.j2
+          dest: /etc/nginx/nginx.conf
+        notify: Restart Nginx          # <-- triggers handler IF this task changed
+
+      - name: Copy nginx SSL cert
+        copy:
+          src: files/ssl.crt
+          dest: /etc/nginx/ssl/
+        notify: Restart Nginx          # <-- same handler — still only runs once
+
+    handlers:
+      - name: Restart Nginx            # <-- must EXACTLY match the notify name
+        service:
+          name: nginx
+          state: restarted
+
+  CRITICAL RULE:
+    The handler name in "notify:" MUST EXACTLY match the handler name
+    in "handlers:" — including capitalization and spaces.
+    "Restart Nginx" is NOT the same as "restart nginx".
+
+
+--------------------------------------------------------------------------------
+MULTIPLE HANDLERS
+--------------------------------------------------------------------------------
+
+  ---
+  - name: Deploy Application
+    hosts: app_servers
+    become: true
+
+    tasks:
+      - name: Update nginx config
+        template:
+          src: nginx.conf.j2
+          dest: /etc/nginx/nginx.conf
+        notify: Reload Nginx
+
+      - name: Deploy new application JAR
+        copy:
+          src: app.jar
+          dest: /opt/app/app.jar
+        notify: Restart Application
+
+      - name: Update log4j config
+        copy:
+          src: log4j.properties
+          dest: /opt/app/config/
+        notify: Restart Application    # same handler — still runs once
+
+    handlers:
+      - name: Reload Nginx
+        service:
+          name: nginx
+          state: reloaded              # graceful reload, no downtime
+
+      - name: Restart Application
+        service:
+          name: myapp
+          state: restarted
+
+
+--------------------------------------------------------------------------------
+HANDLER EXECUTION ORDER
+--------------------------------------------------------------------------------
+
+Handlers run in the ORDER they are defined in the handlers: section —
+NOT in the order they were notified.
+
+  handlers:
+    - name: Stop Application          # runs first (defined first)
+      service:
+        name: myapp
+        state: stopped
+
+    - name: Clear Cache               # runs second
+      file:
+        path: /opt/app/cache
+        state: absent
+
+    - name: Start Application         # runs third
+      service:
+        name: myapp
+        state: started
+
+  Even if tasks notify them in reverse order, handlers always run
+  in their defined order.
+
+
+--------------------------------------------------------------------------------
+NOTIFYING MULTIPLE HANDLERS FROM ONE TASK
+--------------------------------------------------------------------------------
+
+A single task can notify multiple handlers:
+
+  - name: Update systemd service file
+    template:
+      src: templates/myapp.service.j2
+      dest: /etc/systemd/system/myapp.service
+    notify:
+      - Reload Systemd
+      - Restart Application
+
+  handlers:
+    - name: Reload Systemd
+      command: systemctl daemon-reload
+
+    - name: Restart Application
+      service:
+        name: myapp
+        state: restarted
+
+
+--------------------------------------------------------------------------------
+CHAINED HANDLERS — HANDLERS TRIGGERING HANDLERS
+--------------------------------------------------------------------------------
+
+A handler can itself notify another handler, creating a chain:
+
+  handlers:
+    - name: Restart Nginx
+      service:
+        name: nginx
+        state: restarted
+      notify: Verify Nginx Running      # chain to next handler
+
+    - name: Verify Nginx Running
+      uri:
+        url: http://localhost:80
+        status_code: 200
+
+
+--------------------------------------------------------------------------------
+flush_handlers — FORCE HANDLERS TO RUN IMMEDIATELY
+--------------------------------------------------------------------------------
+
+By default, handlers run at the very END of the play.
+
+Sometimes you need them to run in the MIDDLE — for example, restart a service
+before the next task that depends on the new version being running.
+
+Use "meta: flush_handlers" to force all pending handlers to run RIGHT NOW:
+
+  tasks:
+    - name: Update application config
+      template:
+        src: app.conf.j2
+        dest: /etc/myapp/app.conf
+      notify: Restart App Service
+
+    # Force handlers to run NOW (before remaining tasks)
+    - name: Force handlers to run
+      meta: flush_handlers
+
+    # These tasks run AFTER the handler has completed
+    - name: Wait for app to start on port 8080
+      wait_for:
+        port: 8080
+        delay: 5
+        timeout: 60
+
+    - name: Confirm app is healthy
+      uri:
+        url: http://localhost:8080/health
+        status_code: 200
+
+  handlers:
+    - name: Restart App Service
+      service:
+        name: myapp
+        state: restarted
+
+
+--------------------------------------------------------------------------------
+listen — ONE HANDLER SUBSCRIBED TO A TOPIC
+--------------------------------------------------------------------------------
+
+The "listen" keyword lets a handler subscribe to a topic name.
+Multiple tasks can notify the topic, and all listeners will run.
+
+  tasks:
+    - name: Update application files
+      copy:
+        src: app.jar
+        dest: /opt/app/
+      notify: app restart sequence     # notifies the TOPIC
+
+  handlers:
+    - name: Stop application
+      service:
+        name: myapp
+        state: stopped
+      listen: app restart sequence     # subscribed to topic
+
+    - name: Clear app cache
+      file:
+        path: /opt/app/cache
+        state: absent
+      listen: app restart sequence
+
+    - name: Start application
+      service:
+        name: myapp
+        state: started
+      listen: app restart sequence
+
+  All three handlers run in order when "app restart sequence" is notified.
+
+
+--------------------------------------------------------------------------------
+REAL-WORLD HSBC EXAMPLE — FULL DEPLOY WITH HANDLERS
+--------------------------------------------------------------------------------
+
+  ---
+  - name: Deploy Log Generator Application
+    hosts: app_servers
+    become: true
+    vars:
+      app_name: log-generator
+      app_dir: /opt/log-generator
+
+    tasks:
+      - name: Install Java 17
+        apt:
+          name: openjdk-17-jdk
+          state: present
+
+      - name: Deploy application JAR
+        copy:
+          src: target/log-generator.jar
+          dest: "{{ app_dir }}/log-generator.jar"
+          mode: '0644'
+        notify: Restart Log Generator
+
+      - name: Update application config
+        template:
+          src: templates/application.yml.j2
+          dest: "{{ app_dir }}/config/application.yml"
+        notify: Restart Log Generator
+
+      - name: Update systemd service file
+        template:
+          src: templates/log-generator.service.j2
+          dest: /etc/systemd/system/log-generator.service
+        notify:
+          - Reload Systemd
+          - Restart Log Generator
+
+    handlers:
+      - name: Reload Systemd
+        command: systemctl daemon-reload
+
+      - name: Restart Log Generator
+        service:
+          name: log-generator
+          state: restarted
+          enabled: yes
+
+  RESULT:
+    - If only the config changed   --> only Restart Log Generator runs
+    - If only the JAR changed      --> only Restart Log Generator runs
+    - If the service file changed  --> Reload Systemd THEN Restart
+    - If NOTHING changed           --> NO handlers run at all
+    - If both JAR and config changed --> Restart runs ONCE (not twice)
+
+
+--------------------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------------------
+
+  Concept          | One-Line Explanation
+  -----------------+------------------------------------------------------
+  Handler          | A special task that only runs when notified
+  notify:          | Keyword on a task to queue a handler if task changed
+  handlers:        | Section in a play where handler definitions live
+  Trigger condition| Handler only queued when task status is "changed"
+  Run timing       | Handlers run ONCE at the END of the play
+  Deduplication    | Even if notified 5 times, handler runs only ONCE
+  flush_handlers   | Force pending handlers to run immediately
+  listen:          | Allows a handler to subscribe to a topic name
+  Chaining         | A handler can notify another handler
+
+
+--------------------------------------------------------------------------------
+NEXT: 10 - Roles
+  Learn how to organize playbooks into reusable, shareable structures
+  using Ansible's Roles system.
+--------------------------------------------------------------------------------

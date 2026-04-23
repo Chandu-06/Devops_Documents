@@ -1,0 +1,372 @@
+================================================================================
+  ANSIBLE LEARNING DOCUMENT
+  10 - Roles
+  HSBC DevOps Learning Sprint | Week: Ansible | Level: Fresher to Intermediate
+================================================================================
+
+--------------------------------------------------------------------------------
+WHAT ARE ROLES?
+--------------------------------------------------------------------------------
+
+As your playbooks grow larger, putting everything in a single file becomes
+unmanageable. Roles are Ansible's way of organizing automation code into
+a clean, reusable, and shareable structure.
+
+Think of a Role as a self-contained package for a specific purpose:
+  - A "java" role      --> installs and configures Java
+  - A "nginx" role     --> installs, configures, and manages nginx
+  - A "docker" role    --> installs Docker and configures the daemon
+  - A "log-generator"  --> deploys your specific application
+
+KEY BENEFIT:
+  Once you've written a role, you can reuse it across multiple projects,
+  environments, and teams — just like importing a library in programming.
+
+
+--------------------------------------------------------------------------------
+ROLE DIRECTORY STRUCTURE
+--------------------------------------------------------------------------------
+
+Ansible expects roles to follow a specific directory structure.
+Each subdirectory has a defined purpose:
+
+  roles/
+  └── my_role/
+      ├── tasks/
+      │   └── main.yml        # Main list of tasks (REQUIRED)
+      ├── handlers/
+      │   └── main.yml        # Handlers for this role
+      ├── templates/
+      │   └── app.conf.j2     # Jinja2 template files
+      ├── files/
+      │   └── startup.sh      # Static files to copy
+      ├── vars/
+      │   └── main.yml        # Variables (high priority)
+      ├── defaults/
+      │   └── main.yml        # Default variables (LOWEST priority)
+      ├── meta/
+      │   └── main.yml        # Role metadata and dependencies
+      └── README.md           # Documentation
+
+  Directory         | Purpose
+  ------------------+----------------------------------------------------------
+  tasks/main.yml    | Main entry point — where tasks are defined (REQUIRED)
+  handlers/main.yml | Handlers used by this role
+  templates/        | Jinja2 template files (.j2) for dynamic config generation
+  files/            | Static files to be copied to managed nodes
+  vars/main.yml     | Role variables (high priority — hard to override)
+  defaults/main.yml | Default variable values (lowest priority — easy override)
+  meta/main.yml     | Author info and role dependencies (other roles needed)
+
+
+  DIFFERENCE BETWEEN vars/ and defaults/:
+    defaults/main.yml  --> Values you EXPECT the user to override
+                          (like app_port: 8080 — user probably wants to change)
+    vars/main.yml      --> Values that are internal to the role
+                          (like internal file paths — shouldn't be overridden)
+
+
+--------------------------------------------------------------------------------
+CREATING A ROLE
+--------------------------------------------------------------------------------
+
+Use ansible-galaxy to create the full directory structure automatically:
+
+  # Create a new role called "log_generator" inside roles/ directory
+  ansible-galaxy role init roles/log_generator
+
+  This creates:
+    roles/log_generator/tasks/main.yml
+    roles/log_generator/handlers/main.yml
+    roles/log_generator/templates/
+    roles/log_generator/files/
+    roles/log_generator/vars/main.yml
+    roles/log_generator/defaults/main.yml
+    roles/log_generator/meta/main.yml
+    roles/log_generator/README.md
+
+
+--------------------------------------------------------------------------------
+BUILDING A REAL ROLE — log_generator (HSBC Context)
+--------------------------------------------------------------------------------
+
+roles/log_generator/defaults/main.yml (Default Variables — easy to override):
+  ---
+  app_name: log-generator
+  app_port: 8080
+  app_dir: /opt/log-generator
+  java_version: "17"
+  app_user: ubuntu
+  app_log_dir: /opt/log-generator/logs
+
+
+roles/log_generator/tasks/main.yml (Main Tasks):
+  ---
+  - name: Install Java {{ java_version }}
+    apt:
+      name: "openjdk-{{ java_version }}-jdk"
+      state: present
+      update_cache: yes
+
+  - name: Create application user
+    user:
+      name: "{{ app_user }}"
+      shell: /bin/bash
+      state: present
+
+  - name: Create application directories
+    file:
+      path: "{{ item }}"
+      state: directory
+      owner: "{{ app_user }}"
+      mode: '0755'
+    loop:
+      - "{{ app_dir }}"
+      - "{{ app_log_dir }}"
+      - "{{ app_dir }}/config"
+
+  - name: Copy application JAR
+    copy:
+      src: log-generator.jar         # looks in role's files/ directory
+      dest: "{{ app_dir }}/log-generator.jar"
+      owner: "{{ app_user }}"
+      mode: '0644'
+    notify: Restart Log Generator
+
+  - name: Deploy application config
+    template:
+      src: application.yml.j2        # looks in role's templates/ directory
+      dest: "{{ app_dir }}/config/application.yml"
+      owner: "{{ app_user }}"
+    notify: Restart Log Generator
+
+  - name: Deploy systemd service file
+    template:
+      src: log-generator.service.j2
+      dest: /etc/systemd/system/log-generator.service
+    notify:
+      - Reload Systemd
+      - Restart Log Generator
+
+
+roles/log_generator/handlers/main.yml:
+  ---
+  - name: Reload Systemd
+    command: systemctl daemon-reload
+
+  - name: Restart Log Generator
+    service:
+      name: log-generator
+      state: restarted
+      enabled: yes
+
+
+roles/log_generator/templates/application.yml.j2:
+  server:
+    port: {{ app_port }}
+
+  logging:
+    level: INFO
+    file:
+      path: {{ app_log_dir }}/application.log
+
+  spring:
+    application:
+      name: {{ app_name }}
+
+
+--------------------------------------------------------------------------------
+USING A ROLE IN A PLAYBOOK
+--------------------------------------------------------------------------------
+
+SIMPLE USAGE (uses all defaults):
+  ---
+  - name: Deploy Log Generator
+    hosts: app_servers
+    become: true
+    roles:
+      - log_generator
+
+
+WITH VARIABLE OVERRIDES:
+  ---
+  - name: Deploy Log Generator with custom settings
+    hosts: app_servers
+    become: true
+    roles:
+      - role: log_generator
+        vars:
+          app_port: 9090          # overrides default 8080
+          java_version: "21"      # overrides default 17
+
+
+MULTIPLE ROLES IN ONE PLAY:
+  ---
+  - name: Set up application server
+    hosts: app_servers
+    become: true
+    roles:
+      - common             # base server setup (runs first)
+      - java               # install Java
+      - log_generator      # deploy the application
+
+  Roles run IN ORDER — top to bottom.
+
+
+--------------------------------------------------------------------------------
+ROLE DEPENDENCIES — meta/main.yml
+--------------------------------------------------------------------------------
+
+A role can declare that it depends on other roles.
+Those dependent roles will automatically run FIRST.
+
+  roles/log_generator/meta/main.yml:
+  ---
+  galaxy_info:
+    author: chandu
+    description: Deploys the HSBC Log Generator application
+    company: HSBC Technology
+    license: MIT
+    min_ansible_version: "2.9"
+
+  dependencies:
+    - role: java              # Install Java first (automatically)
+    - role: common            # Apply common server settings first
+
+
+--------------------------------------------------------------------------------
+COMPLETE PROJECT STRUCTURE WITH ROLES
+--------------------------------------------------------------------------------
+
+  devops_poc/
+  ├── inventory.ini
+  ├── ansible.cfg
+  ├── site.yml                      # Master playbook
+  ├── group_vars/
+  │   ├── all.yml
+  │   └── app_servers.yml
+  ├── host_vars/
+  │   └── 192.168.1.10.yml
+  └── roles/
+      ├── common/                   # Base server setup for ALL servers
+      │   └── tasks/main.yml
+      ├── java/                     # Java installation role
+      │   ├── tasks/main.yml
+      │   └── defaults/main.yml
+      ├── nginx/                    # Nginx web server role
+      │   ├── tasks/main.yml
+      │   ├── templates/
+      │   │   └── nginx.conf.j2
+      │   ├── handlers/main.yml
+      │   └── defaults/main.yml
+      └── log_generator/            # Your app deployment role
+          ├── tasks/main.yml
+          ├── templates/
+          │   └── application.yml.j2
+          ├── files/
+          │   └── log-generator.jar
+          ├── handlers/main.yml
+          └── defaults/main.yml
+
+
+site.yml — THE MASTER PLAYBOOK:
+  ---
+  - name: Configure all servers (common setup)
+    hosts: all
+    roles:
+      - common
+
+  - name: Configure web layer
+    hosts: web_servers
+    roles:
+      - java
+      - nginx
+
+  - name: Deploy application layer
+    hosts: app_servers
+    roles:
+      - java
+      - log_generator
+
+  Run everything:     ansible-playbook -i inventory.ini site.yml
+  Only deploy app:    ansible-playbook -i inventory.ini site.yml --tags deploy
+  Only web servers:   ansible-playbook -i inventory.ini site.yml --limit web_servers
+
+
+--------------------------------------------------------------------------------
+ANSIBLE GALAXY — DOWNLOAD COMMUNITY ROLES
+--------------------------------------------------------------------------------
+
+Instead of writing a role from scratch for common tools, search Ansible Galaxy
+for community-maintained roles that thousands of people have already tested.
+
+  # Search for a MySQL role
+  ansible-galaxy search mysql
+
+  # Install a specific role (geerlingguy is a trusted author)
+  ansible-galaxy install geerlingguy.mysql
+
+  # Install to a specific directory
+  ansible-galaxy install geerlingguy.nginx -p roles/
+
+  # Install multiple roles from a requirements file
+  ansible-galaxy install -r requirements.yml
+
+
+requirements.yml (define all role dependencies):
+  ---
+  roles:
+    - name: geerlingguy.nginx
+      version: "3.1.0"
+    - name: geerlingguy.java
+      version: "2.0.0"
+    - name: geerlingguy.mysql
+      version: "4.3.0"
+
+  Install all: ansible-galaxy install -r requirements.yml
+
+
+--------------------------------------------------------------------------------
+INCLUDE VS IMPORT FOR TASKS
+--------------------------------------------------------------------------------
+
+For very large roles, you can split tasks across multiple files:
+
+tasks/main.yml:
+  ---
+  - import_tasks: install.yml      # static — always included
+  - import_tasks: configure.yml    # static — always included
+  - include_tasks: deploy.yml      # dynamic — included at runtime
+    when: app_version is defined
+
+
+DIFFERENCE:
+  import_tasks  --> Loaded at playbook PARSE time (static). Tags work properly.
+  include_tasks --> Loaded at RUNTIME (dynamic). Can use variables in the filename.
+
+
+--------------------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------------------
+
+  Concept                | One-Line Explanation
+  -----------------------+------------------------------------------------------
+  Role                   | Self-contained, reusable package of tasks and files
+  tasks/main.yml         | Main entry point where role tasks are defined
+  defaults/main.yml      | Default variables (easily overridden by caller)
+  vars/main.yml          | Role-internal variables (higher priority)
+  templates/             | Jinja2 templates with variable placeholders
+  files/                 | Static files to be copied to managed nodes
+  meta/main.yml          | Role dependencies and metadata
+  ansible-galaxy init    | Command to create the role directory structure
+  Ansible Galaxy         | Online repository of community-created roles
+  requirements.yml       | File listing all role dependencies to install
+  import_tasks           | Static task include (at parse time)
+  include_tasks          | Dynamic task include (at runtime)
+
+
+--------------------------------------------------------------------------------
+NEXT: 11 - Ansible Vault
+  Learn how to encrypt secrets like passwords and API keys in your playbooks.
+  Critical for a banking environment like HSBC.
+--------------------------------------------------------------------------------

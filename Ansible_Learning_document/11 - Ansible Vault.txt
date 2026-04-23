@@ -1,0 +1,287 @@
+================================================================================
+  ANSIBLE LEARNING DOCUMENT
+  11 - Ansible Vault
+  HSBC DevOps Learning Sprint | Week: Ansible | Level: Fresher to Intermediate
+================================================================================
+
+--------------------------------------------------------------------------------
+WHAT IS ANSIBLE VAULT?
+--------------------------------------------------------------------------------
+
+Ansible Vault is a built-in feature that lets you ENCRYPT sensitive data so
+it can be safely stored in version control (like Git) without exposing secrets.
+
+What you can protect:
+  - Passwords (database, application, system users)
+  - API keys and tokens
+  - SSL private keys and certificates
+  - Any sensitive configuration value
+
+HSBC SECURITY CONTEXT:
+  In a banking environment, NEVER store passwords or API keys in plain text in Git.
+  Ansible Vault is the solution to securely manage secrets in your automation code.
+
+  WRONG (never do this):
+    db_password: MyBankingPassword123     # visible to everyone with Git access!
+
+  RIGHT (with Vault):
+    db_password: !vault |
+              $ANSIBLE_VAULT;1.1;AES256
+              66386439653236336462626566...  # encrypted, safe to commit
+
+
+--------------------------------------------------------------------------------
+CREATING AN ENCRYPTED FILE
+--------------------------------------------------------------------------------
+
+  # Create a new encrypted file (Ansible prompts for a vault password)
+  ansible-vault create secrets.yml
+
+  # Ansible opens your editor (vim by default)
+  # Type your secrets in normal YAML format:
+  # ---
+  # db_password: MySecretPassword123
+  # api_key: hsbc-api-key-abc123
+  # nexus_password: NexusPass456
+
+  # When you save and exit, the file becomes encrypted:
+  # $ANSIBLE_VAULT;1.1;AES256
+  # 61323065353738373934663930666330656538393930626633333332...
+  # (completely unreadable — safe to commit to Git)
+
+
+--------------------------------------------------------------------------------
+ENCRYPTING AN EXISTING FILE
+--------------------------------------------------------------------------------
+
+  # Encrypt a file that already exists
+  ansible-vault encrypt group_vars/all/secrets.yml
+
+  # Decrypt a file to plain text (be careful — this exposes secrets on disk)
+  ansible-vault decrypt group_vars/all/secrets.yml
+
+  # View an encrypted file's contents WITHOUT writing plain text to disk
+  ansible-vault view secrets.yml
+
+  # Open encrypted file for editing (decrypts in memory, re-encrypts on save)
+  ansible-vault edit secrets.yml
+
+  # Change the vault password (re-encrypt with a new password)
+  ansible-vault rekey secrets.yml
+
+
+--------------------------------------------------------------------------------
+ENCRYPTING A SINGLE STRING VALUE
+--------------------------------------------------------------------------------
+
+Instead of encrypting entire files, you can encrypt just a single value.
+Useful when only one or two variables in a file need protection:
+
+  # Encrypt a string (prompts for vault password)
+  ansible-vault encrypt_string 'MySecretPassword123' --name 'db_password'
+
+  OUTPUT:
+    db_password: !vault |
+              $ANSIBLE_VAULT;1.1;AES256
+              66386439653236336462626566653030343961306565343030636535643430...
+
+  You paste this directly into your variables file:
+
+    # vars/production.yml
+    app_name: log-generator          # plain text (not sensitive)
+    app_port: 8080                   # plain text (not sensitive)
+    db_password: !vault |            # ENCRYPTED
+              $ANSIBLE_VAULT;1.1;AES256
+              66386439653236336462626566...
+
+
+--------------------------------------------------------------------------------
+RUNNING PLAYBOOKS WITH VAULT
+--------------------------------------------------------------------------------
+
+When your playbook uses encrypted values, you must provide the vault password
+at runtime:
+
+  # Option 1: Prompt for vault password (interactive)
+  ansible-playbook deploy.yml -i inventory.ini --ask-vault-pass
+
+  # Option 2: Use a password file (for automation/CI pipelines)
+  echo "MyVaultPassword" > ~/.vault_pass.txt
+  chmod 600 ~/.vault_pass.txt       # restrict access to this file
+  ansible-playbook deploy.yml --vault-password-file ~/.vault_pass.txt
+
+  # Option 3: Set vault password file in ansible.cfg (set-and-forget)
+  # ansible.cfg:
+  [defaults]
+  vault_password_file = ~/.vault_pass.txt
+  # Now you never need to specify it on the command line
+
+
+IN CI/CD (JENKINS):
+  1. Store the vault password as a Jenkins "Secret Text" credential
+  2. In your pipeline, inject it as an environment variable
+  3. Write it to a temp file before running Ansible
+  4. Delete the temp file after the run
+
+  JENKINSFILE EXAMPLE:
+    withCredentials([string(credentialsId: 'ansible-vault-pass', variable: 'VAULT_PASS')]) {
+        sh """
+          echo "${VAULT_PASS}" > /tmp/vault_pass.txt
+          ansible-playbook deploy.yml --vault-password-file /tmp/vault_pass.txt
+          rm /tmp/vault_pass.txt
+        """
+    }
+
+
+--------------------------------------------------------------------------------
+RECOMMENDED PROJECT STRUCTURE FOR SECRETS
+--------------------------------------------------------------------------------
+
+Split sensitive and non-sensitive variables into separate files:
+
+  group_vars/
+  ├── all/
+  │   ├── vars.yml          # Non-sensitive variables (plain text, commit freely)
+  │   └── secrets.yml       # Sensitive variables (vault encrypted, safe to commit)
+  ├── web_servers/
+  │   ├── vars.yml
+  │   └── secrets.yml
+  └── db_servers/
+      ├── vars.yml
+      └── secrets.yml       # DB credentials live here (encrypted)
+
+  group_vars/all/vars.yml (plain text):
+    ---
+    app_name: log-generator
+    app_port: 8080
+    deploy_dir: /opt/log-generator
+    java_version: "17"
+
+  group_vars/all/secrets.yml (encrypted with Vault):
+    # Before encryption, the content would look like:
+    ---
+    db_password: VerySecretDatabasePassword
+    nexus_registry_password: NexusRegistryToken456
+    api_key: hsbc-internal-api-key-xyz
+    ssl_key: |
+      -----BEGIN RSA PRIVATE KEY-----
+      MIIEpAIBAAKCAQEA...
+      -----END RSA PRIVATE KEY-----
+
+  After running: ansible-vault encrypt group_vars/all/secrets.yml
+  The file becomes encrypted and is SAFE to commit to Git.
+
+
+--------------------------------------------------------------------------------
+MULTIPLE VAULT PASSWORDS — VAULT IDs
+--------------------------------------------------------------------------------
+
+In large organizations like HSBC, you might have different vaults for different
+environments (dev, staging, production) with different passwords.
+
+This means dev team members CANNOT decrypt production secrets.
+
+  # Encrypt with a specific vault ID label
+  ansible-vault encrypt_string 'ProdPass' --vault-id prod@prompt --name db_password
+  ansible-vault encrypt_string 'DevPass'  --vault-id dev@prompt  --name db_password
+
+  # Run playbook providing both vault passwords
+  ansible-playbook deploy.yml \
+    --vault-id dev@~/.dev_vault_pass \
+    --vault-id prod@~/.prod_vault_pass
+
+  Ansible automatically uses the right password for each encrypted value.
+
+
+--------------------------------------------------------------------------------
+BEST PRACTICES FOR ANSIBLE VAULT
+--------------------------------------------------------------------------------
+
+  1. NEVER commit the vault password file to Git
+     Only commit the encrypted secrets.yml — never the password that decrypts it.
+
+  2. Add vault password files to .gitignore
+     .gitignore:
+       .vault_pass.txt
+       *.vault_pass
+
+  3. Use separate vault passwords per environment
+     Dev team should not be able to decrypt production secrets.
+
+  4. Store vault password in a secrets manager for CI/CD
+     Use HashiCorp Vault, AWS Secrets Manager, or Jenkins Credentials
+     rather than storing plain text password files.
+
+  5. Use ansible-vault view instead of decrypt
+     ansible-vault view secrets.yml
+     This never writes the plain text to disk.
+
+  6. Rotate vault passwords regularly
+     Especially when team members leave the company.
+     Use: ansible-vault rekey secrets.yml
+
+  7. Separate sensitive and non-sensitive variables
+     Keep secrets.yml for secrets, vars.yml for non-sensitive config.
+     Makes code reviews easier — reviewers can see all non-sensitive changes.
+
+  8. Document what's in the vault
+     In vars.yml, add a comment showing which variables are in the vault:
+     # The following are in secrets.yml (vault encrypted):
+     # db_password, nexus_password, api_key
+
+
+--------------------------------------------------------------------------------
+USING VAULT VARIABLES IN TASKS
+--------------------------------------------------------------------------------
+
+Once defined, vault-encrypted variables are used EXACTLY the same as regular
+variables — Ansible decrypts them transparently at runtime:
+
+  tasks:
+    - name: Set database password in app config
+      template:
+        src: templates/db.conf.j2
+        dest: /etc/myapp/db.conf
+
+  templates/db.conf.j2:
+    database:
+      host: {{ db_host }}
+      port: {{ db_port }}
+      password: {{ db_password }}      # db_password comes from vault-encrypted secrets.yml
+
+  You don't need to do anything special to use it — just reference it like any variable.
+
+
+--------------------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------------------
+
+  Command                                | Purpose
+  ----------------------------------------+------------------------------------
+  ansible-vault create file.yml          | Create a new encrypted file
+  ansible-vault encrypt file.yml         | Encrypt an existing file
+  ansible-vault decrypt file.yml         | Decrypt an encrypted file (careful!)
+  ansible-vault view file.yml            | View contents without decrypting to disk
+  ansible-vault edit file.yml            | Edit an encrypted file (safe)
+  ansible-vault rekey file.yml           | Change the vault password
+  ansible-vault encrypt_string 'value'   | Encrypt a single string value
+
+  Flag                        | Purpose
+  ----------------------------+--------------------------------------------------
+  --ask-vault-pass            | Prompt for vault password at runtime
+  --vault-password-file file  | Use a file containing the vault password
+  --vault-id label@source     | Specify vault ID for multiple vault support
+
+  Concept       | One-Line Explanation
+  --------------+------------------------------------------------------
+  Vault         | Built-in encryption for secrets in Ansible
+  !vault        | YAML tag indicating an encrypted value
+  Vault ID      | Label to support multiple vault passwords (per environment)
+  vault_pass    | The password used to encrypt/decrypt vault content
+
+
+--------------------------------------------------------------------------------
+NEXT: 12 - Error Handling & Debugging
+  Learn how to handle failures gracefully, debug issues, and write
+  resilient playbooks.
+--------------------------------------------------------------------------------

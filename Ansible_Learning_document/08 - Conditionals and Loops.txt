@@ -1,0 +1,375 @@
+================================================================================
+  ANSIBLE LEARNING DOCUMENT
+  08 - Conditionals & Loops
+  HSBC DevOps Learning Sprint | Week: Ansible | Level: Fresher to Intermediate
+================================================================================
+
+--------------------------------------------------------------------------------
+CONDITIONALS — THE "when" CLAUSE
+--------------------------------------------------------------------------------
+
+In real environments, you often have:
+  - Mixed server types (some Ubuntu, some RHEL)
+  - Tasks that should only run IF a file doesn't exist
+  - Tasks that should only run IF a service is stopped
+
+The "when" clause lets you add conditions to any task.
+The task runs ONLY if the condition evaluates to TRUE.
+
+
+BASIC SYNTAX:
+  - name: Install nginx (Ubuntu only)
+    apt:
+      name: nginx
+      state: present
+    when: ansible_os_family == "Debian"
+
+  - name: Install nginx (RHEL only)
+    yum:
+      name: nginx
+      state: present
+    when: ansible_os_family == "RedHat"
+
+
+--------------------------------------------------------------------------------
+COMPARISON OPERATORS
+--------------------------------------------------------------------------------
+
+  Operator              | Example
+  ----------------------+-------------------------------------------------------
+  == (equals)           | when: ansible_distribution == "Ubuntu"
+  != (not equals)       | when: app_env != "production"
+  >  (greater than)     | when: ansible_memtotal_mb > 4096
+  <  (less than)        | when: free_disk_gb < 10
+  >= (greater or equal) | when: ansible_processor_cores >= 4
+  in (value in list)    | when: ansible_distribution in ["Ubuntu", "Debian"]
+  not in                | when: app_env not in ["prod", "staging"]
+  is defined            | when: my_variable is defined
+  is not defined        | when: override_port is not defined
+  is true               | when: debug_mode is true
+  is false              | when: backup_enabled is false
+
+
+--------------------------------------------------------------------------------
+MULTIPLE CONDITIONS — AND / OR
+--------------------------------------------------------------------------------
+
+AND — ALL conditions must be true (use a YAML list):
+  - name: Restart service on production Ubuntu only
+    service:
+      name: nginx
+      state: restarted
+    when:
+      - ansible_os_family == "Debian"
+      - app_environment == "production"
+
+  NOTE: A list of when conditions is treated as AND (all must be true).
+
+
+OR — EITHER condition must be true (use "or" keyword):
+  - name: Install curl (either OS)
+    package:
+      name: curl
+      state: present
+    when: ansible_os_family == "Debian" or ansible_os_family == "RedHat"
+
+
+COMPLEX COMBINATION:
+  - name: Deploy app (prod or staging, with enough RAM, not dev)
+    copy:
+      src: app.jar
+      dest: /opt/app/
+    when:
+      - app_environment != "development"
+      - ansible_memtotal_mb >= 2048
+      - app_version is defined
+
+
+--------------------------------------------------------------------------------
+CONDITION FROM REGISTERED VARIABLE
+--------------------------------------------------------------------------------
+
+Capture task output, then use it in a when condition:
+
+  - name: Check if application is running
+    shell: pgrep -f "java.*log-generator"
+    register: app_status
+    ignore_errors: yes          # don't fail if process not found (rc=1)
+
+  - name: Start app only if NOT already running
+    shell: nohup java -jar /opt/app/app.jar &
+    when: app_status.rc != 0   # rc = return code, 0 = success/found
+
+  - name: Show status message
+    debug:
+      msg: "Application is already running"
+    when: app_status.rc == 0
+
+
+--------------------------------------------------------------------------------
+CHECKING IF A FILE EXISTS (stat + when)
+--------------------------------------------------------------------------------
+
+  - name: Check if config file exists
+    stat:
+      path: /etc/myapp/app.conf
+    register: config_file
+
+  - name: Create default config only if it doesn't exist
+    copy:
+      src: default.conf
+      dest: /etc/myapp/app.conf
+    when: not config_file.stat.exists
+
+  - name: Backup existing config
+    copy:
+      src: /etc/myapp/app.conf
+      dest: /etc/myapp/app.conf.bak
+      remote_src: yes
+    when: config_file.stat.exists
+
+
+--------------------------------------------------------------------------------
+LOOPS — RUNNING A TASK MULTIPLE TIMES
+--------------------------------------------------------------------------------
+
+Loops let you repeat a task for multiple items — like installing a list of
+packages, creating multiple users, or copying several files.
+
+
+BASIC loop — Modern Syntax (Preferred):
+  # Install multiple packages
+  - name: Install required packages
+    apt:
+      name: "{{ item }}"
+      state: present
+    loop:
+      - openjdk-17-jdk
+      - nginx
+      - git
+      - curl
+      - unzip
+
+  # Create multiple directories
+  - name: Create app directories
+    file:
+      path: "{{ item }}"
+      state: directory
+      mode: '0755'
+    loop:
+      - /opt/app
+      - /opt/app/logs
+      - /opt/app/config
+      - /opt/app/tmp
+
+  NOTE: {{ item }} is the special variable holding the current loop value.
+
+
+LOOP WITH DICTIONARIES (Multiple Attributes per Item):
+  # Create multiple users with different settings
+  - name: Create app users
+    user:
+      name: "{{ item.name }}"
+      shell: "{{ item.shell }}"
+      groups: "{{ item.groups }}"
+      state: present
+    loop:
+      - { name: appuser,     shell: /bin/bash,      groups: docker }
+      - { name: monitoruser, shell: /sbin/nologin,  groups: nobody }
+      - { name: deployuser,  shell: /bin/bash,      groups: "sudo,docker" }
+
+
+LOOP WITH A VARIABLE LIST:
+  # Define the list as a variable, then loop over it
+  vars:
+    packages:
+      - openjdk-17-jdk
+      - nginx
+      - git
+
+  tasks:
+    - name: Install packages
+      apt:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ packages }}"
+
+
+--------------------------------------------------------------------------------
+loop_control — CUSTOMIZE LOOP BEHAVIOR
+--------------------------------------------------------------------------------
+
+  - name: Create directories
+    file:
+      path: "{{ item }}"
+      state: directory
+    loop:
+      - /opt/app
+      - /opt/logs
+      - /opt/backup
+    loop_control:
+      label: "Creating directory: {{ item }}"    # custom label in output
+      pause: 2                                    # pause 2 seconds between items
+
+
+--------------------------------------------------------------------------------
+with_items — LEGACY SYNTAX (Still Works, but Use loop: Now)
+--------------------------------------------------------------------------------
+
+You will see this in older playbooks. It's functionally equivalent to loop:
+
+  # Old way (still valid)
+  - name: Install packages
+    apt:
+      name: "{{ item }}"
+      state: present
+    with_items:
+      - nginx
+      - git
+
+  # New preferred way
+  - name: Install packages
+    apt:
+      name: "{{ item }}"
+      state: present
+    loop:
+      - nginx
+      - git
+
+
+--------------------------------------------------------------------------------
+OTHER with_* LOOP TYPES
+--------------------------------------------------------------------------------
+
+with_fileglob — LOOP OVER FILES MATCHING A PATTERN:
+  - name: Copy all config files
+    copy:
+      src: "{{ item }}"
+      dest: /etc/myapp/
+    with_fileglob:
+      - "files/configs/*.conf"
+
+
+with_dict — LOOP OVER A DICTIONARY:
+  vars:
+    app_ports:
+      web: 80
+      api: 8080
+      admin: 9090
+
+  tasks:
+    - name: Print all ports
+      debug:
+        msg: "{{ item.key }} runs on port {{ item.value }}"
+      with_dict: "{{ app_ports }}"
+
+
+with_sequence — LOOP OVER A NUMERIC RANGE:
+  # Create 5 backup directories: backup_1 through backup_5
+  - name: Create numbered directories
+    file:
+      path: "/opt/backup_{{ item }}"
+      state: directory
+    with_sequence: start=1 end=5
+
+
+--------------------------------------------------------------------------------
+COMBINING LOOPS AND CONDITIONALS
+--------------------------------------------------------------------------------
+
+  - name: Install packages only on Ubuntu
+    apt:
+      name: "{{ item }}"
+      state: present
+    loop:
+      - nginx
+      - git
+      - curl
+    when: ansible_os_family == "Debian"
+
+  IMPORTANT:
+    The when condition is evaluated for EACH item in the loop.
+    If the condition is false, ALL iterations are skipped.
+
+
+--------------------------------------------------------------------------------
+block — GROUP TASKS TOGETHER
+--------------------------------------------------------------------------------
+
+A block lets you group multiple tasks and apply a single when condition,
+error handling, or privilege escalation to all of them at once:
+
+  - name: Setup production environment
+    block:
+      - name: Install production packages
+        apt:
+          name: nginx
+          state: present
+
+      - name: Copy production config
+        copy:
+          src: prod.conf
+          dest: /etc/myapp/app.conf
+
+      - name: Start service
+        service:
+          name: myapp
+          state: started
+
+    when: app_environment == "production"    # applies to ALL tasks in block
+    become: true                             # applies to ALL tasks in block
+
+
+BLOCK WITH ERROR HANDLING (rescue and always):
+  - name: Deploy application
+    block:
+      - name: Deploy app JAR
+        copy:
+          src: app.jar
+          dest: /opt/app/app.jar
+
+      - name: Start the service
+        service:
+          name: myapp
+          state: started
+
+    rescue:
+      # These tasks run if ANYTHING in block fails
+      - name: Rollback — restore old JAR
+        copy:
+          src: /opt/app/app.jar.bak
+          dest: /opt/app/app.jar
+
+    always:
+      # These tasks run NO MATTER WHAT (success or failure)
+      - name: Send notification
+        debug:
+          msg: "Deployment attempt completed"
+
+
+--------------------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------------------
+
+  Concept         | One-Line Explanation
+  ----------------+------------------------------------------------------
+  when:           | Condition for a task to run (evaluates to true/false)
+  loop:           | Repeat a task for each item in a list
+  item            | Special variable holding the current loop element
+  loop_control:   | Customize loop labels and pause between iterations
+  with_items:     | Old loop syntax — use loop: in new playbooks
+  with_dict:      | Loop over key-value pairs of a dictionary
+  with_fileglob:  | Loop over files matching a glob pattern
+  with_sequence:  | Loop over a numeric range
+  block:          | Group tasks to share conditions or error handling
+  rescue:         | Tasks that run when the block fails
+  always:         | Tasks that ALWAYS run regardless of block outcome
+  is defined      | Check if a variable exists before using it
+  register:       | Capture task output for use in when conditions
+
+
+--------------------------------------------------------------------------------
+NEXT: 09 - Handlers
+  Learn how to trigger tasks conditionally based on changes
+  (e.g., restart a service ONLY when its config changes).
+--------------------------------------------------------------------------------

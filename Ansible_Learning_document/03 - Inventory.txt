@@ -1,0 +1,290 @@
+================================================================================
+  ANSIBLE LEARNING DOCUMENT
+  03 - Inventory
+  HSBC DevOps Learning Sprint | Week: Ansible | Level: Fresher to Intermediate
+================================================================================
+
+--------------------------------------------------------------------------------
+WHAT IS AN INVENTORY?
+--------------------------------------------------------------------------------
+
+The Inventory is the foundation of Ansible. It tells Ansible:
+"These are the servers you will manage."
+
+Without an inventory, Ansible doesn't know which machines to connect to.
+
+The inventory can be:
+  - A simple text file with IP addresses (static inventory)
+  - A script that fetches server lists from AWS/Azure in real time (dynamic)
+
+Default location: /etc/ansible/hosts
+You can specify any file using: -i inventory.ini
+
+
+--------------------------------------------------------------------------------
+STATIC INVENTORY — INI FORMAT
+--------------------------------------------------------------------------------
+
+The simplest inventory is a plain text file in INI format.
+
+SIMPLEST POSSIBLE INVENTORY:
+  # Just a list of IP addresses or hostnames
+  192.168.1.10
+  192.168.1.11
+  webserver.hsbc.internal
+
+
+INVENTORY WITH GROUPS:
+  Groups let you target a specific category of servers.
+
+  [web_servers]
+  192.168.1.10
+  192.168.1.11
+
+  [db_servers]
+  192.168.1.20
+  192.168.1.21
+
+  [app_servers]
+  192.168.1.30
+
+  Now you can run tasks on ALL servers, or just web_servers, or just db_servers.
+
+
+HOST VARIABLES IN INI INVENTORY:
+  You can assign variables directly to individual hosts:
+
+  [web_servers]
+  192.168.1.10  ansible_user=ubuntu  ansible_port=22
+  192.168.1.11  ansible_user=ec2-user  ansible_ssh_private_key_file=~/.ssh/aws.pem
+
+
+--------------------------------------------------------------------------------
+STATIC INVENTORY — YAML FORMAT
+--------------------------------------------------------------------------------
+
+Ansible also accepts inventory in YAML format (more readable for complex setups):
+
+  all:
+    children:
+      web_servers:
+        hosts:
+          web1:
+            ansible_host: 192.168.1.10
+            ansible_user: ubuntu
+          web2:
+            ansible_host: 192.168.1.11
+      db_servers:
+        hosts:
+          db1:
+            ansible_host: 192.168.1.20
+            ansible_user: postgres
+
+
+--------------------------------------------------------------------------------
+GROUP HIERARCHY — GROUPS OF GROUPS
+--------------------------------------------------------------------------------
+
+You can create groups of groups. Useful when you want to target a broad category:
+
+  [web_servers]
+  192.168.1.10
+  192.168.1.11
+
+  [db_servers]
+  192.168.1.20
+
+  [production:children]
+  web_servers
+  db_servers
+
+  Now targeting "production" hits ALL servers in both groups.
+
+
+--------------------------------------------------------------------------------
+THE "all" AND "ungrouped" SPECIAL GROUPS
+--------------------------------------------------------------------------------
+
+  all        --> Every host in the entire inventory belongs here automatically
+  ungrouped  --> Hosts listed in inventory but not assigned to any group
+
+  PRACTICAL USE:
+    ansible all -m ping
+    --> Pings EVERY server in your inventory to check connectivity
+
+
+--------------------------------------------------------------------------------
+HOST AND GROUP VARIABLES — Directory Structure
+--------------------------------------------------------------------------------
+
+Variables can be set at the host or group level using special directories:
+
+  project/
+  ├── inventory.ini
+  ├── group_vars/
+  │   ├── web_servers.yml    # vars applied to ALL web servers
+  │   ├── db_servers.yml     # vars applied to ALL db servers
+  │   └── all.yml            # vars applied to EVERY host
+  └── host_vars/
+      ├── 192.168.1.10.yml   # vars for this specific host only
+      └── 192.168.1.20.yml   # vars for this specific host only
+
+
+EXAMPLE: group_vars/web_servers.yml
+  ---
+  nginx_port: 80
+  app_environment: production
+  max_connections: 1000
+
+
+EXAMPLE: host_vars/192.168.1.10.yml
+  ---
+  server_name: primary-web
+  backup_enabled: true
+
+
+--------------------------------------------------------------------------------
+DYNAMIC INVENTORY
+--------------------------------------------------------------------------------
+
+In cloud environments (AWS, Azure, GCP), servers are created and destroyed
+constantly. You cannot maintain a static inventory file because IPs keep changing.
+
+Dynamic Inventory is a SCRIPT or PLUGIN that Ansible calls to get the current
+list of servers from a live source (AWS API, Azure API, VMware, etc.).
+
+AWS EC2 DYNAMIC INVENTORY EXAMPLE:
+  # Install the AWS collection first
+  ansible-galaxy collection install amazon.aws
+
+  # Create aws_ec2.yml inventory file
+  plugin: amazon.aws.aws_ec2
+  regions:
+    - us-east-1
+  filters:
+    tag:Environment: production
+  keyed_groups:
+    - key: tags.Role
+      prefix: role
+
+  HSBC CONTEXT:
+    If HSBC uses cloud or VMware, dynamic inventory means your playbooks
+    automatically target the right servers without manual updates.
+
+
+--------------------------------------------------------------------------------
+INVENTORY PATTERNS — TARGETING SPECIFIC HOSTS
+--------------------------------------------------------------------------------
+
+When running Ansible, you specify a PATTERN to select which hosts to target:
+
+  # Target ALL hosts in inventory
+  ansible all -m ping
+
+  # Target a specific group
+  ansible web_servers -m ping
+
+  # Target a specific host by IP
+  ansible 192.168.1.10 -m ping
+
+  # Target multiple groups
+  ansible web_servers:db_servers -m ping
+
+  # Target ALL except a group
+  ansible all:!db_servers -m ping
+
+  # Target intersection (hosts in BOTH groups)
+  ansible web_servers:&production -m ping
+
+  # Wildcard — all IPs in the 192.168.1.x range
+  ansible '192.168.1.*' -m ping
+
+
+--------------------------------------------------------------------------------
+ANSIBLE BUILT-IN HOST VARIABLES
+--------------------------------------------------------------------------------
+
+  Variable                      | What It Controls
+  ------------------------------+-------------------------------------------
+  ansible_host                  | The actual IP or hostname to connect to
+  ansible_port                  | SSH port (default: 22)
+  ansible_user                  | SSH username to connect as
+  ansible_password              | SSH password (avoid — use keys instead)
+  ansible_ssh_private_key_file  | Path to the SSH private key
+  ansible_become                | Whether to escalate privileges (sudo)
+  ansible_become_user           | Which user to become (default: root)
+  ansible_python_interpreter    | Path to Python on the managed node
+
+
+--------------------------------------------------------------------------------
+VERIFYING YOUR INVENTORY
+--------------------------------------------------------------------------------
+
+Always test your inventory before running playbooks:
+
+  # List all hosts in inventory (JSON output)
+  ansible-inventory -i inventory.ini --list
+
+  # Display as a tree (very readable)
+  ansible-inventory -i inventory.ini --graph
+
+  # Ping all hosts to test SSH connectivity
+  ansible all -i inventory.ini -m ping
+
+EXAMPLE --graph OUTPUT:
+  @all:
+  |--@web_servers:
+  |  |--192.168.1.10
+  |  |--192.168.1.11
+  |--@db_servers:
+  |  |--192.168.1.20
+  |--@ungrouped:
+
+
+--------------------------------------------------------------------------------
+REAL-WORLD HSBC EXAMPLE INVENTORY
+--------------------------------------------------------------------------------
+
+  inventory.ini:
+  --------------
+    [jenkins]
+    jenkins.hsbc.internal  ansible_user=ubuntu
+
+    [nexus]
+    nexus.hsbc.internal    ansible_user=ubuntu
+
+    [app_servers]
+    app-dev-01.hsbc.internal   env=dev
+    app-dev-02.hsbc.internal   env=dev
+    app-prod-01.hsbc.internal  env=prod
+
+    [monitoring]
+    grafana.hsbc.internal  ansible_user=ubuntu
+
+    [all_servers:children]
+    jenkins
+    nexus
+    app_servers
+    monitoring
+
+
+--------------------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------------------
+
+  Concept           | One-Line Explanation
+  ------------------+------------------------------------------------------
+  Static Inventory  | A text file listing servers manually (INI or YAML)
+  Dynamic Inventory | A script/plugin that fetches servers from a live source
+  Groups            | Named collections of servers for targeted execution
+  group_vars/       | Directory with variable files per group
+  host_vars/        | Directory with variable files per individual host
+  all               | Special built-in group that includes every host
+  ungrouped         | Hosts not assigned to any explicit group
+  Patterns          | Syntax for selecting which hosts to target
+
+
+--------------------------------------------------------------------------------
+NEXT: 04 - Ad-hoc Commands
+  Run one-off tasks directly from the command line without writing a playbook.
+--------------------------------------------------------------------------------

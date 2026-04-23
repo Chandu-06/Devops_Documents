@@ -1,0 +1,363 @@
+================================================================================
+  ANSIBLE LEARNING DOCUMENT
+  06 - Variables
+  HSBC DevOps Learning Sprint | Week: Ansible | Level: Fresher to Intermediate
+================================================================================
+
+--------------------------------------------------------------------------------
+WHY VARIABLES?
+--------------------------------------------------------------------------------
+
+Imagine you have a playbook that deploys your application to DEV, UAT,
+and PRODUCTION environments.
+
+The app name is the same — but the port number, the server path, and the
+database URL are different for each environment.
+
+  WITHOUT variables --> Write three separate playbooks = massive duplication
+  WITH variables    --> Write ONE playbook, pass different values per environment
+
+Variables make your playbooks REUSABLE, FLEXIBLE, and MAINTAINABLE.
+
+
+--------------------------------------------------------------------------------
+VARIABLE SYNTAX
+--------------------------------------------------------------------------------
+
+Variables in Ansible are referenced using Jinja2 template syntax:
+Double curly braces: {{ variable_name }}
+
+  # Referencing a variable
+  "{{ variable_name }}"
+
+  # Inside a string
+  "My app is running on port {{ app_port }}"
+
+  # CRITICAL RULE: ALWAYS quote strings that start with {{ }}
+  dest: "{{ app_dir }}/app.jar"    # CORRECT
+  dest: {{ app_dir }}/app.jar      # WRONG — YAML parsing error
+
+
+--------------------------------------------------------------------------------
+WHERE TO DEFINE VARIABLES — ALL OPTIONS
+--------------------------------------------------------------------------------
+
+1. IN THE PLAYBOOK (play-level vars)
+   ------------------------------------
+     ---
+     - name: Deploy App
+       hosts: web_servers
+       vars:
+         app_name: log-generator
+         app_port: 8080
+         deploy_dir: /opt/log-generator
+       tasks:
+         - name: Create app directory
+           file:
+             path: "{{ deploy_dir }}"
+             state: directory
+
+
+2. IN EXTERNAL VARIABLE FILES (vars_files)
+   ------------------------------------------
+   Keep variables in separate files for cleanliness:
+
+     # playbook.yml
+     ---
+     - name: Deploy App
+       hosts: web_servers
+       vars_files:
+         - vars/common.yml
+         - vars/production.yml
+       tasks:
+         ...
+
+     # vars/common.yml
+     app_name: log-generator
+     app_user: ubuntu
+
+     # vars/production.yml
+     app_port: 8080
+     deploy_dir: /opt/log-generator
+     database_url: jdbc:mysql://prod-db:3306/hsbc
+
+
+3. IN group_vars AND host_vars DIRECTORIES
+   ------------------------------------------
+     # group_vars/web_servers.yml   (applies to ALL web servers)
+     nginx_port: 80
+     app_environment: production
+
+     # host_vars/192.168.1.10.yml   (applies ONLY to this specific host)
+     server_id: primary
+     backup_enabled: true
+
+
+4. IN THE INVENTORY FILE
+   ----------------------
+     [web_servers]
+     192.168.1.10  app_port=8080  server_role=primary
+     192.168.1.11  app_port=8081  server_role=secondary
+
+
+5. PASSED AT RUNTIME (-e flag — Extra Vars)
+   -----------------------------------------
+   These have the HIGHEST priority — they override everything else:
+
+     # Pass a single variable
+     ansible-playbook deploy.yml -e "app_port=9090"
+
+     # Pass multiple variables
+     ansible-playbook deploy.yml -e "app_port=9090 env=staging"
+
+     # Pass an entire YAML file of variables
+     ansible-playbook deploy.yml -e @vars/override.yml
+
+
+6. REGISTERED VARIABLES (from task output)
+   ------------------------------------------
+   Capture the output of a task and use it in later tasks:
+
+     tasks:
+       - name: Check if file exists
+         stat:
+           path: /opt/app/app.jar
+         register: jar_file_stat
+
+       - name: Print if file exists
+         debug:
+           msg: "JAR file exists!"
+         when: jar_file_stat.stat.exists
+
+       - name: Get Java version
+         command: java -version
+         register: java_output
+
+       - name: Print Java version
+         debug:
+           msg: "{{ java_output.stdout }}"
+
+
+7. FACTS (Auto-collected System Variables)
+   ------------------------------------------
+   When Ansible connects to a server, it automatically collects "facts" —
+   system information stored as variables you can use:
+
+     tasks:
+       - name: Show OS details
+         debug:
+           msg: "Runs {{ ansible_distribution }} {{ ansible_distribution_version }}"
+
+       - name: Show memory
+         debug:
+           msg: "Total RAM: {{ ansible_memtotal_mb }} MB"
+
+       - name: Install package based on OS family
+         apt:
+           name: nginx
+           state: present
+         when: ansible_os_family == "Debian"
+
+   USEFUL FACT VARIABLES:
+     ansible_hostname               --> Short hostname (e.g., web-server-01)
+     ansible_fqdn                   --> Fully qualified domain name
+     ansible_distribution           --> OS name (Ubuntu, CentOS, etc.)
+     ansible_distribution_version   --> OS version (20.04, 7.9, etc.)
+     ansible_os_family              --> OS family (Debian, RedHat, etc.)
+     ansible_memtotal_mb            --> Total RAM in MB
+     ansible_processor_cores        --> Number of CPU cores
+     ansible_default_ipv4.address   --> Primary IP address
+     ansible_env.HOME               --> Home directory of remote user
+
+
+--------------------------------------------------------------------------------
+VARIABLE PRECEDENCE — WHICH VARIABLE WINS?
+--------------------------------------------------------------------------------
+
+When the same variable is defined in multiple places, Ansible follows a strict
+precedence order. HIGHER number = HIGHER priority (wins).
+
+  Priority | Variable Source
+  ---------+----------------------------------------------
+  1 (Low)  | Role defaults (roles/myrole/defaults/main.yml)
+  2        | Inventory group_vars/all
+  3        | Inventory group_vars/groupname
+  4        | Inventory host_vars/hostname
+  5        | Playbook group_vars/all
+  6        | Playbook group_vars/groupname
+  7        | Playbook host_vars/hostname
+  8        | Host facts (auto-collected)
+  9        | Play vars (vars: section in playbook)
+  10       | vars_files
+  11       | Role vars (roles/myrole/vars/main.yml)
+  12 (High)| Command line -e "extra_vars"
+
+  KEY RULE:
+    Extra vars (-e flag) ALWAYS win over everything.
+    Use them for emergency overrides or runtime environment selection.
+
+
+--------------------------------------------------------------------------------
+VARIABLE TYPES
+--------------------------------------------------------------------------------
+
+  # String
+  app_name: "log-generator"
+  app_version: '1.0.0'           # single or double quotes both work
+
+  # Number
+  app_port: 8080
+  max_connections: 100
+
+  # Boolean
+  debug_mode: true
+  backup_enabled: false
+
+  # List
+  packages_to_install:
+    - openjdk-17-jdk
+    - git
+    - curl
+    - wget
+
+  # Dictionary (key-value map)
+  database:
+    host: db.hsbc.internal
+    port: 3306
+    name: hsbc_logs
+    user: dbadmin
+
+
+ACCESSING NESTED VARIABLES:
+  # Dot notation (most common)
+  "{{ database.host }}"
+
+  # Bracket notation (use when key has special characters)
+  "{{ database['host'] }}"
+
+  # Access list items by index
+  "{{ packages_to_install[0] }}"    # first item: openjdk-17-jdk
+
+  # Usage in a task
+  - name: Connect to database
+    debug:
+      msg: "Connecting to {{ database.host }}:{{ database.port }}/{{ database.name }}"
+
+
+--------------------------------------------------------------------------------
+THE debug MODULE — YOUR BEST FRIEND
+--------------------------------------------------------------------------------
+
+Use the debug module to print variable values during a playbook run.
+Invaluable for troubleshooting.
+
+  tasks:
+    # Print a variable directly
+    - name: Show app port
+      debug:
+        var: app_port
+
+    # Print a custom formatted message
+    - name: Print deploy info
+      debug:
+        msg: "Deploying {{ app_name }} v{{ app_version }} on port {{ app_port }}"
+
+    # Print all variables for this host (very detailed)
+    - name: Print all variables
+      debug:
+        var: hostvars[inventory_hostname]
+
+
+--------------------------------------------------------------------------------
+JINJA2 FILTERS — TRANSFORMING VARIABLES
+--------------------------------------------------------------------------------
+
+Ansible uses Jinja2 templating, which includes filters to transform values:
+
+  # Convert to uppercase
+  "{{ app_name | upper }}"               # LOG-GENERATOR
+
+  # Convert to lowercase
+  "{{ app_name | lower }}"               # log-generator
+
+  # Default value if variable is undefined
+  "{{ app_port | default(8080) }}"       # uses 8080 if app_port not set
+
+  # Join a list into a string
+  "{{ packages | join(', ') }}"          # openjdk-17-jdk, git, curl
+
+  # Get length of a list
+  "{{ packages | length }}"              # 3
+
+  # Replace characters
+  "{{ app_name | replace('-', '_') }}"   # log_generator
+
+  # Convert string to integer
+  "{{ '8080' | int }}"                   # 8080 (as integer)
+
+  # Check if something is defined and not empty
+  "{{ my_var is defined and my_var != '' }}"
+
+
+--------------------------------------------------------------------------------
+REAL-WORLD EXAMPLE — ENVIRONMENT-SPECIFIC VARIABLES
+--------------------------------------------------------------------------------
+
+  PROJECT STRUCTURE:
+    project/
+    ├── deploy.yml
+    ├── group_vars/
+    │   └── all.yml           # Common vars for all environments
+    ├── vars/
+    │   ├── dev.yml           # DEV-specific vars
+    │   ├── staging.yml       # STAGING-specific vars
+    │   └── production.yml    # PROD-specific vars
+
+  group_vars/all.yml:
+    app_name: log-generator
+    app_user: ubuntu
+    app_dir: /opt/log-generator
+
+  vars/production.yml:
+    app_port: 8080
+    db_host: prod-db.hsbc.internal
+    log_level: WARN
+    replicas: 3
+
+  vars/dev.yml:
+    app_port: 9090
+    db_host: dev-db.hsbc.internal
+    log_level: DEBUG
+    replicas: 1
+
+  RUNNING FOR DEV:
+    ansible-playbook deploy.yml -e @vars/dev.yml
+
+  RUNNING FOR PRODUCTION:
+    ansible-playbook deploy.yml -e @vars/production.yml
+
+  SAME PLAYBOOK — DIFFERENT BEHAVIOR PER ENVIRONMENT.
+
+
+--------------------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------------------
+
+  Concept         | One-Line Explanation
+  ----------------+------------------------------------------------------
+  Variables       | Named placeholders that make playbooks flexible
+  {{ var }}       | Jinja2 syntax to reference a variable
+  vars:           | Define variables directly in the playbook
+  vars_files:     | Load variables from external YAML files
+  group_vars/     | Auto-loaded variables for groups of servers
+  host_vars/      | Auto-loaded variables for specific individual servers
+  -e flag         | Pass variables at runtime — highest priority
+  register:       | Capture task output as a variable
+  Facts           | Auto-collected system info (OS, RAM, IP, etc.)
+  Jinja2 filters  | Functions to transform variable values
+
+
+--------------------------------------------------------------------------------
+NEXT: 07 - Modules
+  Comprehensive guide to the most important Ansible modules with real examples.
+--------------------------------------------------------------------------------

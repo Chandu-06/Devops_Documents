@@ -1,0 +1,485 @@
+================================================================================
+  ANSIBLE LEARNING DOCUMENT
+  07 - Ansible Modules
+  HSBC DevOps Learning Sprint | Week: Ansible | Level: Fresher to Intermediate
+================================================================================
+
+--------------------------------------------------------------------------------
+WHAT ARE MODULES?
+--------------------------------------------------------------------------------
+
+Modules are the building blocks of every Ansible task. Every task in a playbook
+calls exactly one module. Think of modules as specialized tools in a toolbox —
+one for installing software, one for managing files, one for controlling
+services, and so on.
+
+Ansible ships with THOUSANDS of built-in modules.
+You can also use modules from Ansible Collections (community/vendor-specific).
+
+Find all modules: https://docs.ansible.com/ansible/latest/collections/index.html
+
+
+--------------------------------------------------------------------------------
+FILE MANAGEMENT MODULES
+--------------------------------------------------------------------------------
+
+1. copy — COPY FILES TO REMOTE SERVERS
+   -------------------------------------
+     - name: Copy application config
+       copy:
+         src: files/app.conf           # source on control node
+         dest: /etc/myapp/app.conf     # destination on managed node
+         owner: ubuntu                 # file owner
+         group: ubuntu                 # file group
+         mode: '0644'                  # file permissions (octal)
+         backup: yes                   # create backup if file exists
+
+   NOTE: The src path is relative to the playbook or role's files/ directory.
+
+
+2. template — COPY FILES WITH VARIABLE SUBSTITUTION
+   ----------------------------------------------------
+   Like copy, but processes the file through Jinja2 first, replacing
+   {{ variables }} with their actual values. Used heavily for config files.
+
+   The template file (templates/nginx.conf.j2):
+     server {
+         listen {{ nginx_port }};
+         server_name {{ server_name }};
+         location / {
+             proxy_pass http://localhost:{{ app_port }};
+         }
+     }
+
+   The task:
+     - name: Generate nginx config from template
+       template:
+         src: templates/nginx.conf.j2
+         dest: /etc/nginx/nginx.conf
+         owner: root
+         mode: '0644'
+
+   The .j2 extension means Jinja2 template.
+   At runtime, {{ nginx_port }} is replaced with the actual variable value.
+
+
+3. file — CREATE FILES, DIRECTORIES, SYMLINKS
+   ---------------------------------------------
+     # Create a directory
+     - name: Create app directory
+       file:
+         path: /opt/myapp
+         state: directory
+         mode: '0755'
+         owner: ubuntu
+
+     # Create an empty file
+     - name: Create log file
+       file:
+         path: /var/log/myapp.log
+         state: touch
+         mode: '0644'
+
+     # Create a symbolic link
+     - name: Create symlink
+       file:
+         src: /opt/myapp/current
+         dest: /opt/myapp/app
+         state: link
+
+     # Delete a file or directory (recursively if directory)
+     - name: Remove old backup
+       file:
+         path: /tmp/old_backup.tar.gz
+         state: absent
+
+   STATE VALUES:
+     state: file        --> ensure file exists
+     state: directory   --> ensure directory exists
+     state: touch       --> create empty file (or update timestamps)
+     state: link        --> create symbolic link
+     state: absent      --> delete file/directory/link
+
+
+4. fetch — COPY FILES FROM REMOTE TO CONTROL NODE
+   --------------------------------------------------
+     - name: Download log file from server
+       fetch:
+         src: /var/log/myapp.log
+         dest: ./fetched_logs/
+         flat: yes    # store directly in dest, no host subdirectories
+
+   USE CASE: Collect log files or reports from all servers to your machine.
+
+
+5. lineinfile — EDIT SPECIFIC LINES IN A FILE
+   ---------------------------------------------
+     # Ensure a line exists in a file
+     - name: Set JVM heap size
+       lineinfile:
+         path: /opt/myapp/app.properties
+         line: 'JVM_OPTS=-Xmx2g -Xms512m'
+         state: present
+
+     # Replace a line matching a pattern
+     - name: Update port in config
+       lineinfile:
+         path: /etc/myapp/server.conf
+         regexp: '^PORT='        # find lines starting with PORT=
+         line: 'PORT={{ app_port }}'   # replace with this
+
+   USE CASE: When you need to change one specific setting in a config file
+   without rewriting the entire file.
+
+
+--------------------------------------------------------------------------------
+PACKAGE MANAGEMENT MODULES
+--------------------------------------------------------------------------------
+
+6. apt — UBUNTU/DEBIAN PACKAGE MANAGER
+   ---------------------------------------
+     # Install a single package
+     - name: Install OpenJDK 17
+       apt:
+         name: openjdk-17-jdk
+         state: present
+         update_cache: yes        # Run apt-get update first
+
+     # Install multiple packages at once
+     - name: Install required packages
+       apt:
+         name:
+           - nginx
+           - git
+           - curl
+           - unzip
+         state: present
+
+     # Install specific version
+     - name: Install specific nginx version
+       apt:
+         name: nginx=1.18.0-0ubuntu1
+         state: present
+
+     # Remove a package
+     - name: Remove old Java version
+       apt:
+         name: openjdk-11-jdk
+         state: absent
+         purge: yes               # also removes config files
+
+     # Upgrade all packages
+     - name: Upgrade all packages
+       apt:
+         upgrade: dist
+         update_cache: yes
+
+   STATE VALUES:
+     state: present  --> ensure package is installed
+     state: absent   --> ensure package is removed
+     state: latest   --> ensure latest version is installed
+
+
+7. yum / dnf — RHEL/CENTOS PACKAGE MANAGER
+   -------------------------------------------
+     # Using yum (older RHEL/CentOS)
+     - name: Install httpd
+       yum:
+         name: httpd
+         state: latest
+
+     # Using dnf (newer RHEL 8+/CentOS 8+)
+     - name: Install Java with dnf
+       dnf:
+         name: java-17-openjdk
+         state: present
+
+
+8. package — GENERIC PACKAGE MODULE (Works on any OS)
+   -----------------------------------------------------
+     # This works regardless of the underlying package manager
+     - name: Install curl (any OS)
+       package:
+         name: curl
+         state: present
+
+
+--------------------------------------------------------------------------------
+SERVICE MANAGEMENT MODULES
+--------------------------------------------------------------------------------
+
+9. service — MANAGE SYSTEM SERVICES
+   ------------------------------------
+     # Start a service
+     - name: Start nginx
+       service:
+         name: nginx
+         state: started
+
+     # Stop a service
+     - name: Stop nginx
+       service:
+         name: nginx
+         state: stopped
+
+     # Restart a service
+     - name: Restart nginx
+       service:
+         name: nginx
+         state: restarted
+
+     # Reload config WITHOUT full restart (graceful)
+     - name: Reload nginx config
+       service:
+         name: nginx
+         state: reloaded
+
+     # Enable on boot AND ensure it's running right now
+     - name: Enable and start nginx
+       service:
+         name: nginx
+         state: started
+         enabled: yes
+
+   STATE VALUES:
+     state: started    --> start if not running
+     state: stopped    --> stop if running
+     state: restarted  --> always restart (even if already running)
+     state: reloaded   --> reload config (keeps running, no downtime)
+
+
+--------------------------------------------------------------------------------
+COMMAND EXECUTION MODULES
+--------------------------------------------------------------------------------
+
+10. command — RUN COMMANDS (No Shell Features)
+    -----------------------------------------------
+     - name: Check Java version
+       command: java -version
+       register: java_version
+
+     - name: Run healthcheck script
+       command: /opt/myapp/bin/healthcheck.sh
+
+     # Skip if a file already exists (idempotency trick)
+     - name: Initialize database
+       command: /opt/app/bin/init-db.sh
+       args:
+         creates: /opt/app/.db_initialized    # skip if this file exists
+
+     NOTE: Cannot use pipes (|), redirects (>), or environment variables.
+           Use shell module for those.
+
+
+11. shell — RUN COMMANDS WITH SHELL FEATURES
+    --------------------------------------------
+     # Use pipes and redirects
+     - name: Get Java process count
+       shell: ps aux | grep java | wc -l
+       register: java_process_count
+
+     # Use environment variables and multi-line
+     - name: Export and run application
+       shell: |
+         export APP_HOME=/opt/myapp
+         export PORT=8080
+         cd $APP_HOME
+         nohup java -jar app.jar --port=$PORT > logs/app.log 2>&1 &
+
+     # Skip if a file already exists
+     - name: Extract archive
+       shell: tar -xzf /tmp/app.tar.gz -C /opt/
+       args:
+         creates: /opt/app/
+
+
+--------------------------------------------------------------------------------
+USER MANAGEMENT MODULES
+--------------------------------------------------------------------------------
+
+12. user — MANAGE SYSTEM USERS
+    ------------------------------
+     # Create user
+     - name: Create application user
+       user:
+         name: appuser
+         shell: /bin/bash
+         home: /home/appuser
+         create_home: yes
+         groups:
+           - docker
+           - sudo
+         state: present
+
+     # Delete user and their home directory
+     - name: Remove old user
+       user:
+         name: tempuser
+         state: absent
+         remove: yes
+
+
+--------------------------------------------------------------------------------
+GIT MODULE
+--------------------------------------------------------------------------------
+
+13. git — MANAGE GIT REPOSITORIES
+    -----------------------------------
+     - name: Clone application repository
+       git:
+         repo: https://github.com/hsbc/log-generator.git
+         dest: /opt/log-generator
+         version: develop        # branch, tag, or commit hash
+         force: yes              # overwrite local changes
+         depth: 1                # shallow clone (faster)
+
+   USE CASE IN HSBC:
+     After cloning the repo, you can build and deploy from the source.
+     Combine with jenkins + ansible for full CI/CD.
+
+
+--------------------------------------------------------------------------------
+DOCKER MODULES (DevOps Relevant!)
+--------------------------------------------------------------------------------
+
+14. docker_image — MANAGE DOCKER IMAGES
+    -----------------------------------------
+     - name: Pull application image from Nexus
+       docker_image:
+         name: nexus.hsbc.internal:8082/log-generator
+         tag: latest
+         source: pull
+
+
+15. docker_container — MANAGE DOCKER CONTAINERS
+    -----------------------------------------------
+     # Run a container
+     - name: Start log-generator container
+       docker_container:
+         name: log-generator
+         image: nexus.hsbc.internal:8082/log-generator:latest
+         state: started
+         restart_policy: always
+         ports:
+           - "8080:8080"
+         env:
+           APP_ENV: production
+           LOG_LEVEL: INFO
+         volumes:
+           - /opt/logs:/app/logs
+
+     # Stop and remove a container
+     - name: Remove old container
+       docker_container:
+         name: log-generator
+         state: absent
+
+   STATE VALUES:
+     state: started   --> ensure container is running
+     state: stopped   --> stop the container
+     state: absent    --> stop and remove the container
+     state: present   --> create but don't start
+
+
+--------------------------------------------------------------------------------
+UTILITY MODULES
+--------------------------------------------------------------------------------
+
+16. stat — CHECK FILE STATUS
+    ----------------------------
+     - name: Check if config file exists
+       stat:
+         path: /etc/myapp/app.conf
+       register: config_stat
+
+     - name: Create config if it doesn't exist
+       copy:
+         src: default.conf
+         dest: /etc/myapp/app.conf
+       when: not config_stat.stat.exists
+
+   REGISTERED VARIABLE ATTRIBUTES:
+     config_stat.stat.exists       --> true/false
+     config_stat.stat.size         --> file size in bytes
+     config_stat.stat.mode         --> file permissions
+     config_stat.stat.isdir        --> true if directory
+
+
+17. uri — MAKE HTTP REQUESTS
+    ----------------------------
+     # Check if an API endpoint is healthy
+     - name: Health check application
+       uri:
+         url: http://localhost:8080/health
+         method: GET
+         status_code: 200
+       register: health_response
+       retries: 5           # try 5 times
+       delay: 10            # wait 10 seconds between retries
+       until: health_response.status == 200
+
+
+18. wait_for — WAIT FOR CONDITIONS
+    -----------------------------------
+     # Wait for a port to be open (server starting up)
+     - name: Wait for application to start
+       wait_for:
+         port: 8080
+         delay: 5           # wait 5 seconds before first check
+         timeout: 60        # give up after 60 seconds
+
+     # Wait for a file to exist
+     - name: Wait for PID file
+       wait_for:
+         path: /var/run/myapp.pid
+         state: present
+         timeout: 30
+
+
+19. debug — PRINT MESSAGES
+    -------------------------
+     - name: Print a variable
+       debug:
+         var: app_port
+
+     - name: Print a custom message
+       debug:
+         msg: "Deploying {{ app_name }} on port {{ app_port }}"
+
+     - name: Debug only when verbose
+       debug:
+         msg: "Some debug info"
+         verbosity: 2    # only shows when running with -vv or more
+
+
+--------------------------------------------------------------------------------
+MODULE QUICK REFERENCE
+--------------------------------------------------------------------------------
+
+  Module             | Primary Use
+  -------------------+--------------------------------------------------
+  copy               | Copy files to remote servers
+  template           | Copy files with Jinja2 variable substitution
+  file               | Create/delete files, directories, symlinks
+  fetch              | Pull files FROM remote to control node
+  lineinfile         | Add/replace specific lines in files
+  apt                | Install/remove packages (Ubuntu/Debian)
+  yum / dnf          | Install/remove packages (RHEL/CentOS)
+  package            | Generic package management (any OS)
+  service            | Start/stop/restart/enable services
+  command            | Run commands (no shell features)
+  shell              | Run commands with pipes and redirects
+  user               | Create/delete system users
+  git                | Clone/update git repositories
+  docker_image       | Pull/push Docker images
+  docker_container   | Run/stop/remove Docker containers
+  stat               | Check file/directory properties
+  uri                | Make HTTP requests
+  wait_for           | Wait for port, file, or condition
+  debug              | Print messages and variable values
+
+
+--------------------------------------------------------------------------------
+NEXT: 08 - Conditionals & Loops
+  Control the flow of your playbooks with when conditions and loop constructs.
+--------------------------------------------------------------------------------

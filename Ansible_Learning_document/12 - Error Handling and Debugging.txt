@@ -1,0 +1,384 @@
+================================================================================
+  ANSIBLE LEARNING DOCUMENT
+  12 - Error Handling & Debugging
+  HSBC DevOps Learning Sprint | Week: Ansible | Level: Fresher to Intermediate
+================================================================================
+
+--------------------------------------------------------------------------------
+DEFAULT BEHAVIOR ON FAILURE
+--------------------------------------------------------------------------------
+
+By default, when a task FAILS on a host:
+  1. Ansible stops running any more tasks on THAT host.
+  2. Ansible continues running on other hosts (unless configured otherwise).
+  3. At the end, the PLAY RECAP shows which hosts failed.
+
+EXAMPLE OUTPUT:
+  TASK [Start application] ****************************
+  fatal: [192.168.1.10]: FAILED! => {
+      "msg": "Job for myapp.service failed..."
+  }
+
+  PLAY RECAP ******************************************
+  192.168.1.10 : ok=3  changed=1  unreachable=0  failed=1
+
+
+--------------------------------------------------------------------------------
+ignore_errors — CONTINUE DESPITE FAILURE
+--------------------------------------------------------------------------------
+
+Sometimes you EXPECT a task might fail and that's okay.
+Use ignore_errors: yes to continue even when the task fails.
+
+  # Check if application is running (might fail if it's not running)
+  - name: Get application process ID
+    command: pidof java
+    register: java_pid
+    ignore_errors: yes              # don't stop if this fails
+
+  - name: Kill application if running
+    command: kill {{ java_pid.stdout }}
+    when: java_pid.rc == 0          # only kill if we found the PID
+
+
+WHEN TO USE ignore_errors:
+  Good: Checking if something exists (may or may not exist)
+  Good: Trying to stop a service that may already be stopped
+  BAD:  Hiding real failures you should know about
+
+
+--------------------------------------------------------------------------------
+failed_when — DEFINE YOUR OWN FAILURE CONDITION
+--------------------------------------------------------------------------------
+
+Tell Ansible WHEN to consider a task failed, instead of using the default.
+Useful when a command returns exit code 0 but the output indicates failure.
+
+  - name: Check if application is healthy
+    command: /opt/app/healthcheck.sh
+    register: health_check
+    failed_when:
+      - health_check.rc != 0
+      - '"ERROR" in health_check.stdout'
+
+  - name: Run database migration
+    shell: ./migrate.sh
+    register: migration_result
+    failed_when: '"Migration failed" in migration_result.stdout'
+
+
+--------------------------------------------------------------------------------
+changed_when — CONTROL WHEN "CHANGED" IS REPORTED
+--------------------------------------------------------------------------------
+
+Ansible reports "changed" when a task modifies something. But for commands,
+Ansible doesn't know if they made a change — it reports "changed" always.
+
+Use changed_when to define when a command should report "changed":
+
+  - name: Check for pending migrations
+    shell: ./list-pending-migrations.sh
+    register: pending_migrations
+    changed_when: false             # this is read-only, never "changed"
+
+  - name: Apply database migrations
+    shell: ./apply-migrations.sh
+    register: migration_output
+    changed_when: '"Applied" in migration_output.stdout'
+    # Only report "changed" if the word "Applied" appears in output
+
+
+--------------------------------------------------------------------------------
+block / rescue / always — TRY/CATCH/FINALLY
+--------------------------------------------------------------------------------
+
+This is Ansible's equivalent of try/catch/finally in programming.
+It lets you handle failures gracefully and guarantee cleanup actions.
+
+  - name: Deploy application with rollback on failure
+    block:
+      # TRY: these tasks run normally
+      - name: Stop the service
+        service:
+          name: myapp
+          state: stopped
+
+      - name: Back up old JAR
+        copy:
+          src: /opt/app/app.jar
+          dest: /opt/app/app.jar.bak
+          remote_src: yes
+
+      - name: Deploy new JAR
+        copy:
+          src: new_app.jar
+          dest: /opt/app/app.jar
+
+      - name: Start the service
+        service:
+          name: myapp
+          state: started
+
+    rescue:
+      # CATCH: these tasks run if ANYTHING in block fails
+      - name: ROLLBACK - restore old JAR
+        copy:
+          src: /opt/app/app.jar.bak
+          dest: /opt/app/app.jar
+          remote_src: yes
+
+      - name: ROLLBACK - restart with old version
+        service:
+          name: myapp
+          state: started
+
+      - name: Send failure alert
+        debug:
+          msg: "Deployment FAILED. Rolled back to previous version."
+
+    always:
+      # FINALLY: these tasks ALWAYS run, whether block succeeded or failed
+      - name: Send deployment notification
+        debug:
+          msg: "Deployment attempt completed at {{ ansible_date_time.iso8601 }}"
+
+      - name: Remove temp files
+        file:
+          path: /tmp/deploy_temp
+          state: absent
+
+
+  FLOW:
+    If block succeeds:  block tasks run  -->  always tasks run
+    If block fails:     block stops      -->  rescue tasks run  -->  always tasks run
+
+
+--------------------------------------------------------------------------------
+any_errors_fatal — STOP ALL HOSTS IF ANY FAIL
+--------------------------------------------------------------------------------
+
+By default, Ansible continues running on other hosts even if one fails.
+Use any_errors_fatal: true to stop EVERYTHING if any host fails.
+
+  ---
+  - name: Critical database migration
+    hosts: db_servers
+    any_errors_fatal: true          # if ANY db server fails, stop all
+    tasks:
+      - name: Run database migration
+        shell: ./migrate.sh
+
+  USE CASE:
+    Database migrations, synchronized deployments, critical operations
+    where partial completion would leave systems in an inconsistent state.
+
+
+--------------------------------------------------------------------------------
+max_fail_percentage — ROLLING FAILURE THRESHOLD
+--------------------------------------------------------------------------------
+
+Allow up to a certain PERCENTAGE of hosts to fail before stopping:
+
+  ---
+  - name: Deploy to web servers
+    hosts: web_servers
+    max_fail_percentage: 25         # stop if more than 25% of hosts fail
+    serial: 5                       # deploy 5 servers at a time
+    tasks:
+      - name: Deploy application
+        copy:
+          src: app.jar
+          dest: /opt/app/
+
+  USE CASE:
+    Rolling deployments where some failures are acceptable, but not too many.
+
+
+--------------------------------------------------------------------------------
+DEBUGGING TECHNIQUES
+--------------------------------------------------------------------------------
+
+1. VERBOSITY FLAGS — MOST IMPORTANT DEBUGGING TOOL
+   -------------------------------------------------
+   Run playbooks with -v flags to see more detail:
+
+     ansible-playbook deploy.yml -v      # show task results
+     ansible-playbook deploy.yml -vv     # show task input/output
+     ansible-playbook deploy.yml -vvv    # show SSH connection details
+     ansible-playbook deploy.yml -vvvv   # show everything (very detailed)
+
+   START WITH -vv — usually gives you exactly what you need.
+
+
+2. debug MODULE — PRINT VARIABLE VALUES
+   ----------------------------------------
+     tasks:
+       - name: Print a variable
+         debug:
+           var: app_port
+
+       - name: Print custom message
+         debug:
+           msg: "Deploying {{ app_name }} to {{ inventory_hostname }}"
+
+       - name: Print ALL variables for this host
+         debug:
+           var: hostvars[inventory_hostname]
+
+       - name: Print only when running with -vv or more
+         debug:
+           msg: "Detailed debug info here"
+           verbosity: 2
+
+
+3. CHECK MODE (DRY RUN)
+   ----------------------
+   Run without making any changes — see WHAT WOULD happen:
+
+     ansible-playbook deploy.yml --check
+     ansible-playbook deploy.yml --check --diff     # also shows file diffs
+
+
+4. --diff FLAG — SEE FILE CHANGES
+   --------------------------------
+   Shows exactly what would change in files (like git diff):
+
+     ansible-playbook deploy.yml --diff
+
+   OUTPUT EXAMPLE:
+     TASK [Update nginx config] ***********************
+     --- before: /etc/nginx/nginx.conf
+     +++ after: /etc/nginx/nginx.conf
+     @@ -5,7 +5,7 @@
+          listen 80;
+     -    server_name old.example.com;
+     +    server_name new.hsbc.internal;
+
+
+5. --step FLAG — TASK-BY-TASK CONFIRMATION
+   ------------------------------------------
+   Ansible asks you to confirm before running EACH task:
+
+     ansible-playbook deploy.yml --step
+
+   OUTPUT:
+     Perform task: TASK [Install nginx] (y/n/c)?
+     > y     # yes, run this task
+     > n     # skip this task
+     > c     # continue without asking (run rest automatically)
+
+
+6. --start-at-task — RESUME FROM A SPECIFIC TASK
+   -------------------------------------------------
+   Skip tasks you've already run successfully and start from a specific one:
+
+     ansible-playbook deploy.yml --start-at-task="Deploy application JAR"
+
+   USE CASE: Your playbook ran 10 tasks, failed at task 8. Fix the issue.
+   Now run from task 8 instead of restarting from the beginning.
+
+
+7. --list-tasks — SEE ALL TASKS WITHOUT RUNNING
+   ------------------------------------------------
+     ansible-playbook deploy.yml --list-tasks
+
+   OUTPUT:
+     Play: Deploy Application
+       tasks:
+         Install Java
+         Create application directory
+         Copy application JAR
+         Start the service
+
+
+8. --list-hosts — SEE WHICH HOSTS WOULD BE TARGETED
+   ----------------------------------------------------
+     ansible-playbook deploy.yml --list-hosts
+
+
+9. SYNTAX CHECK — VALIDATE YAML BEFORE RUNNING
+   -----------------------------------------------
+     ansible-playbook deploy.yml --syntax-check
+
+   Always run this before running a playbook in production.
+   Catches YAML syntax errors before they cause problems.
+
+
+--------------------------------------------------------------------------------
+COMMON ERRORS AND SOLUTIONS
+--------------------------------------------------------------------------------
+
+ERROR: "UNREACHABLE" — Cannot connect to host
+  CAUSE:   SSH connection failed
+  CHECKS:
+    1. Can you SSH manually?  ssh ubuntu@192.168.1.10
+    2. Is the inventory hostname/IP correct?
+    3. Is the SSH key path correct in ansible.cfg?
+    4. Is the firewall blocking port 22?
+    5. Does the host exist? Try: ansible all -m ping
+
+
+ERROR: "Missing sudo password" or "sudo: a password is required"
+  CAUSE:   become: true but no sudo password configured
+  FIX:
+    ansible-playbook deploy.yml -K    # prompts for sudo password
+    OR configure passwordless sudo on the target server
+
+
+ERROR: "YAML syntax error" — unexpected indent
+  CAUSE:   Mixing tabs and spaces, or wrong indentation
+  FIX:
+    Use a YAML linter (yamllint)
+    Use VS Code with YAML extension
+    Run: ansible-playbook deploy.yml --syntax-check
+
+
+ERROR: "undefined variable" — 'variable_name' is undefined
+  CAUSE:   Variable is used but not defined anywhere
+  FIX:
+    1. Check if variable is defined in vars:, group_vars, or host_vars
+    2. Use default filter: "{{ app_port | default(8080) }}"
+    3. Use debug task to list all available variables
+
+
+ERROR: "command not found" — module or binary not found
+  CAUSE:   Required package not installed, or PATH issue
+  FIX:
+    Install the required package first
+    Specify full path: command: /usr/bin/java -version
+
+
+ERROR: "failed to create temporary directory" — Permission denied
+  CAUSE:   Remote user doesn't have write permission to temp dir
+  FIX:
+    Add to ansible.cfg: remote_tmp = /tmp/.ansible
+
+
+--------------------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------------------
+
+  Keyword / Flag         | Purpose
+  -----------------------+------------------------------------------------------
+  ignore_errors: yes     | Continue even if this task fails
+  failed_when:           | Define custom failure condition
+  changed_when:          | Define when to report "changed"
+  block:                 | Group tasks (try block)
+  rescue:                | Tasks that run if block fails (catch)
+  always:                | Tasks that ALWAYS run (finally)
+  any_errors_fatal       | Stop ALL hosts if any single host fails
+  max_fail_percentage    | Allow up to X% of hosts to fail before stopping
+  -v / -vv / -vvv        | Increase verbosity for debugging
+  --check                | Dry run mode
+  --diff                 | Show file differences
+  --step                 | Confirm before each task
+  --start-at-task        | Resume playbook from a specific task
+  --list-tasks           | Show all tasks without running
+  --syntax-check         | Validate YAML syntax without running
+
+
+--------------------------------------------------------------------------------
+NEXT: 13 - Ansible with Docker & Kubernetes
+  See how Ansible fits into real DevOps pipelines at HSBC — working with
+  Jenkins, Docker, and Kubernetes deployments.
+--------------------------------------------------------------------------------

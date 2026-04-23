@@ -1,0 +1,1776 @@
+================================================================================
+  ANSIBLE LEARNING DOCUMENT
+  13 - Ansible with Docker & Kubernetes (Industry-Level Deep Dive)
+  HSBC DevOps Learning Sprint | Week: Ansible | Level: Intermediate to Experienced
+================================================================================
+
+  This document is the most critical one for your first phase completion.
+  It covers everything an industry DevOps engineer is expected to know about
+  how Ansible, Docker, and Kubernetes work together in a real enterprise pipeline.
+
+  SECTIONS IN THIS DOCUMENT:
+  ----------------------------
+  PART 1  --> Understanding Where Ansible Fits (Architecture View)
+  PART 2  --> Ansible + Docker: Installing and Configuring Docker
+  PART 3  --> Ansible + Docker: Managing Containers in Production
+  PART 4  --> Ansible + Docker: Docker Compose Deployments
+  PART 5  --> Ansible + Docker: Rolling Updates (Zero Downtime)
+  PART 6  --> Ansible + Docker: Rollback Strategy
+  PART 7  --> Ansible + Kubernetes: Core Concepts You Must Know First
+  PART 8  --> Ansible + Kubernetes: Deploying Applications to K8s
+  PART 9  --> Ansible + Kubernetes: Managing K8s with Templates
+  PART 10 --> Ansible + Kubernetes: Rolling Updates and Rollbacks in K8s
+  PART 11 --> Blue-Green Deployment with Ansible
+  PART 12 --> Full Jenkins + Ansible + Docker + K8s Pipeline (HSBC Style)
+  PART 13 --> Production Best Practices
+  PART 14 --> Troubleshooting Guide
+  PART 15 --> Final Summary and What an Interviewer Will Ask
+
+
+================================================================================
+PART 1 - UNDERSTANDING WHERE ANSIBLE FITS (Architecture View)
+================================================================================
+
+In an enterprise DevOps setup, every tool has a clear boundary of responsibility.
+This is the most important thing to understand before writing a single playbook.
+
+TOOL RESPONSIBILITY MAP:
+
+  Tool          | Its Job                                 | Does NOT do
+  --------------+-----------------------------------------+----------------------
+  Git           | Version control, source of truth        | Build, deploy, config
+  Jenkins       | Pipeline orchestration, triggers        | Configure/deploy
+  Maven/Gradle  | Build the Java application (JAR/WAR)    | Pipeline, deploy
+  SonarQube     | Code quality analysis                   | Build, deploy
+  Docker        | Package app into portable image         | Deploy, configure
+  Nexus 3       | Store Docker images and artifacts       | Deploy, configure
+  Ansible       | Configure servers, deploy containers    | Build code, pipeline
+  Kubernetes    | Run, scale, self-heal containers        | Build, push images
+  Prometheus    | Monitor and alert                       | Deploy, configure
+
+
+WHERE ANSIBLE FITS IN THE FLOW:
+
+  Developer --> Git Push
+                    |
+                    v
+              Jenkins picks up the commit
+                    |
+             Build --> Test --> SonarQube --> Docker Build --> Push to Nexus
+                    |
+                    v
+         [ANSIBLE TAKES OVER HERE]
+                    |
+          +---------+---------+
+          |                   |
+    Configure Servers     Deploy Containers / K8s
+          |                   |
+    Install Docker        Pull image from Nexus
+    Configure OS          Start containers
+    Manage users          Apply K8s manifests
+    Set up directories    Health check
+          |                   |
+         [ANSIBLE FINISHES HERE]
+                    |
+              Monitoring (Prometheus, Grafana)
+
+
+WHEN IS ANSIBLE CALLED?
+
+  Situation              | What Ansible Does
+  -----------------------+-------------------------------------------------------
+  New server             | Configure it (install Docker, setup dirs, users)
+  Every deployment       | Pull new image, restart container/pod
+  Config file changes    | Update config, reload service
+  Rollback needed        | Switch to previous image version
+  Scheduled maintenance  | Patch OS, rotate certs, cleanup old images
+  New K8s namespace      | Create namespace, RBAC, secrets, ConfigMaps
+
+
+================================================================================
+PART 2 - ANSIBLE + DOCKER: INSTALLING AND CONFIGURING DOCKER
+================================================================================
+
+Before deploying containers, target servers must have Docker installed.
+This is where Ansible handles server configuration — one of its core strengths.
+
+
+--------------------------------------------------------------------------------
+2A. INSTALLING DOCKER ENGINE (Production-Grade Playbook)
+--------------------------------------------------------------------------------
+
+In production you MUST install Docker from Docker's official repository — NOT
+from the Ubuntu/RHEL default repos (those versions are outdated and unsupported).
+
+  ---
+  - name: Install Docker Engine from Official Repository
+    hosts: app_servers
+    become: true
+
+    vars:
+      docker_users:
+        - ubuntu
+        - jenkins          # allow Jenkins to run Docker commands without sudo
+
+    tasks:
+
+      # Step 1: Remove old or conflicting Docker packages
+      - name: Remove old Docker packages if present
+        apt:
+          name:
+            - docker
+            - docker-engine
+            - docker.io
+            - containerd
+            - runc
+          state: absent
+        ignore_errors: yes
+
+      # Step 2: Install required system packages
+      - name: Install Docker prerequisites
+        apt:
+          name:
+            - ca-certificates
+            - curl
+            - gnupg
+            - lsb-release
+            - apt-transport-https
+          state: present
+          update_cache: yes
+
+      # Step 3: Add Docker's official GPG key (proves the packages are authentic)
+      - name: Create directory for Docker GPG key
+        file:
+          path: /etc/apt/keyrings
+          state: directory
+          mode: '0755'
+
+      - name: Download Docker GPG key
+        shell: |
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+          gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        args:
+          creates: /etc/apt/keyrings/docker.gpg    # idempotent - skip if exists
+
+      # Step 4: Add Docker's official apt repository
+      - name: Add Docker apt repository
+        shell: |
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+          https://download.docker.com/linux/ubuntu \
+          $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+        args:
+          creates: /etc/apt/sources.list.d/docker.list
+
+      # Step 5: Install Docker Engine and related components
+      - name: Install Docker Engine, CLI, Containerd, and Compose plugin
+        apt:
+          name:
+            - docker-ce
+            - docker-ce-cli
+            - containerd.io
+            - docker-buildx-plugin
+            - docker-compose-plugin
+          state: present
+          update_cache: yes
+
+      # Step 6: Enable and start Docker daemon
+      - name: Enable and start Docker service
+        service:
+          name: docker
+          state: started
+          enabled: yes
+
+      # Step 7: Add users to docker group (so they can run docker without sudo)
+      - name: Add users to docker group
+        user:
+          name: "{{ item }}"
+          groups: docker
+          append: yes           # append — do not replace existing groups
+        loop: "{{ docker_users }}"
+
+      # Step 8: Verify installation
+      - name: Verify Docker is working
+        command: docker --version
+        register: docker_version_output
+        changed_when: false
+
+      - name: Print Docker version
+        debug:
+          msg: "Docker installed: {{ docker_version_output.stdout }}"
+
+
+--------------------------------------------------------------------------------
+2B. CONFIGURING THE DOCKER DAEMON (daemon.json)
+--------------------------------------------------------------------------------
+
+The Docker daemon needs production-level configuration.
+This file controls Docker's entire behaviour — logging, storage, security.
+
+  - name: Configure Docker daemon for production
+    template:
+      src: templates/daemon.json.j2
+      dest: /etc/docker/daemon.json
+      backup: yes                       # keep a backup of the previous config
+    notify: Restart Docker
+
+  handlers:
+    - name: Restart Docker
+      service:
+        name: docker
+        state: restarted
+
+
+  templates/daemon.json.j2:
+  --------------------------
+  {
+    "log-driver": "json-file",
+    "log-opts": {
+      "max-size": "100m",
+      "max-file": "5"
+    },
+    "insecure-registries": ["{{ nexus_registry }}"],
+    "storage-driver": "overlay2",
+    "live-restore": true,
+    "default-ulimits": {
+      "nofile": {
+        "Name": "nofile",
+        "Hard": 64000,
+        "Soft": 64000
+      }
+    }
+  }
+
+
+  WHAT EACH SETTING DOES:
+  ------------------------
+  log-driver: json-file    --> Store container logs as JSON files (default, managed)
+  max-size: 100m           --> Each log file caps at 100MB (prevents disk fill)
+  max-file: 5              --> Keep only 5 rotated log files per container
+  insecure-registries      --> Allow pulling from internal Nexus without HTTPS
+  storage-driver: overlay2 --> Best-performing and recommended storage driver
+  live-restore: true       --> Keep containers RUNNING if Docker daemon restarts
+  default-ulimits nofile   --> Increase file descriptor limit (needed for Java apps)
+
+
+--------------------------------------------------------------------------------
+2C. SETTING UP PRIVATE REGISTRY AUTHENTICATION
+--------------------------------------------------------------------------------
+
+To pull images from Nexus 3, Docker needs to authenticate.
+Store credentials with Ansible Vault and configure with Ansible.
+
+  - name: Log into Nexus Docker Registry
+    docker_login:
+      registry_url: "{{ nexus_registry }}"
+      username: "{{ nexus_user }}"          # from Ansible Vault secrets.yml
+      password: "{{ nexus_password }}"      # from Ansible Vault secrets.yml
+      reauthorize: yes
+
+  HOW IT WORKS:
+    This task writes credentials to ~/.docker/config.json on the server.
+    Every subsequent docker pull on that server uses these stored credentials.
+    Run this task as the service user (ubuntu or jenkins), not root.
+
+
+================================================================================
+PART 3 - ANSIBLE + DOCKER: MANAGING CONTAINERS IN PRODUCTION
+================================================================================
+
+--------------------------------------------------------------------------------
+3A. THE docker_container MODULE - FULL PARAMETER REFERENCE
+--------------------------------------------------------------------------------
+
+  - name: Run log-generator container (full production configuration)
+    docker_container:
+      name: log-generator
+
+      image: "{{ nexus_registry }}/log-generator:{{ image_tag }}"
+
+      # ---- STATE ----
+      state: started
+      # started   = create if not exists AND ensure it is running
+      # stopped   = ensure exists but NOT running
+      # absent    = stop + remove the container
+      # present   = ensure created, don't control running state
+
+      # ---- RESTART POLICY ----
+      restart_policy: unless-stopped
+      # no              = never restart (development only)
+      # always          = always restart even after manual docker stop
+      # on-failure      = restart only when container exits non-zero
+      # unless-stopped  = restart always EXCEPT when manually stopped (BEST)
+      restart_retries: 3
+
+      # ---- PORT MAPPING ----
+      ports:
+        - "8080:8080"                      # host_port:container_port
+        - "127.0.0.1:9090:9090"            # bind only to localhost interface
+
+      # ---- ENVIRONMENT VARIABLES ----
+      env:
+        APP_ENV: "{{ app_environment }}"
+        LOG_LEVEL: "{{ log_level }}"
+        DB_HOST: "{{ db_host }}"
+        DB_PORT: "{{ db_port | string }}"  # must be string, not integer
+        JAVA_OPTS: "-Xmx1g -Xms256m"
+
+      # ---- VOLUME MOUNTS ----
+      volumes:
+        - "/opt/log-generator/logs:/app/logs"            # log persistence
+        - "/opt/log-generator/config:/app/config:ro"     # config, read-only
+
+      # ---- RESOURCE LIMITS (critical in production) ----
+      memory: "1g"                         # max RAM the container can use
+      memory_reservation: "512m"           # soft RAM limit (guaranteed)
+      cpus: "1.5"                          # max CPU cores (1.5 = 1.5 cores)
+
+      # ---- NETWORKING ----
+      networks:
+        - name: hsbc-app-network
+      network_mode: bridge
+
+      # ---- BUILT-IN HEALTHCHECK ----
+      healthcheck:
+        test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+        interval: 30s
+        timeout: 10s
+        retries: 3
+        start_period: 40s                  # give app time to start before checking
+
+      # ---- LABELS (for monitoring discovery) ----
+      labels:
+        app: log-generator
+        team: payment-data
+        environment: "{{ app_environment }}"
+        version: "{{ image_tag }}"
+
+      # ---- LOGGING DRIVER ----
+      log_driver: json-file
+      log_options:
+        max-size: "50m"
+        max-file: "3"
+
+      # ---- SECURITY ----
+      no_new_privileges: true              # prevent privilege escalation inside container
+      user: "1000:1000"                    # run as non-root user (UID:GID)
+
+      # ---- PULL BEHAVIOUR ----
+      pull: always                         # always pull even if tag exists locally
+      force_kill: false                    # use SIGKILL only as last resort
+      stop_timeout: 30                     # seconds to wait for graceful shutdown
+
+
+--------------------------------------------------------------------------------
+3B. MANAGING DOCKER NETWORKS
+--------------------------------------------------------------------------------
+
+In production, you NEVER use the default bridge network.
+You create isolated custom networks per application.
+
+  - name: Create isolated application network
+    docker_network:
+      name: hsbc-app-network
+      driver: bridge
+      ipam_config:
+        - subnet: "172.20.0.0/24"
+          gateway: "172.20.0.1"
+      labels:
+        team: payment-data
+      state: present
+
+  - name: Create database network (no external access)
+    docker_network:
+      name: hsbc-db-network
+      driver: bridge
+      internal: true             # no external internet access at all
+      state: present
+
+  WHY CUSTOM NETWORKS MATTER:
+    - Containers on the same custom network can reach each other by NAME
+      (e.g., http://log-generator:8080 instead of IP address)
+    - Containers on different networks CANNOT communicate (security boundary)
+    - Example: nginx + app on app-network, app + database on db-network
+      nginx cannot directly reach the database -- correct by design
+
+
+--------------------------------------------------------------------------------
+3C. MANAGING DOCKER VOLUMES (Persistent Data)
+--------------------------------------------------------------------------------
+
+Containers are ephemeral -- when they restart, they lose all in-container data.
+Use volumes to persist data that must survive restarts.
+
+  - name: Create named persistent volumes
+    docker_volume:
+      name: "{{ item }}"
+      state: present
+    loop:
+      - log-generator-logs
+      - log-generator-config
+
+  - name: Run container with named volumes
+    docker_container:
+      name: log-generator
+      image: "{{ full_image }}"
+      volumes:
+        - "log-generator-logs:/app/logs"       # named volume (Docker manages path)
+        - "log-generator-config:/app/config"   # named volume
+        - "/etc/ssl/certs:/etc/ssl/certs:ro"   # bind mount (specific host path)
+
+  NAMED VOLUME vs BIND MOUNT:
+    Named Volume  --> Docker manages storage location (/var/lib/docker/volumes)
+                      Survives container removal. Best for app data.
+    Bind Mount    --> You specify the exact host path (/opt/logs:/app/logs)
+                      Easy to access from host. Good for configs and certs.
+
+
+================================================================================
+PART 4 - ANSIBLE + DOCKER: DOCKER COMPOSE DEPLOYMENTS
+================================================================================
+
+For multi-container applications (app + database + nginx together), Docker
+Compose is the standard approach. Ansible deploys and manages compose stacks.
+
+
+--------------------------------------------------------------------------------
+4A. DEPLOYING COMPOSE VIA TEMPLATE FILE (Industry Standard)
+--------------------------------------------------------------------------------
+
+  tasks:
+
+    - name: Create deployment directory
+      file:
+        path: /opt/hsbc-stack
+        state: directory
+        mode: '0755'
+        owner: ubuntu
+
+    - name: Deploy docker-compose.yml from template
+      template:
+        src: templates/docker-compose.yml.j2
+        dest: /opt/hsbc-stack/docker-compose.yml
+        owner: ubuntu
+        mode: '0644'
+      register: compose_changed
+
+    - name: Deploy .env file (non-sensitive vars)
+      template:
+        src: templates/stack.env.j2
+        dest: /opt/hsbc-stack/.env
+        mode: '0600'                           # restrict permissions on env file
+
+    - name: Pull latest images
+      shell: docker compose -f /opt/hsbc-stack/docker-compose.yml pull
+      when: compose_changed.changed or force_pull | default(false)
+
+    - name: Start or update application stack
+      shell: >
+        docker compose
+        -f /opt/hsbc-stack/docker-compose.yml
+        --env-file /opt/hsbc-stack/.env
+        up -d --remove-orphans
+      register: compose_output
+
+    - name: Wait for all services to be healthy
+      shell: docker compose -f /opt/hsbc-stack/docker-compose.yml ps
+      register: services_status
+      retries: 10
+      delay: 15
+      until: '"healthy" in services_status.stdout or "running" in services_status.stdout'
+
+    - name: Show service status
+      debug:
+        msg: "{{ services_status.stdout_lines }}"
+
+
+  templates/docker-compose.yml.j2:
+  ---------------------------------
+  version: "3.8"
+
+  services:
+    log-generator:
+      image: "{{ nexus_registry }}/log-generator:{{ image_tag }}"
+      ports:
+        - "8080:8080"
+      environment:
+        APP_ENV: "{{ app_environment }}"
+        DB_HOST: postgres
+      depends_on:
+        postgres:
+          condition: service_healthy
+      networks:
+        - app-network
+      restart: unless-stopped
+      deploy:
+        resources:
+          limits:
+            memory: 1G
+            cpus: "1.5"
+
+    nginx:
+      image: nginx:1.24-alpine
+      ports:
+        - "80:80"
+        - "443:443"
+      volumes:
+        - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      depends_on:
+        - log-generator
+      networks:
+        - app-network
+      restart: unless-stopped
+
+    postgres:
+      image: postgres:15-alpine
+      environment:
+        POSTGRES_DB: "{{ db_name }}"
+        POSTGRES_USER: "{{ db_user }}"
+        POSTGRES_PASSWORD: "{{ db_password }}"    # from Ansible Vault
+      volumes:
+        - postgres-data:/var/lib/postgresql/data
+      networks:
+        - db-network
+      healthcheck:
+        test: ["CMD-SHELL", "pg_isready -U {{ db_user }}"]
+        interval: 10s
+        timeout: 5s
+        retries: 5
+      restart: unless-stopped
+
+  networks:
+    app-network:
+      driver: bridge
+    db-network:
+      driver: bridge
+      internal: true           # database network has no internet access
+
+  volumes:
+    postgres-data:
+      driver: local
+
+
+================================================================================
+PART 5 - ANSIBLE + DOCKER: ROLLING UPDATES (ZERO DOWNTIME)
+================================================================================
+
+In production, deployments must happen WITHOUT any user-facing downtime.
+Zero-downtime means users never see an error or interruption during updates.
+
+THE STRATEGY:
+  1. Update one server at a time (serial: 1 in Ansible)
+  2. Remove server from load balancer BEFORE updating
+  3. Wait for existing requests to drain
+  4. Deploy new container version
+  5. Health check the new version
+  6. Re-add server to load balancer ONLY after confirming healthy
+  7. Repeat for the next server
+
+
+  ---
+  - name: Rolling Update - Zero Downtime Docker Deployment
+    hosts: app_servers
+    become: true
+    serial: 1                             # update ONE server at a time
+    max_fail_percentage: 0                # stop if ANY single server fails
+
+    vars:
+      app_name: log-generator
+      full_image: "{{ nexus_registry }}/{{ app_name }}:{{ image_tag }}"
+      lb_host: loadbalancer.hsbc.internal
+
+    tasks:
+
+      # Step 1: Remove this server from the load balancer
+      - name: Remove server from load balancer pool
+        delegate_to: "{{ lb_host }}"     # this task runs ON the load balancer
+        uri:
+          url: "http://localhost:8081/api/upstreams/app_servers/servers/{{ inventory_hostname }}"
+          method: DELETE
+          status_code: [200, 404]         # 404 is acceptable if not in pool
+
+      - name: Wait for existing connections to drain
+        wait_for:
+          timeout: 30                     # 30 seconds for long-running requests to finish
+
+      # Step 2: Pull the new image
+      - name: Pull new application image
+        docker_image:
+          name: "{{ nexus_registry }}/{{ app_name }}"
+          tag: "{{ image_tag }}"
+          source: pull
+          force_source: yes
+
+      # Step 3: Stop the old container gracefully
+      - name: Stop old container with graceful shutdown
+        docker_container:
+          name: "{{ app_name }}"
+          state: stopped
+          stop_timeout: 30               # wait 30s for graceful shutdown
+
+      # Step 4: Start new container
+      - name: Start new container
+        docker_container:
+          name: "{{ app_name }}"
+          image: "{{ full_image }}"
+          state: started
+          restart_policy: unless-stopped
+          ports:
+            - "{{ app_port }}:{{ app_port }}"
+          env:
+            APP_ENV: "{{ app_environment }}"
+          volumes:
+            - "/opt/{{ app_name }}/logs:/app/logs"
+
+      # Step 5: Wait for it to be ready
+      - name: Wait for application port to open
+        wait_for:
+          port: "{{ app_port }}"
+          delay: 5
+          timeout: 60
+
+      - name: Health check new version
+        uri:
+          url: "http://localhost:{{ app_port }}/health"
+          method: GET
+          status_code: 200
+        register: health_result
+        retries: 10
+        delay: 10
+        until: health_result.status == 200
+
+      # Step 6: Re-add to load balancer ONLY after health check passes
+      - name: Re-add server to load balancer pool
+        delegate_to: "{{ lb_host }}"
+        uri:
+          url: "http://localhost:8081/api/upstreams/app_servers/servers"
+          method: POST
+          body_format: json
+          body:
+            server: "{{ inventory_hostname }}:{{ app_port }}"
+          status_code: 201
+
+      - name: Deployment successful on this server
+        debug:
+          msg: "{{ inventory_hostname }} updated and back in load balancer rotation"
+
+
+  RESULT WITH 3 SERVERS:
+    - Server 1 goes out of rotation, updates, health checked, re-enters
+    - Server 2 goes out of rotation, updates, health checked, re-enters
+    - Server 3 goes out of rotation, updates, health checked, re-enters
+    At ALL times, at least 2 servers are serving user traffic.
+    ZERO downtime for users.
+
+
+================================================================================
+PART 6 - ANSIBLE + DOCKER: ROLLBACK STRATEGY
+================================================================================
+
+Every deployment plan MUST include a rollback plan. Industry standard is:
+always keep the previous working image available for instant rollback.
+
+
+  ---
+  - name: Deploy with Automatic Rollback on Failure
+    hosts: app_servers
+    become: true
+
+    vars:
+      app_name: log-generator
+      new_image: "{{ nexus_registry }}/{{ app_name }}:{{ image_tag }}"
+
+    tasks:
+
+      # Save current running image before anything changes
+      - name: Record currently running image (for rollback)
+        shell: >
+          docker inspect --format "{{ '{{' }}.Config.Image{{ '}}' }}"
+          {{ app_name }} 2>/dev/null || echo "none"
+        register: current_image
+        changed_when: false
+        ignore_errors: yes
+
+      - name: Store current image as rollback target
+        set_fact:
+          rollback_image: "{{ current_image.stdout }}"
+
+      # Main deployment with block/rescue (try/catch)
+      - name: Deploy new version
+        block:
+
+          - name: Pull new image
+            docker_image:
+              name: "{{ nexus_registry }}/{{ app_name }}"
+              tag: "{{ image_tag }}"
+              source: pull
+              force_source: yes
+
+          - name: Stop current container
+            docker_container:
+              name: "{{ app_name }}"
+              state: stopped
+              stop_timeout: 30
+
+          - name: Start new container
+            docker_container:
+              name: "{{ app_name }}"
+              image: "{{ new_image }}"
+              state: started
+              restart_policy: unless-stopped
+              ports:
+                - "{{ app_port }}:{{ app_port }}"
+
+          - name: Wait for app to start
+            wait_for:
+              port: "{{ app_port }}"
+              delay: 5
+              timeout: 60
+
+          - name: Health check new version
+            uri:
+              url: "http://localhost:{{ app_port }}/health"
+              status_code: 200
+            retries: 5
+            delay: 10
+
+        rescue:
+          # This section runs ONLY if anything in the block above fails
+
+          - name: DEPLOYMENT FAILED - initiating automatic rollback
+            debug:
+              msg: "Deployment of {{ new_image }} FAILED. Rolling back to {{ rollback_image }}"
+
+          - name: Stop failed new container
+            docker_container:
+              name: "{{ app_name }}"
+              state: stopped
+            ignore_errors: yes
+
+          - name: Start previous version (rollback)
+            docker_container:
+              name: "{{ app_name }}"
+              image: "{{ rollback_image }}"
+              state: started
+              restart_policy: unless-stopped
+              ports:
+                - "{{ app_port }}:{{ app_port }}"
+
+          - name: Verify rollback is healthy
+            uri:
+              url: "http://localhost:{{ app_port }}/health"
+              status_code: 200
+            retries: 5
+            delay: 10
+
+          - name: Mark Jenkins build as FAILED after rollback
+            fail:
+              msg: "Deployment FAILED and rolled back to {{ rollback_image }}"
+
+        always:
+          # This always runs - whether success or rollback
+
+          - name: Remove dangling Docker images (cleanup)
+            shell: docker image prune -f
+            ignore_errors: yes
+
+
+================================================================================
+PART 7 - ANSIBLE + KUBERNETES: CORE CONCEPTS YOU MUST KNOW FIRST
+================================================================================
+
+Before using Ansible with Kubernetes, you must understand the K8s objects
+that Ansible manages. Each object has a specific purpose.
+
+KUBERNETES OBJECT REFERENCE:
+
+  Object                   | What It Is
+  -------------------------+----------------------------------------------------
+  Namespace                | Logical isolation boundary (like folders in K8s)
+  Pod                      | Smallest deployable unit - one or more containers
+  Deployment               | Manages identical Pods, handles rolling updates
+  Service                  | Stable network endpoint to reach your Pods
+  ConfigMap                | Store non-sensitive configuration key-value data
+  Secret                   | Store sensitive data (passwords, tokens, certs)
+  Ingress                  | HTTP routing rules - maps URLs to Services
+  PersistentVolumeClaim     | Request for persistent storage
+  HorizontalPodAutoscaler  | Auto-scale pods based on CPU/memory metrics
+  ServiceAccount           | Identity for pods to interact with K8s API
+
+  LIVENESS vs READINESS PROBE (very commonly asked in interviews):
+  -----------------------------------------------------------------
+  Liveness Probe:
+    Q: Is this container still alive and functional?
+    If it FAILS: K8s kills the container and restarts the pod
+    Use for: Detecting deadlocks or crashed app state
+
+  Readiness Probe:
+    Q: Is this container ready to receive traffic?
+    If it FAILS: K8s removes pod from Service endpoints (no traffic sent)
+    But it does NOT restart the pod
+    Use for: Waiting for app to warm up, load configs, connect to DB
+
+  IMPORTANT:
+    A pod can be alive (liveness OK) but NOT ready (readiness failing).
+    This happens during startup -- K8s waits until ready before sending traffic.
+
+  RESOURCE REQUESTS vs LIMITS:
+  ------------------------------
+  requests: --> Minimum guaranteed resources. K8s uses this for scheduling.
+               (K8s finds a node that has at least this much available)
+  limits:   --> Maximum the container is ALLOWED to use.
+               (If container tries to exceed: memory = OOMKilled, CPU = throttled)
+
+  Example:
+    requests:
+      memory: "256Mi"    # I need at least 256MB
+      cpu: "250m"        # I need at least 0.25 CPU cores
+    limits:
+      memory: "1Gi"      # I am not allowed to use more than 1GB
+      cpu: "1000m"       # I am not allowed to use more than 1 CPU core
+
+
+================================================================================
+PART 8 - ANSIBLE + KUBERNETES: DEPLOYING APPLICATIONS TO K8s
+================================================================================
+
+  ---
+  - name: Deploy Log Generator to Kubernetes
+    hosts: localhost                            # kubectl runs from your machine
+    gather_facts: false
+
+    vars:
+      app_name: log-generator
+      namespace: hsbc-dev
+      image_tag: "{{ image_tag | default('latest') }}"
+      full_image: "nexus.hsbc.internal:8082/{{ app_name }}:{{ image_tag }}"
+      replicas: 2
+      app_port: 8080
+
+    tasks:
+
+      # Step 1: Ensure namespace exists
+      - name: Create namespace if it does not exist
+        k8s:
+          state: present
+          definition:
+            apiVersion: v1
+            kind: Namespace
+            metadata:
+              name: "{{ namespace }}"
+              labels:
+                team: payment-data
+                environment: "{{ app_environment }}"
+
+
+      # Step 2: Create ConfigMap for non-sensitive configuration
+      - name: Create application ConfigMap
+        k8s:
+          state: present
+          definition:
+            apiVersion: v1
+            kind: ConfigMap
+            metadata:
+              name: "{{ app_name }}-config"
+              namespace: "{{ namespace }}"
+            data:
+              APP_ENV: "{{ app_environment }}"
+              LOG_LEVEL: "INFO"
+              LOG_DIR: "/app/logs"
+              MAX_LOG_SIZE: "100MB"
+
+
+      # Step 3: Create K8s Secret from Ansible Vault values
+      - name: Create application Secret
+        k8s:
+          state: present
+          definition:
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: "{{ app_name }}-secrets"
+              namespace: "{{ namespace }}"
+            type: Opaque
+            stringData:
+              DB_PASSWORD: "{{ db_password }}"          # from Vault
+              API_KEY: "{{ api_key }}"                  # from Vault
+              NEXUS_TOKEN: "{{ nexus_token }}"          # from Vault
+
+
+      # Step 4: Create registry pull secret
+      - name: Create Nexus registry pull secret
+        k8s:
+          state: present
+          definition:
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: nexus-registry-secret
+              namespace: "{{ namespace }}"
+            type: kubernetes.io/dockerconfigjson
+            data:
+              .dockerconfigjson: "{{ nexus_docker_config_b64 }}"  # from Vault
+
+
+      # Step 5: Create Deployment
+      - name: Create or update Deployment
+        k8s:
+          state: present
+          apply: yes                              # kubectl apply behavior (merge)
+          definition:
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: "{{ app_name }}"
+              namespace: "{{ namespace }}"
+              labels:
+                app: "{{ app_name }}"
+                version: "{{ image_tag }}"
+                team: payment-data
+            spec:
+              replicas: "{{ replicas }}"
+              selector:
+                matchLabels:
+                  app: "{{ app_name }}"
+              strategy:
+                type: RollingUpdate
+                rollingUpdate:
+                  maxSurge: 1                     # allow 1 extra pod during update
+                  maxUnavailable: 0               # NEVER have 0 pods (zero downtime)
+              template:
+                metadata:
+                  labels:
+                    app: "{{ app_name }}"
+                    version: "{{ image_tag }}"
+                spec:
+                  containers:
+                    - name: "{{ app_name }}"
+                      image: "{{ full_image }}"
+                      imagePullPolicy: Always
+                      ports:
+                        - containerPort: "{{ app_port }}"
+
+                      # Load all env vars from ConfigMap
+                      envFrom:
+                        - configMapRef:
+                            name: "{{ app_name }}-config"
+
+                      # Load specific vars from Secret
+                      env:
+                        - name: DB_PASSWORD
+                          valueFrom:
+                            secretKeyRef:
+                              name: "{{ app_name }}-secrets"
+                              key: DB_PASSWORD
+                        - name: API_KEY
+                          valueFrom:
+                            secretKeyRef:
+                              name: "{{ app_name }}-secrets"
+                              key: API_KEY
+
+                      # Resource limits - always set these in production
+                      resources:
+                        requests:
+                          memory: "256Mi"
+                          cpu: "250m"
+                        limits:
+                          memory: "1Gi"
+                          cpu: "1000m"
+
+                      # Liveness probe - restart if app becomes unhealthy
+                      livenessProbe:
+                        httpGet:
+                          path: /health
+                          port: "{{ app_port }}"
+                        initialDelaySeconds: 60    # wait before first check
+                        periodSeconds: 30
+                        failureThreshold: 3
+
+                      # Readiness probe - hold traffic until app is ready
+                      readinessProbe:
+                        httpGet:
+                          path: /ready
+                          port: "{{ app_port }}"
+                        initialDelaySeconds: 30
+                        periodSeconds: 10
+                        failureThreshold: 3
+
+                      volumeMounts:
+                        - name: log-storage
+                          mountPath: /app/logs
+
+                  imagePullSecrets:
+                    - name: nexus-registry-secret
+
+                  volumes:
+                    - name: log-storage
+                      emptyDir: {}
+
+
+      # Step 6: Create Service
+      - name: Create Service (internal load balancer for pods)
+        k8s:
+          state: present
+          definition:
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: "{{ app_name }}-svc"
+              namespace: "{{ namespace }}"
+            spec:
+              selector:
+                app: "{{ app_name }}"            # routes to all pods with this label
+              ports:
+                - name: http
+                  port: 80
+                  targetPort: "{{ app_port }}"
+              type: ClusterIP                    # internal only, no external access
+
+
+      # Step 7: Create Ingress (external HTTP routing)
+      - name: Create Ingress for external access
+        k8s:
+          state: present
+          definition:
+            apiVersion: networking.k8s.io/v1
+            kind: Ingress
+            metadata:
+              name: "{{ app_name }}-ingress"
+              namespace: "{{ namespace }}"
+              annotations:
+                nginx.ingress.kubernetes.io/rewrite-target: /
+            spec:
+              ingressClassName: nginx
+              rules:
+                - host: "log-generator.hsbc.internal"
+                  http:
+                    paths:
+                      - path: /
+                        pathType: Prefix
+                        backend:
+                          service:
+                            name: "{{ app_name }}-svc"
+                            port:
+                              number: 80
+
+
+      # Step 8: Wait for deployment to complete
+      - name: Wait for deployment rollout
+        shell: >
+          kubectl rollout status
+          deployment/{{ app_name }}
+          -n {{ namespace }}
+          --timeout=300s
+        register: rollout_result
+
+      - name: Show final pod status
+        shell: kubectl get pods -n {{ namespace }} -l app={{ app_name }}
+        register: pods
+
+      - name: Print pod status
+        debug:
+          msg: "{{ pods.stdout_lines }}"
+
+
+================================================================================
+PART 9 - ANSIBLE + KUBERNETES: MANAGING K8s WITH TEMPLATES
+================================================================================
+
+In real projects, K8s YAML is NOT embedded inside the Ansible playbook.
+You keep manifests as separate Jinja2 template files (.j2) and render them
+with Ansible before applying. This is the INDUSTRY STANDARD approach.
+
+
+PROJECT STRUCTURE:
+
+  ansible/
+  ├── deploy_k8s.yml
+  └── roles/
+      └── k8s_deploy/
+          ├── tasks/
+          │   └── main.yml
+          └── templates/
+              ├── deployment.yml.j2
+              ├── service.yml.j2
+              ├── configmap.yml.j2
+              ├── secret.yml.j2
+              ├── ingress.yml.j2
+              └── hpa.yml.j2
+
+
+USING TEMPLATES IN TASKS:
+
+  tasks:
+
+    # Method 1: Render to temp file, then apply
+    - name: Render deployment manifest
+      template:
+        src: templates/deployment.yml.j2
+        dest: /tmp/{{ app_name }}-deployment.yml
+
+    - name: Apply deployment manifest
+      k8s:
+        src: /tmp/{{ app_name }}-deployment.yml
+        state: present
+        apply: yes
+
+    - name: Remove temp manifest
+      file:
+        path: /tmp/{{ app_name }}-deployment.yml
+        state: absent
+
+    # Method 2: Render and apply in one step (no temp file)
+    - name: Apply deployment from template directly
+      k8s:
+        state: present
+        apply: yes
+        definition: "{{ lookup('template', 'templates/deployment.yml.j2') | from_yaml }}"
+
+
+EXAMPLE TEMPLATE - templates/deployment.yml.j2:
+
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: {{ app_name }}
+    namespace: {{ k8s_namespace }}
+    labels:
+      app: {{ app_name }}
+      version: "{{ image_tag }}"
+      team: {{ team_name }}
+      environment: {{ app_environment }}
+  spec:
+    replicas: {{ replicas | default(2) }}
+    selector:
+      matchLabels:
+        app: {{ app_name }}
+    strategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxSurge: {{ max_surge | default(1) }}
+        maxUnavailable: {{ max_unavailable | default(0) }}
+    template:
+      metadata:
+        labels:
+          app: {{ app_name }}
+          version: "{{ image_tag }}"
+      spec:
+        containers:
+          - name: {{ app_name }}
+            image: {{ nexus_registry }}/{{ app_name }}:{{ image_tag }}
+            imagePullPolicy: Always
+            ports:
+              - containerPort: {{ app_port }}
+            envFrom:
+              - configMapRef:
+                  name: {{ app_name }}-config
+            resources:
+              requests:
+                memory: "{{ mem_request | default('256Mi') }}"
+                cpu: "{{ cpu_request | default('250m') }}"
+              limits:
+                memory: "{{ mem_limit | default('1Gi') }}"
+                cpu: "{{ cpu_limit | default('1000m') }}"
+            livenessProbe:
+              httpGet:
+                path: {{ health_path | default('/health') }}
+                port: {{ app_port }}
+              initialDelaySeconds: 60
+              periodSeconds: 30
+            readinessProbe:
+              httpGet:
+                path: {{ ready_path | default('/ready') }}
+                port: {{ app_port }}
+              initialDelaySeconds: 30
+              periodSeconds: 10
+        imagePullSecrets:
+          - name: nexus-registry-secret
+
+
+================================================================================
+PART 10 - ANSIBLE + KUBERNETES: ROLLING UPDATES AND ROLLBACKS
+================================================================================
+
+Kubernetes has native rolling update support built in.
+Ansible triggers and monitors these updates.
+
+
+TRIGGERING A ROLLING UPDATE:
+
+  - name: Update image tag (this triggers K8s rolling update)
+    k8s:
+      state: present
+      apply: yes
+      definition:
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: "{{ app_name }}"
+          namespace: "{{ namespace }}"
+        spec:
+          template:
+            spec:
+              containers:
+                - name: "{{ app_name }}"
+                  image: "{{ nexus_registry }}/{{ app_name }}:{{ image_tag }}"
+
+  - name: Monitor rolling update until complete
+    shell: >
+      kubectl rollout status deployment/{{ app_name }}
+      -n {{ namespace }}
+      --timeout=300s
+    register: rollout_output
+
+  - name: Show rollout result
+    debug:
+      msg: "{{ rollout_output.stdout }}"
+
+
+WHAT K8s DOES INTERNALLY DURING ROLLING UPDATE:
+  1. Sees image changed in Deployment spec
+  2. Creates NEW pod with new image (maxSurge: 1 = temporarily 3 pods)
+  3. Waits for new pod to PASS readinessProbe
+  4. Only then terminates one OLD pod (maxUnavailable: 0 = always 2 healthy pods)
+  5. Repeats until all pods are on new version
+  Result: ZERO downtime - traffic only routes to pods that have passed readiness
+
+
+ROLLBACK A K8s DEPLOYMENT:
+
+  # Quick rollback to previous revision
+  - name: Rollback to previous version
+    shell: kubectl rollout undo deployment/{{ app_name }} -n {{ namespace }}
+
+  - name: Wait for rollback to complete
+    shell: >
+      kubectl rollout status deployment/{{ app_name }}
+      -n {{ namespace }}
+      --timeout=180s
+
+  # Check revision history first
+  - name: Check deployment history
+    shell: kubectl rollout history deployment/{{ app_name }} -n {{ namespace }}
+    register: history_output
+
+  - name: Show history
+    debug:
+      msg: "{{ history_output.stdout_lines }}"
+
+  # Rollback to a specific revision number
+  - name: Rollback to specific revision
+    shell: >
+      kubectl rollout undo deployment/{{ app_name }}
+      -n {{ namespace }}
+      --to-revision=3
+
+
+HORIZONTAL POD AUTOSCALER (HPA):
+
+  - name: Create HPA to auto-scale based on CPU and memory
+    k8s:
+      state: present
+      definition:
+        apiVersion: autoscaling/v2
+        kind: HorizontalPodAutoscaler
+        metadata:
+          name: "{{ app_name }}-hpa"
+          namespace: "{{ namespace }}"
+        spec:
+          scaleTargetRef:
+            apiVersion: apps/v1
+            kind: Deployment
+            name: "{{ app_name }}"
+          minReplicas: 2             # never go below 2 pods
+          maxReplicas: 10            # never exceed 10 pods
+          metrics:
+            - type: Resource
+              resource:
+                name: cpu
+                target:
+                  type: Utilization
+                  averageUtilization: 70    # scale up when CPU > 70%
+            - type: Resource
+              resource:
+                name: memory
+                target:
+                  type: Utilization
+                  averageUtilization: 80    # scale up when memory > 80%
+
+
+================================================================================
+PART 11 - BLUE-GREEN DEPLOYMENT WITH ANSIBLE
+================================================================================
+
+Blue-Green deployment maintains TWO identical environments.
+Only one is live at a time. This gives you INSTANT rollback capability.
+
+  BLUE  --> currently live, serving all traffic
+  GREEN --> idle, or receiving the new version being tested
+
+DEPLOYMENT PROCESS:
+  1. Deploy new version to GREEN (BLUE still serves 100% of traffic)
+  2. Run automated tests against GREEN
+  3. Verify GREEN is healthy
+  4. Switch ALL traffic from BLUE to GREEN (instant, takes seconds)
+  5. BLUE is now idle - instant rollback = just switch traffic back to BLUE
+
+
+  ---
+  - name: Blue-Green Deployment
+    hosts: app_servers
+    become: true
+
+    vars:
+      app_name: log-generator
+      blue_port: 8080
+      green_port: 8081
+
+    tasks:
+
+      - name: Detect which color is currently live
+        shell: |
+          if docker ps --format "{{ '{{' }}.Names{{ '}}' }}" | grep -q "{{ app_name }}-blue"; then
+            echo "blue"
+          else
+            echo "green"
+          fi
+        register: live_color_result
+        changed_when: false
+
+      - name: Set color variables
+        set_fact:
+          live_color: "{{ live_color_result.stdout }}"
+          deploy_color: "{{ 'green' if live_color_result.stdout == 'blue' else 'blue' }}"
+          deploy_port: "{{ green_port if live_color_result.stdout == 'blue' else blue_port }}"
+
+      - name: Show plan
+        debug:
+          msg: "Live: {{ live_color }} | Deploying to: {{ deploy_color }} on port {{ deploy_port }}"
+
+      - name: Remove old idle container
+        docker_container:
+          name: "{{ app_name }}-{{ deploy_color }}"
+          state: absent
+        ignore_errors: yes
+
+      - name: Start new version as idle color
+        docker_container:
+          name: "{{ app_name }}-{{ deploy_color }}"
+          image: "{{ nexus_registry }}/{{ app_name }}:{{ image_tag }}"
+          state: started
+          restart_policy: unless-stopped
+          ports:
+            - "{{ deploy_port }}:8080"
+          env:
+            APP_ENV: production
+            DEPLOYMENT_COLOR: "{{ deploy_color }}"
+
+      - name: Health check the new version
+        uri:
+          url: "http://localhost:{{ deploy_port }}/health"
+          status_code: 200
+        retries: 10
+        delay: 10
+
+      - name: Switch nginx traffic to new version
+        template:
+          src: templates/nginx-active.conf.j2
+          dest: /etc/nginx/conf.d/app.conf
+        vars:
+          active_port: "{{ deploy_port }}"
+        notify: Reload Nginx
+
+      - name: Flush handlers now (reload nginx immediately)
+        meta: flush_handlers
+
+      - name: Verify traffic is flowing to new version
+        uri:
+          url: "http://localhost/health"
+          status_code: 200
+
+      - name: Stop old live container
+        docker_container:
+          name: "{{ app_name }}-{{ live_color }}"
+          state: stopped
+
+      - name: Blue-Green switch complete
+        debug:
+          msg: "Traffic switched from {{ live_color }} to {{ deploy_color }}"
+
+    handlers:
+      - name: Reload Nginx
+        service:
+          name: nginx
+          state: reloaded
+
+
+================================================================================
+PART 12 - FULL JENKINS + ANSIBLE + DOCKER + K8s PIPELINE (HSBC Style)
+================================================================================
+
+This is the complete enterprise pipeline connecting every tool.
+
+
+  pipeline {
+      agent any
+
+      parameters {
+          string(name: 'IMAGE_TAG',
+                 defaultValue: "${BUILD_NUMBER}",
+                 description: 'Docker image tag')
+          choice(name: 'DEPLOY_ENV',
+                 choices: ['dev', 'staging', 'production'],
+                 description: 'Target environment')
+          booleanParam(name: 'DRY_RUN',
+                       defaultValue: false,
+                       description: 'Run in check mode - no actual changes')
+      }
+
+      environment {
+          NEXUS_REGISTRY  = 'nexus.hsbc.internal:8082'
+          APP_NAME        = 'log-generator'
+          ANSIBLE_DIR     = 'ansible'
+          K8S_NAMESPACE   = "hsbc-${params.DEPLOY_ENV}"
+          IMAGE_FULL      = "${NEXUS_REGISTRY}/${APP_NAME}:${params.IMAGE_TAG}"
+      }
+
+      stages {
+
+          stage('Checkout') {
+              steps {
+                  checkout scm
+              }
+          }
+
+          stage('Build') {
+              steps {
+                  sh 'mvn clean package -DskipTests=false'
+                  archiveArtifacts artifacts: 'target/*.jar'
+              }
+          }
+
+          stage('SonarQube Analysis') {
+              steps {
+                  withSonarQubeEnv('HSBC-SonarQube') {
+                      sh 'mvn sonar:sonar'
+                  }
+                  timeout(time: 5, unit: 'MINUTES') {
+                      waitForQualityGate abortPipeline: true
+                  }
+              }
+          }
+
+          stage('Docker Build') {
+              steps {
+                  sh "docker build -t ${APP_NAME}:${params.IMAGE_TAG} ."
+              }
+          }
+
+          stage('Push to Nexus') {
+              steps {
+                  withCredentials([usernamePassword(
+                      credentialsId: 'nexus-docker-credentials',
+                      usernameVariable: 'NEXUS_USER',
+                      passwordVariable: 'NEXUS_PASS'
+                  )]) {
+                      sh """
+                          docker login ${NEXUS_REGISTRY} -u ${NEXUS_USER} -p ${NEXUS_PASS}
+                          docker tag ${APP_NAME}:${params.IMAGE_TAG} ${IMAGE_FULL}
+                          docker push ${IMAGE_FULL}
+                          docker logout ${NEXUS_REGISTRY}
+                          docker rmi ${APP_NAME}:${params.IMAGE_TAG} || true
+                      """
+                  }
+              }
+          }
+
+          stage('Configure Servers - Ansible') {
+              when {
+                  expression { params.DEPLOY_ENV == 'dev' }
+              }
+              steps {
+                  withCredentials([
+                      string(credentialsId: 'ansible-vault-password', variable: 'VAULT_PASS'),
+                      sshUserPrivateKey(credentialsId: 'ansible-ssh-key', keyFileVariable: 'SSH_KEY')
+                  ]) {
+                      sh """
+                          echo "${VAULT_PASS}" > /tmp/vault_pass.txt
+                          ansible-playbook \
+                              -i ${ANSIBLE_DIR}/inventory/${params.DEPLOY_ENV}.ini \
+                              ${ANSIBLE_DIR}/configure.yml \
+                              --private-key ${SSH_KEY} \
+                              --vault-password-file /tmp/vault_pass.txt \
+                              -e "env=${params.DEPLOY_ENV}" \
+                              ${params.DRY_RUN ? '--check' : ''}
+                          rm /tmp/vault_pass.txt
+                      """
+                  }
+              }
+          }
+
+          stage('Deploy - Ansible + K8s') {
+              steps {
+                  withCredentials([
+                      string(credentialsId: 'ansible-vault-password', variable: 'VAULT_PASS'),
+                      file(credentialsId: 'k8s-kubeconfig', variable: 'KUBECONFIG')
+                  ]) {
+                      sh """
+                          echo "${VAULT_PASS}" > /tmp/vault_pass.txt
+                          export KUBECONFIG=${KUBECONFIG}
+                          ansible-playbook \
+                              -i ${ANSIBLE_DIR}/inventory/${params.DEPLOY_ENV}.ini \
+                              ${ANSIBLE_DIR}/deploy_k8s.yml \
+                              --vault-password-file /tmp/vault_pass.txt \
+                              -e "image_tag=${params.IMAGE_TAG}" \
+                              -e "app_environment=${params.DEPLOY_ENV}" \
+                              -e "k8s_namespace=${K8S_NAMESPACE}" \
+                              ${params.DRY_RUN ? '--check' : ''}
+                          rm /tmp/vault_pass.txt
+                      """
+                  }
+              }
+          }
+
+          stage('Post-Deploy Health Check') {
+              when {
+                  expression { !params.DRY_RUN }
+              }
+              steps {
+                  script {
+                      def appUrl = "http://log-generator.${params.DEPLOY_ENV}.hsbc.internal/health"
+                      timeout(time: 5, unit: 'MINUTES') {
+                          waitUntil {
+                              def response = sh(
+                                  script: "curl -s -o /dev/null -w '%{http_code}' ${appUrl}",
+                                  returnStdout: true
+                              ).trim()
+                              return response == '200'
+                          }
+                      }
+                  }
+              }
+          }
+
+      }
+
+      post {
+          success {
+              echo "SUCCESS: ${IMAGE_FULL} deployed to ${params.DEPLOY_ENV}"
+          }
+          failure {
+              echo "FAILED: Deployment of ${IMAGE_FULL} to ${params.DEPLOY_ENV} failed"
+          }
+          always {
+              sh 'docker system prune -f || true'
+              cleanWs()
+          }
+      }
+  }
+
+
+================================================================================
+PART 13 - PRODUCTION BEST PRACTICES
+================================================================================
+
+These are the habits that separate a junior DevOps from a senior engineer.
+
+1. IDEMPOTENCY - MAKE EVERY PLAYBOOK SAFE TO RE-RUN
+   ---------------------------------------------------
+   BAD (breaks on second run):
+     - name: Add to hosts file
+       shell: echo "192.168.1.10 db.internal" >> /etc/hosts
+     # Second run adds the line TWICE
+
+   GOOD (safe to run 100 times):
+     - name: Add to hosts file
+       lineinfile:
+         path: /etc/hosts
+         line: "192.168.1.10 db.internal"
+         state: present
+     # Second run checks it already exists and does nothing
+
+
+2. ALWAYS --check BEFORE TOUCHING PRODUCTION
+   -------------------------------------------
+   ansible-playbook -i inventory/production.ini deploy.yml --check --diff
+   Review the output. Only then run for real.
+
+
+3. NEVER USE "latest" TAG IN PRODUCTION
+   ----------------------------------------
+   BAD:  image: log-generator:latest       (unpredictable, untrackable)
+   GOOD: image: log-generator:42           (traceable to Jenkins build 42)
+   GOOD: image: log-generator:a3f7c2d     (traceable to git commit)
+
+
+4. NEVER STORE SECRETS IN PLAIN TEXT
+   ------------------------------------
+   NEVER commit passwords, tokens, API keys, or certs in plain text.
+   ALWAYS encrypt with Ansible Vault.
+   ALWAYS add vault password files to .gitignore
+
+
+5. USE serial FOR CONTROLLED ROLLOUTS
+   ------------------------------------
+   - hosts: app_servers
+     serial: "25%"           # update 25% of servers at a time
+     max_fail_percentage: 10 # abort if more than 10% fail
+
+
+6. ALWAYS VERIFY AFTER DEPLOYMENT
+   ----------------------------------
+   Never mark a deployment successful without a real health check.
+   The health check should test actual application behaviour, not just port open.
+
+
+7. CLEAN UP OLD DOCKER IMAGES
+   ----------------------------
+   Images accumulate fast and fill disks. Always prune after deployments.
+
+   - name: Remove old images (keep 3 most recent versions)
+     shell: |
+       docker images {{ nexus_registry }}/{{ app_name }} \
+         --format "{{ '{{' }}.Tag{{ '}}' }}" | sort -rn | tail -n +4 | \
+         xargs -I{} docker rmi {{ nexus_registry }}/{{ app_name }}:{} 2>/dev/null || true
+
+   - name: Remove dangling images
+     shell: docker image prune -f
+
+
+8. RESOURCE LIMITS - ALWAYS SET THEM IN K8s
+   --------------------------------------------
+   A container without limits can starve other containers on the same node.
+   Always set both requests (guaranteed) and limits (maximum) in K8s pods.
+
+
+================================================================================
+PART 14 - TROUBLESHOOTING GUIDE
+================================================================================
+
+  PROBLEM                          | LIKELY CAUSE              | SOLUTION
+  ---------------------------------+---------------------------+------------------
+  "Error pulling image"            | Registry auth failed      | Re-run docker_login
+                                   | Wrong image name/tag      | Check IMAGE_FULL var
+  "Container exits immediately"    | App crash on startup      | docker logs <name>
+                                   | Bad env variable          | Check env config
+  "Port already in use"            | Old container still bound | state: absent first
+  "Image not found in registry"    | Push failed, wrong tag    | Verify in Nexus UI
+  K8s "ImagePullBackOff"           | Pull secret missing/wrong | Check imagePullSecrets
+  K8s "CrashLoopBackOff"           | Container crashes on start| kubectl logs <pod>
+  K8s pods "Pending"               | Not enough cluster memory | Check resource limits
+  K8s "Rollout stuck"              | Readiness probe failing   | Increase initialDelay
+  "Ansible unreachable"            | SSH key or firewall issue | Test ssh manually first
+
+
+DEBUGGING COMMANDS:
+
+  # Docker
+  docker logs log-generator                             # view logs
+  docker logs log-generator --tail 50 --follow          # follow live
+  docker inspect log-generator                          # full container config
+  docker exec -it log-generator /bin/sh                 # shell into container
+  docker stats log-generator                            # live resource usage
+  docker events --filter container=log-generator        # container events
+
+  # Kubernetes
+  kubectl get pods -n hsbc-dev                          # list all pods
+  kubectl describe pod <pod-name> -n hsbc-dev           # events + full config
+  kubectl logs <pod-name> -n hsbc-dev                   # current pod logs
+  kubectl logs <pod-name> -n hsbc-dev --previous        # logs of crashed pod
+  kubectl exec -it <pod-name> -n hsbc-dev -- /bin/sh    # shell into pod
+  kubectl get events -n hsbc-dev --sort-by=.lastTimestamp  # sorted events
+  kubectl top pods -n hsbc-dev                          # CPU/memory usage
+  kubectl rollout history deployment/log-generator -n hsbc-dev
+
+  # Ansible
+  ansible-playbook deploy.yml -vvv                      # maximum debug output
+  ansible-playbook deploy.yml --check --diff            # dry run
+  ansible-playbook deploy.yml --start-at-task="Health check"   # resume from task
+  ansible all -m ping                                   # test SSH connectivity
+
+
+================================================================================
+PART 15 - FINAL SUMMARY AND WHAT AN INTERVIEWER WILL ASK
+================================================================================
+
+COMPLETE TOOL RESPONSIBILITY MAP:
+
+  Stage                 | Tool              | Ansible Involved?
+  ----------------------+-------------------+----------------------------------
+  Source control        | Git               | No
+  Build                 | Maven/Gradle      | No (Ansible can install Maven)
+  Code quality          | SonarQube         | No (Ansible can install SonarQube)
+  Image build           | Docker CLI        | No
+  Image storage         | Nexus 3           | Yes - configure auth, clean up
+  Server configuration  | Ansible           | YES - core Ansible responsibility
+  Container deployment  | Ansible           | YES - pull, run, health check
+  K8s management        | Ansible + kubectl | YES - apply manifests, rollouts
+  Secrets management    | Ansible Vault     | YES - encrypt, inject into K8s
+  Monitoring agents     | Ansible           | YES - install, configure agents
+  Pipeline trigger      | Jenkins           | Ansible called BY Jenkins
+
+
+KEY CONCEPTS AT A GLANCE:
+
+  Concept                  | One-Line Explanation
+  -------------------------+------------------------------------------------------
+  Zero-downtime deploy     | serial:1 + remove from LB + health check + re-add
+  Blue-Green               | Two environments, instant traffic switch, easy rollback
+  Rolling update (K8s)     | maxSurge + maxUnavailable controls update speed/safety
+  Rollback (Docker)        | block/rescue saves previous image, auto-switches back
+  Rollback (K8s)           | kubectl rollout undo uses built-in K8s revision history
+  Image tagging            | Never use "latest" - always use build number or commit
+  Liveness probe           | K8s restarts pod if this check fails
+  Readiness probe          | K8s stops sending traffic if this check fails
+  HPA                      | K8s auto-scales pods up/down based on CPU/memory
+  ConfigMap                | K8s object for non-sensitive config data
+  K8s Secret               | K8s object for sensitive data (from Ansible Vault)
+  Ingress                  | K8s external HTTP routing - maps domain to Service
+  Resource requests/limits | Guaranteed vs maximum resource allocation in K8s
+
+
+COMMON INTERVIEW QUESTIONS AND STRONG ANSWERS:
+
+  Q: How does Ansible relate to Kubernetes? Doesn't K8s manage itself?
+  A: K8s runs and scales containers, but it does not configure the cluster,
+     manage secrets from a vault, template manifests with environment-specific
+     values, or trigger rollouts as part of a CI/CD pipeline. Ansible handles
+     all of that around K8s. They complement each other.
+
+  Q: Why use Ansible's k8s module instead of running kubectl directly?
+  A: kubectl commands are imperative and not idempotent. Ansible's k8s module
+     is declarative, integrates with Ansible Vault for secrets, supports Jinja2
+     templating, has proper error handling and rollback, and fits into the same
+     playbook as server configuration. One tool, consistent behaviour.
+
+  Q: How do you achieve zero downtime with Ansible and Docker?
+  A: Use serial: 1 to update one server at a time. Before updating each server,
+     remove it from the load balancer and wait for connections to drain. Deploy
+     the new container, run health checks, and only re-add to the load balancer
+     after confirming healthy. Users always have other servers available.
+
+  Q: What is the difference between liveness and readiness probes?
+  A: Liveness asks "is this container still alive?" - if it fails, K8s restarts
+     the pod. Readiness asks "is this container ready for traffic?" - if it fails,
+     K8s removes the pod from Service endpoints but does NOT restart it. Both
+     can be true independently: alive but not yet ready during startup warm-up.
+
+  Q: How do you manage Kubernetes Secrets securely with Ansible?
+  A: Sensitive values are stored in Ansible Vault encrypted files in Git.
+     The playbook decrypts them at runtime and creates K8s Secret objects
+     using the k8s module with stringData. The values never appear in plain
+     text in the Git repository or in the Ansible playbook source.
+
+  Q: What is your rollback plan if a deployment fails?
+  A: For Docker: use block/rescue to capture the previous image tag before
+     deployment, and automatically restart the old container if health checks
+     fail. For K8s: kubectl rollout undo uses built-in revision history, or
+     run the deploy playbook again with the previous image_tag value. Always
+     test the rollback procedure before you need it in a crisis.
+
+
+================================================================================
+  END OF DOCUMENT
+  ANSIBLE WITH DOCKER & KUBERNETES - INDUSTRY LEVEL
+  HSBC DevOps Learning Sprint - Phase 1 Complete
+  Level achieved: Fresher --> Intermediate --> Industry-Ready
+================================================================================

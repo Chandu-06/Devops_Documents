@@ -1,0 +1,282 @@
+================================================================================
+  ANSIBLE LEARNING DOCUMENT
+  04 - Ad-hoc Commands
+  HSBC DevOps Learning Sprint | Week: Ansible | Level: Fresher to Intermediate
+================================================================================
+
+--------------------------------------------------------------------------------
+WHAT ARE AD-HOC COMMANDS?
+--------------------------------------------------------------------------------
+
+Ad-hoc commands are one-liner Ansible commands you run directly from the
+terminal — WITHOUT writing a playbook. They are perfect for quick, one-time tasks.
+
+ANALOGY:
+  A Playbook is a full recipe book — structured, reusable, documented.
+  An Ad-hoc command is asking your friend "can you pass me the salt?" —
+  immediate, one-off, no need to write it down.
+
+WHEN TO USE AD-HOC:
+  - Quickly check if all servers are reachable
+  - Install a package urgently on all servers
+  - Restart a service across all web servers
+  - Check disk space or uptime
+  - One-time emergency tasks
+
+
+--------------------------------------------------------------------------------
+BASIC SYNTAX
+--------------------------------------------------------------------------------
+
+  ansible <host_pattern> -i <inventory> -m <module> -a "<arguments>"
+
+  Part              | Meaning
+  ------------------+--------------------------------------------------
+  ansible           | The command to run ad-hoc tasks
+  <host_pattern>    | Which servers to target (all, web_servers, IP)
+  -i <inventory>    | Path to your inventory file
+  -m <module>       | Which Ansible module to use
+  -a "<arguments>"  | Arguments to pass to the module
+
+
+--------------------------------------------------------------------------------
+MOST COMMONLY USED AD-HOC COMMANDS
+--------------------------------------------------------------------------------
+
+1. PING — TEST CONNECTIVITY
+   -------------------------
+   The ping module checks if Ansible can connect to servers via SSH and that
+   Python is available. NOTE: This is NOT a network ping — it's an Ansible
+   connectivity test.
+
+     # Ping all servers
+     ansible all -i inventory.ini -m ping
+
+     # Ping only web servers
+     ansible web_servers -i inventory.ini -m ping
+
+   EXPECTED OUTPUT (when working):
+     192.168.1.10 | SUCCESS => {
+         "changed": false,
+         "ping": "pong"
+     }
+
+   FAILURE OUTPUT:
+     192.168.1.10 | UNREACHABLE! => {
+         "changed": false,
+         "msg": "Failed to connect to the host via ssh"
+     }
+
+
+2. COMMAND MODULE — RUN SHELL COMMANDS
+   ------------------------------------
+   Run any command on remote servers.
+   NOTE: The command module does NOT use a shell, so pipes (|) and
+   redirects (>) won't work here.
+
+     # Check disk space on all servers
+     ansible all -i inventory.ini -m command -a "df -h"
+
+     # Check uptime
+     ansible web_servers -i inventory.ini -m command -a "uptime"
+
+     # Check running processes
+     ansible all -i inventory.ini -m command -a "ps aux"
+
+     # Check Java version
+     ansible app_servers -i inventory.ini -m command -a "java -version"
+
+
+3. SHELL MODULE — RUN COMMANDS WITH PIPES
+   ----------------------------------------
+   Like command, but runs inside /bin/sh so you CAN use pipes,
+   redirects, and environment variables.
+
+     # Count running Java processes
+     ansible all -i inventory.ini -m shell -a "ps aux | grep java | wc -l"
+
+     # Check who is logged in
+     ansible all -i inventory.ini -m shell -a "who | head -5"
+
+     # Get last 10 lines of a log file
+     ansible app_servers -i inventory.ini -m shell -a "tail -10 /var/log/syslog"
+
+   BEST PRACTICE:
+     Use command when possible (safer, no shell injection risk).
+     Use shell only when you need pipes or redirects.
+
+
+4. COPY MODULE — COPY FILES TO SERVERS
+   -------------------------------------
+     # Copy a config file to all web servers
+     ansible web_servers -i inventory.ini -m copy \
+       -a "src=/local/nginx.conf dest=/etc/nginx/nginx.conf"
+
+     # Copy with permissions and owner
+     ansible all -i inventory.ini -m copy \
+       -a "src=app.jar dest=/opt/app/app.jar owner=ubuntu mode=0644"
+
+
+5. PACKAGE MANAGEMENT — INSTALL / REMOVE SOFTWARE
+   -------------------------------------------------
+     # Install nginx on Ubuntu servers (apt module) — -b means run as sudo
+     ansible web_servers -i inventory.ini -m apt \
+       -a "name=nginx state=present" -b
+
+     # Remove a package
+     ansible web_servers -i inventory.ini -m apt \
+       -a "name=nginx state=absent" -b
+
+     # Install on RHEL/CentOS (yum module)
+     ansible web_servers -i inventory.ini -m yum \
+       -a "name=httpd state=latest" -b
+
+     # Install Java 17
+     ansible app_servers -i inventory.ini -m apt \
+       -a "name=openjdk-17-jdk state=present update_cache=yes" -b
+
+   NOTE: -b flag means "become" — run as sudo/root. Required for installs.
+
+
+6. SERVICE MODULE — START / STOP SERVICES
+   -----------------------------------------
+     # Start nginx
+     ansible web_servers -i inventory.ini -m service \
+       -a "name=nginx state=started" -b
+
+     # Restart nginx
+     ansible web_servers -i inventory.ini -m service \
+       -a "name=nginx state=restarted" -b
+
+     # Stop a service
+     ansible all -i inventory.ini -m service \
+       -a "name=mysql state=stopped" -b
+
+     # Enable service to start on boot
+     ansible all -i inventory.ini -m service \
+       -a "name=nginx enabled=yes state=started" -b
+
+
+7. FILE MODULE — CREATE FILES AND DIRECTORIES
+   ---------------------------------------------
+     # Create a directory
+     ansible all -i inventory.ini -m file \
+       -a "path=/opt/myapp state=directory mode=0755 owner=ubuntu" -b
+
+     # Create an empty file
+     ansible all -i inventory.ini -m file \
+       -a "path=/var/log/myapp.log state=touch mode=0644" -b
+
+     # Delete a file
+     ansible all -i inventory.ini -m file \
+       -a "path=/tmp/oldfile.txt state=absent"
+
+
+8. USER MODULE — MANAGE SYSTEM USERS
+   -------------------------------------
+     # Create a user
+     ansible all -i inventory.ini -m user \
+       -a "name=appuser state=present shell=/bin/bash" -b
+
+     # Delete a user and their home directory
+     ansible all -i inventory.ini -m user \
+       -a "name=appuser state=absent remove=yes" -b
+
+
+9. GATHER FACTS — COLLECT SYSTEM INFORMATION
+   ---------------------------------------------
+   The setup module collects detailed information about servers
+   (OS version, memory, CPU, IP addresses, etc.):
+
+     # Gather ALL facts
+     ansible web_servers -i inventory.ini -m setup
+
+     # Filter for specific facts (OS info)
+     ansible all -i inventory.ini -m setup -a "filter=ansible_distribution*"
+
+   EXAMPLE OUTPUT:
+     ansible_distribution: Ubuntu
+     ansible_distribution_version: 20.04
+     ansible_memtotal_mb: 7983
+     ansible_processor_cores: 2
+     ansible_default_ipv4.address: 192.168.1.10
+
+
+--------------------------------------------------------------------------------
+IMPORTANT FLAGS
+--------------------------------------------------------------------------------
+
+  Flag                    | Purpose
+  ------------------------+----------------------------------------------------
+  -i inventory.ini        | Specify inventory file
+  -m module_name          | Specify which module to use
+  -a "arguments"          | Pass arguments to the module
+  -b or --become          | Run with sudo (become root)
+  -u username             | SSH username (overrides default)
+  --ask-pass (-k)         | Prompt for SSH password
+  --ask-become-pass (-K)  | Prompt for sudo password
+  -f 10                   | Run on 10 servers in parallel (default: 5)
+  -v / -vv / -vvv         | Increase verbosity for debugging
+  --check (-C)            | Dry run — shows what WOULD happen without doing it
+  --diff                  | Show the diff of what changed in files
+
+
+--------------------------------------------------------------------------------
+DRY RUN — THE --check FLAG
+--------------------------------------------------------------------------------
+
+The --check flag runs Ansible WITHOUT making any actual changes, just telling
+you what WOULD happen. ALWAYS use this before running on production servers.
+
+  ansible web_servers -i inventory.ini -m apt \
+    -a "name=nginx state=present" -b --check
+
+  OUTPUT:
+    192.168.1.10 | CHANGED => {
+        "changed": true,       <-- Would make a change (but hasn't yet)
+        ...
+    }
+
+
+--------------------------------------------------------------------------------
+REAL-WORLD CHEATSHEET
+--------------------------------------------------------------------------------
+
+  Use Case                   | Command
+  ---------------------------+--------------------------------------------------
+  Test connectivity           | ansible all -m ping
+  Check disk space            | ansible all -m command -a "df -h"
+  Check uptime                | ansible all -m command -a "uptime"
+  Install a package           | ansible web_servers -m apt -a "name=git state=present" -b
+  Remove a package            | ansible web_servers -m apt -a "name=git state=absent" -b
+  Start a service             | ansible all -m service -a "name=nginx state=started" -b
+  Restart a service           | ansible all -m service -a "name=nginx state=restarted" -b
+  Stop a service              | ansible all -m service -a "name=nginx state=stopped" -b
+  Copy a file                 | ansible all -m copy -a "src=file.txt dest=/tmp/file.txt"
+  Create a directory          | ansible all -m file -a "path=/opt/app state=directory" -b
+  Create a user               | ansible all -m user -a "name=devuser state=present" -b
+  Gather system info          | ansible all -m setup
+  Run a shell command         | ansible all -m shell -a "free -h"
+
+
+--------------------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------------------
+
+  Concept          | One-Line Explanation
+  -----------------+------------------------------------------------------
+  Ad-hoc command   | One-liner Ansible command, no playbook needed
+  -m flag          | Specifies which module to use
+  -a flag          | Passes arguments to the module
+  -b flag          | Runs with sudo/root privilege (become)
+  ping module      | Tests SSH connectivity (NOT network ping)
+  command module   | Runs commands — no pipes or redirects
+  shell module     | Runs commands — supports pipes and redirects
+  --check flag     | Dry run mode — shows changes without applying them
+  -f flag          | Controls parallelism (how many hosts at once)
+
+
+--------------------------------------------------------------------------------
+NEXT: 05 - Playbooks
+  The heart of Ansible. Write multi-task automation scripts in YAML.
+--------------------------------------------------------------------------------

@@ -1,0 +1,373 @@
+================================================================================
+  ANSIBLE LEARNING DOCUMENT
+  05 - Playbooks
+  HSBC DevOps Learning Sprint | Week: Ansible | Level: Fresher to Intermediate
+================================================================================
+
+--------------------------------------------------------------------------------
+WHAT IS A PLAYBOOK?
+--------------------------------------------------------------------------------
+
+A Playbook is the heart of Ansible. It is a YAML file that defines:
+  - WHAT to do     (tasks using modules)
+  - WHERE to do it (target hosts from inventory)
+  - HOW to do it   (with privilege escalation, variables, order, etc.)
+
+Ad-hoc commands are for single one-off tasks.
+Playbooks are for complex, repeatable, multi-step automation.
+
+REAL-WORLD ANALOGY:
+  Deploying a banking application requires:
+    1. Install Java
+    2. Configure the application server
+    3. Deploy the JAR file
+    4. Set up log directories
+    5. Configure environment variables
+    6. Start the service
+
+  A playbook captures ALL of that in a single file — in exact order.
+
+
+--------------------------------------------------------------------------------
+YAML BASICS — BEFORE YOU WRITE A PLAYBOOK
+--------------------------------------------------------------------------------
+
+Playbooks are written in YAML. You need to know basic YAML syntax:
+
+  # Comments start with #
+
+  # Key-value pairs
+  name: John
+  age: 30
+
+  # Lists (note: dash + space before each item)
+  fruits:
+    - apple
+    - banana
+    - mango
+
+  # Nested structure (indentation = hierarchy)
+  person:
+    name: John
+    address:
+      city: Mumbai
+      country: India
+
+  # Boolean values
+  enabled: true
+  disabled: false
+
+  # Multi-line string
+  description: |
+    This is line 1
+    This is line 2
+
+CRITICAL RULE:
+  YAML uses SPACES for indentation, NEVER tabs.
+  Mixing tabs and spaces will break your playbook.
+  Most code editors (VS Code, etc.) handle this automatically.
+
+
+--------------------------------------------------------------------------------
+ANATOMY OF A PLAYBOOK
+--------------------------------------------------------------------------------
+
+A playbook is made up of one or more PLAYS.
+Each play targets specific hosts and contains tasks.
+
+  ---
+  # The three dashes mark the start of a YAML document
+
+  - name: My First Play           # Name of this play (descriptive)
+    hosts: web_servers             # Which servers to run on
+    become: true                   # Run as sudo (root)
+    vars:                          # Variables for this play
+      http_port: 80
+
+    tasks:                         # List of tasks to run IN ORDER
+      - name: Install nginx        # Name of the task
+        apt:                       # Module name
+          name: nginx              # Module argument
+          state: present           # Desired state
+
+      - name: Start nginx
+        service:
+          name: nginx
+          state: started
+          enabled: yes
+
+
+  STRUCTURE BREAKDOWN:
+    - name      --> Human-readable description of the play
+    - hosts     --> Which servers from inventory to target
+    - become    --> Whether to use privilege escalation (sudo)
+    - vars      --> Variables defined for this play
+    - tasks     --> The ordered list of things to do
+
+
+--------------------------------------------------------------------------------
+KEY PLAY-LEVEL KEYWORDS
+--------------------------------------------------------------------------------
+
+  Keyword           | Purpose
+  ------------------+----------------------------------------------------------
+  name              | Human-readable description of the play
+  hosts             | Target hosts/groups from inventory
+  become            | Use privilege escalation (sudo) - true/false
+  become_user       | Which user to become (default: root)
+  vars              | Define variables for this play
+  vars_files        | Load variables from external YAML files
+  gather_facts      | Collect system info before tasks (default: true)
+  tasks             | List of tasks to execute (in order)
+  handlers          | Tasks triggered by notify (see document 09)
+  tags              | Labels for selective task execution
+  serial            | How many hosts to run on at once (rolling updates)
+  any_errors_fatal  | Stop ALL hosts if any single host fails
+
+
+--------------------------------------------------------------------------------
+TASK STRUCTURE
+--------------------------------------------------------------------------------
+
+Every task follows this pattern:
+
+  - name: Descriptive name for this task       # Required, shown in output
+    module_name:                               # Required, which module to use
+      argument1: value1                        # Module-specific arguments
+      argument2: value2
+    register: result_variable                  # Optional: save output to variable
+    when: condition                            # Optional: only run if true
+    notify: Handler Name                       # Optional: trigger a handler
+    tags: [tag1, tag2]                         # Optional: for selective runs
+    ignore_errors: yes                         # Optional: continue even if fails
+
+
+--------------------------------------------------------------------------------
+A REAL-WORLD PLAYBOOK — DEPLOY A JAVA APP (HSBC Context)
+--------------------------------------------------------------------------------
+
+  ---
+  - name: Deploy Log Generator Application
+    hosts: app_servers
+    become: true
+    vars:
+      app_name: log-generator
+      app_port: 8080
+      app_dir: /opt/log-generator
+      java_version: "17"
+
+    tasks:
+
+      - name: Ensure Java 17 is installed
+        apt:
+          name: openjdk-17-jdk
+          state: present
+          update_cache: yes
+
+      - name: Create application directory
+        file:
+          path: "{{ app_dir }}"
+          state: directory
+          owner: ubuntu
+          mode: '0755'
+
+      - name: Copy application JAR file
+        copy:
+          src: ./target/log-generator.jar
+          dest: "{{ app_dir }}/log-generator.jar"
+          owner: ubuntu
+          mode: '0644'
+
+      - name: Create log directory
+        file:
+          path: "{{ app_dir }}/logs"
+          state: directory
+          owner: ubuntu
+          mode: '0755'
+
+      - name: Start the application
+        shell: |
+          cd {{ app_dir }}
+          nohup java -jar log-generator.jar > logs/app.log 2>&1 &
+        args:
+          chdir: "{{ app_dir }}"
+
+
+--------------------------------------------------------------------------------
+MULTIPLE PLAYS IN ONE PLAYBOOK
+--------------------------------------------------------------------------------
+
+A single playbook file can contain multiple plays, each targeting different servers:
+
+  ---
+  # Play 1: Set up database servers
+  - name: Configure Database Server
+    hosts: db_servers
+    become: true
+    tasks:
+      - name: Install MySQL
+        apt:
+          name: mysql-server
+          state: present
+
+  # Play 2: Set up web servers
+  - name: Configure Web Servers
+    hosts: web_servers
+    become: true
+    tasks:
+      - name: Install Nginx
+        apt:
+          name: nginx
+          state: present
+
+  # Play 3: Deploy application
+  - name: Deploy Application
+    hosts: app_servers
+    become: true
+    tasks:
+      - name: Deploy JAR
+        copy:
+          src: app.jar
+          dest: /opt/app/app.jar
+
+  PLAYS RUN IN ORDER — top to bottom.
+  Database is configured FIRST, then web servers, then app deployment.
+
+
+--------------------------------------------------------------------------------
+TAGS — SELECTIVE TASK EXECUTION
+--------------------------------------------------------------------------------
+
+Tags allow you to run ONLY specific tasks from a large playbook:
+
+  tasks:
+    - name: Install Java
+      apt:
+        name: openjdk-17-jdk
+        state: present
+      tags: [install, java]
+
+    - name: Deploy application
+      copy:
+        src: app.jar
+        dest: /opt/app/
+      tags: [deploy]
+
+    - name: Restart service
+      service:
+        name: myapp
+        state: restarted
+      tags: [restart, deploy]
+
+  # Run only tasks tagged "deploy"
+  ansible-playbook deploy.yml --tags deploy
+
+  # Skip tasks tagged "install"
+  ansible-playbook deploy.yml --skip-tags install
+
+  # Run multiple tags
+  ansible-playbook deploy.yml --tags "deploy,restart"
+
+  USE CASE:
+    Your playbook has 20 tasks. You only changed the JAR file.
+    Tag the deploy task and run ONLY that — saves time in production.
+
+
+--------------------------------------------------------------------------------
+RUNNING A PLAYBOOK
+--------------------------------------------------------------------------------
+
+  # Basic run
+  ansible-playbook -i inventory.ini playbook.yml
+
+  # Dry run (no actual changes — safe to test)
+  ansible-playbook -i inventory.ini playbook.yml --check
+
+  # Dry run + show what would change in files
+  ansible-playbook -i inventory.ini playbook.yml --check --diff
+
+  # Run with increased verbosity (for debugging)
+  ansible-playbook -i inventory.ini playbook.yml -v       # basic
+  ansible-playbook -i inventory.ini playbook.yml -vv      # more detail
+  ansible-playbook -i inventory.ini playbook.yml -vvv     # full debug
+
+  # Run on specific hosts only (overrides the playbook's hosts setting)
+  ansible-playbook -i inventory.ini playbook.yml --limit web1
+
+  # Pass extra variables at runtime
+  ansible-playbook -i inventory.ini playbook.yml -e "app_port=9090"
+
+  # Run with sudo password prompt
+  ansible-playbook -i inventory.ini playbook.yml -K
+
+
+--------------------------------------------------------------------------------
+UNDERSTANDING PLAYBOOK OUTPUT
+--------------------------------------------------------------------------------
+
+When you run a playbook, each task shows a color-coded status:
+
+  PLAY [Deploy Log Generator Application] ***************************
+
+  TASK [Gathering Facts] ********************************************
+  ok: [192.168.1.10]
+
+  TASK [Ensure Java 17 is installed] ********************************
+  changed: [192.168.1.10]      <-- made a change
+
+  TASK [Create application directory] *******************************
+  ok: [192.168.1.10]           <-- already correct, no change needed
+
+  TASK [Copy application JAR file] **********************************
+  changed: [192.168.1.10]
+
+  PLAY RECAP ********************************************************
+  192.168.1.10 : ok=4  changed=2  unreachable=0  failed=0
+
+  STATUS MEANINGS:
+    ok (green)          --> Task ran, nothing needed to change
+    changed (yellow)    --> Task ran and made a change on the server
+    failed (red)        --> Task failed — execution stops here by default
+    skipped (cyan)      --> Task skipped (when condition was false)
+    unreachable (red)   --> Ansible could not SSH into this host
+
+
+--------------------------------------------------------------------------------
+GATHERING FACTS — What Happens Before Your Tasks
+--------------------------------------------------------------------------------
+
+By default, before running any task, Ansible runs the "Gathering Facts" step.
+This collects system information (OS, RAM, CPU, IP, etc.) and stores it as
+variables you can use in your tasks.
+
+  # You can disable it if you don't need it (speeds up playbooks)
+  - name: My Playbook
+    hosts: all
+    gather_facts: false
+    tasks:
+      ...
+
+
+--------------------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------------------
+
+  Concept       | One-Line Explanation
+  --------------+------------------------------------------------------
+  Playbook      | YAML file containing one or more plays
+  Play          | A group of tasks targeting specific hosts
+  Task          | A single action using a module
+  YAML          | Human-readable data format using indentation (spaces only)
+  become        | Run tasks with sudo/root privileges
+  Tags          | Labels allowing selective task execution
+  --check       | Dry run mode — shows changes without applying them
+  --limit       | Restrict playbook to specific hosts at runtime
+  -e flag       | Pass extra variables at runtime
+  PLAY RECAP    | Summary at the end showing ok/changed/failed per host
+
+
+--------------------------------------------------------------------------------
+NEXT: 06 - Variables
+  Master how to use, define, and override variables to make playbooks
+  flexible and reusable across environments.
+--------------------------------------------------------------------------------
