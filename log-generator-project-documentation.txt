@@ -1,0 +1,989 @@
+================================================================================
+         LOG GENERATOR PROJECT — FULL TECHNICAL DOCUMENTATION
+         DevOps POC | Payment Data Programme | HSBC Technology
+================================================================================
+
+Author         : Pranay Devineni (Chandu)
+Team           : Payment Data Programme
+Repository     : devops_poc (Internal GitHub Enterprise)
+Branch Strategy: Git Flow (feature → develop → master)
+Last Updated   : April 2026
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+  1. Project Overview
+  2. Technology Stack
+  3. Repository Structure
+  4. Tool 1 — Git & GitHub Enterprise (Version Control)
+  5. Tool 2 — Docker (Containerisation)
+  6. Tool 3 — Nexus3 (Private Image Registry)
+  7. Tool 4 — Jenkins (CI/CD Pipeline)
+  8. Tool 5 — Kubernetes (Container Orchestration)
+  9. End-to-End Pipeline Flow
+ 10. Key Decisions & Design Choices
+ 11. Troubleshooting Reference
+
+================================================================================
+1. PROJECT OVERVIEW
+================================================================================
+
+PURPOSE
+-------
+This project demonstrates a complete DevOps CI/CD pipeline built as part of
+the Week 2–5 onboarding sprint on the Payment Data Programme team.
+
+The application is a simple log generator. A Bash script (generate_log.sh)
+produces an application.log file with timestamped entries. Although the
+application itself is simple, the project covers the full enterprise DevOps
+toolchain — from writing code, to containerising it, storing the image
+in a private registry, automating builds via a CI/CD pipeline, and finally
+deploying the container to a Kubernetes cluster.
+
+WHAT THE PROJECT DEMONSTRATES
+-------------------------------
+  - Source control with Git Flow branching strategy
+  - Docker containerisation using a company-approved base image from Nexus3
+  - Private image storage in the HSBC Nexus3 registry
+  - Automated CI/CD using Jenkins Declarative Pipeline
+  - Container orchestration and deployment using Kubernetes
+  - Secure credential handling (no passwords in code — Jenkins credentials store)
+
+TARGET AUDIENCE
+---------------
+This document is written for new joiners who have basic knowledge of Linux
+and are beginning to learn DevOps tools. Every step is explained with context
+so you understand WHY each action is done, not just WHAT to do.
+
+================================================================================
+2. TECHNOLOGY STACK
+================================================================================
+
+  Tool                   Version / Type          Purpose
+  ---------------------  ----------------------  --------------------------------
+  Git                    2.x                     Source code version control
+  GitHub Enterprise      Internal (alm-github)   Remote repository hosting
+  Docker                 Enterprise               Build & run containers
+  Nexus3                 OSS / Pro                Private Docker image registry
+  Jenkins                LTS                      CI/CD automation server
+  Kubernetes (K8s)       1.x                      Container orchestration
+  Bash                   Shell scripting          Application logic (log gen)
+
+================================================================================
+3. REPOSITORY STRUCTURE
+================================================================================
+
+  devops_poc/
+  └── log-generator/
+      ├── generate_log.sh        ← Bash script that generates application.log
+      ├── Dockerfile             ← Defines how to build the Docker image
+      ├── Jenkinsfile            ← Declarative Pipeline — all CI/CD stages
+      └── k8s/
+          └── deployment.yaml   ← Kubernetes Deployment manifest
+
+IMPORTANT NOTES ON STRUCTURE:
+  - The Jenkinsfile lives inside the log-generator/ folder
+  - The Jenkins job "Script Path" is set to: log-generator/Jenkinsfile
+  - This means Jenkins knows to read the pipeline from inside the subfolder
+
+================================================================================
+4. TOOL 1 — GIT & GITHUB ENTERPRISE
+================================================================================
+
+4.1 PURPOSE
+-----------
+Git is the version control system used to track all code changes.
+GitHub Enterprise (GHE) is the company's internal hosting platform for Git
+repositories. It works identically to public GitHub but runs inside the
+HSBC network — meaning no external internet access is needed.
+
+Every change made in this project goes through Git before Jenkins picks it up.
+Without Git, Jenkins would have nothing to pull and the pipeline could not run.
+
+4.2 BRANCHING STRATEGY — GIT FLOW
+-----------------------------------
+This project follows Git Flow — the standard branching model used by the team.
+
+  Branch          Purpose
+  --------------  -------------------------------------------------------------
+  master          Production-ready code only. Protected — no direct pushes.
+  develop         Integration branch. All feature work merges here first.
+  feature/*       Short-lived branches for individual features or tasks.
+  release/*       Pre-release stabilisation branch (used for versioning).
+
+Flow of changes:
+  feature/my-task → develop → release/v1.0 → master (tagged v1.0.0)
+
+4.3 ONE-TIME SETUP — CONFIGURE GIT
+------------------------------------
+
+Step 1: Set your identity (run once on your machine)
+
+  git config --global user.name "Your Name"
+  git config --global user.email "your.email@hsbc.com"
+
+  Screenshot guidance:
+    WHEN  : After running these commands
+    WHAT  : Run "git config --list" and capture the terminal output showing
+            user.name and user.email set correctly
+
+Step 2: Verify your Git version
+
+  git --version
+
+  Screenshot guidance:
+    WHAT  : Terminal output showing Git version number (e.g., git version 2.39.x)
+
+4.4 STEP-BY-STEP — WORKING WITH THE REPOSITORY
+-------------------------------------------------
+
+Step 1: Clone the repository (first time only)
+
+  Navigate to your internal GitHub Enterprise instance.
+  Go to: alm-github.systems.uk.hsbc → devops_poc repository
+  Click the green "Code" button → copy the HTTPS URL
+
+  Then in terminal:
+    git clone <internal-GHE-URL>/devops_poc.git
+    cd devops_poc
+
+  Screenshot guidance:
+    WHEN  : Before clicking Clone
+    WHAT  : The devops_poc repository page on GitHub Enterprise showing the
+            Code button and the HTTPS URL in the dropdown
+
+Step 2: Create a feature branch from develop
+
+  git checkout develop
+  git pull origin develop
+  git checkout -b feature/log-generator
+
+  Screenshot guidance:
+    WHEN  : After running checkout -b
+    WHAT  : Terminal showing "Switched to a new branch 'feature/log-generator'"
+
+Step 3: Write your code (create files inside log-generator/)
+
+  Files created:
+    - generate_log.sh
+    - Dockerfile
+    - Jenkinsfile
+    - k8s/deployment.yaml
+
+Step 4: Stage, commit, and push
+
+  git add .
+  git commit -m "Add log generator with Docker and Jenkinsfile"
+  git push origin feature/log-generator
+
+  Screenshot guidance:
+    WHEN  : After git push
+    WHAT  : Terminal output showing "Branch 'feature/log-generator' set up to
+            track remote branch" and the push success message
+
+Step 5: Raise a Pull Request on GitHub Enterprise
+
+  Go to: alm-github.systems.uk.hsbc → devops_poc
+  Click "Compare & pull request"
+  Set base branch to: develop
+  Set compare branch to: feature/log-generator
+  Add a title and description
+  Click "Create pull request"
+
+  Screenshot guidance:
+    WHEN  : After PR is created (before merge)
+    WHAT  : The open Pull Request page on GHE showing the title, branch
+            comparison (feature/log-generator → develop), and the green
+            "Open" status badge
+
+Step 6: Merge the PR
+
+  After review, click "Merge pull request" → "Confirm merge"
+
+  Screenshot guidance:
+    WHEN  : After merge is complete
+    WHAT  : The PR page showing "Pull request successfully merged and closed"
+            with the purple "Merged" badge
+
+Step 7: Clean up — delete the feature branch
+
+  git branch -d feature/log-generator
+  git push origin --delete feature/log-generator
+
+4.5 EXPECTED OUTPUT / RESULT
+------------------------------
+  - Feature branch created, code committed, pushed to GitHub Enterprise
+  - PR raised from feature branch to develop
+  - PR merged successfully
+  - develop branch now contains all project files
+  - Every push to develop automatically triggers the Jenkins pipeline
+
+================================================================================
+5. TOOL 2 — DOCKER
+================================================================================
+
+5.1 PURPOSE
+-----------
+Docker packages the application (generate_log.sh) along with everything it
+needs (OS, permissions) into a self-contained unit called a container.
+
+Without Docker, the script runs only on the machine where it exists.
+With Docker, the script can run identically on any machine — Jenkins server,
+developer laptop, or a Kubernetes cluster — because the container carries
+its own environment.
+
+Key concept: The container is built from a Dockerfile. The Dockerfile is like
+a recipe — it describes exactly how to construct the container image.
+
+IMPORTANT — COMPANY-SPECIFIC BASE IMAGE:
+  HSBC does not use public Docker Hub images.
+  All base images are pulled from the internal Nexus3 registry.
+  Your Dockerfile's FROM line must reference the internal Nexus URL,
+  not a public image like "ubuntu:22.04".
+
+  Example format:  FROM nexus3.systems.uk.hsbc:<port>/<base-image>:<tag>
+  (Replace with your actual Nexus URL provided by the DevOps team)
+
+5.2 THE FILES
+--------------
+
+FILE: generate_log.sh
+  This is the application — a Bash script that generates log entries.
+
+  #!/bin/bash
+  LOG_FILE="application.log"
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO  - Application started" >> $LOG_FILE
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO  - Processing request" >> $LOG_FILE
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO  - Request completed successfully" >> $LOG_FILE
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO  - Application finished" >> $LOG_FILE
+  echo "Log generated: $LOG_FILE"
+
+FILE: Dockerfile
+  This file tells Docker how to build the image.
+
+  FROM nexus3.systems.uk.hsbc:<port>/<approved-base-image>:<tag>
+  WORKDIR /app
+  COPY generate_log.sh .
+  RUN chmod +x generate_log.sh
+  CMD ["./generate_log.sh"]
+
+  Line-by-line explanation:
+    FROM      : Start with the company-approved base OS image from Nexus3
+    WORKDIR   : All subsequent commands run inside /app inside the container
+    COPY      : Copy the script from our repo into the container at /app/
+    RUN       : Make the script executable (chmod +x)
+    CMD       : Default command when the container starts — run the script
+
+5.3 STEP-BY-STEP — DOCKER WORKFLOW
+-------------------------------------
+
+Step 1: Verify Docker is available on the Jenkins server
+
+  On the Jenkins server (or via a test pipeline stage), run:
+    docker --version
+
+  Screenshot guidance:
+    WHAT  : Terminal showing "Docker version X.X.X, build xxxxxxx"
+
+Step 2: Authenticate to the Nexus3 registry (to pull the base image)
+
+  This is done inside the Jenkins pipeline using a Service Account credential.
+  You do NOT manually log in — Jenkins handles this securely.
+  See Section 7 (Jenkins) for the withCredentials block that does this.
+
+Step 3: Build the Docker image
+
+  Manually (for testing only):
+    cd log-generator/
+    docker build -t log-generator:1 .
+
+  In Jenkins pipeline: this is automated in the "Docker Build" stage.
+
+  Screenshot guidance:
+    WHEN  : After running docker build
+    WHAT  : Terminal output showing each Dockerfile layer being processed
+            (Step 1/5, Step 2/5, etc.) ending with
+            "Successfully built <image-id>"
+
+Step 4: Run the container
+
+  Manually (for testing only):
+    docker run --rm \
+      -v $(pwd):/output \
+      log-generator:1 \
+      bash -c "./generate_log.sh && cp application.log /output/"
+
+  Explanation:
+    --rm           : Automatically remove the container after it exits
+    -v $(pwd):/output : Mount current folder into /output inside container
+    bash -c "..."  : Run the script and copy the log out to the mounted folder
+
+  Screenshot guidance:
+    WHEN  : After running docker run
+    WHAT  : Terminal showing the container output and confirmation that
+            application.log was created in the current directory
+            Then: "ls -la application.log" showing the file exists
+
+Step 5: Verify the log file was generated
+
+  cat application.log
+
+  Screenshot guidance:
+    WHAT  : Terminal showing the contents of application.log with timestamped
+            log entries like:
+            "[2026-04-21 10:35:22] INFO - Application started"
+
+5.4 EXPECTED OUTPUT / RESULT
+------------------------------
+  - Docker image built successfully: log-generator:<BUILD_NUMBER>
+  - Container runs and executes generate_log.sh
+  - application.log is produced with 4 timestamped log lines
+  - Log file is copied out of the container to the Jenkins workspace
+
+================================================================================
+6. TOOL 3 — NEXUS3 (PRIVATE DOCKER REGISTRY)
+================================================================================
+
+6.1 PURPOSE
+-----------
+Nexus3 is the company's private Docker image registry — it replaces Docker Hub.
+
+Think of it like this:
+  - Docker Hub = public supermarket anyone can access
+  - Nexus3     = private company warehouse only HSBC systems can access
+
+Two things Nexus3 does in this project:
+  1. Hosts the company-approved base images (used in your FROM line)
+  2. Stores your built Docker images so Kubernetes can pull them later
+
+Using Nexus3 means no image ever leaves the HSBC network. This is a
+security and compliance requirement.
+
+6.2 HOW IMAGES ARE STORED IN NEXUS3
+--------------------------------------
+After Jenkins builds the Docker image, it tags it with the Nexus3 registry
+URL and pushes it. The tag format is:
+
+  nexus3.systems.uk.hsbc:<port>/log-generator:<BUILD_NUMBER>
+
+Every Jenkins build produces a new image tagged with the build number.
+Example:
+  nexus3.systems.uk.hsbc:8082/log-generator:1
+  nexus3.systems.uk.hsbc:8082/log-generator:2
+  nexus3.systems.uk.hsbc:8082/log-generator:3
+  ... and so on
+
+This gives you a full history of every image ever built — each one traceable
+to a specific Jenkins build and Git commit.
+
+6.3 STEP-BY-STEP — NEXUS3 PUSH (DONE BY JENKINS)
+----------------------------------------------------
+The Nexus3 push is fully automated by Jenkins. Below are the steps that
+happen inside the pipeline:
+
+Step 1: Jenkins retrieves Nexus credentials from the credentials store
+
+  No password is hardcoded anywhere. Jenkins uses a "Service Account"
+  credential stored securely in Jenkins → Manage Jenkins → Credentials.
+
+Step 2: Jenkins logs in to Nexus3
+
+  In the pipeline (inside withCredentials block):
+    docker login nexus3.systems.uk.hsbc:<port> \
+      -u "$NEXUS_USER" \
+      --password-stdin <<< "$NEXUS_PASS"
+
+Step 3: Jenkins tags the image with the Nexus3 URL
+
+    docker tag log-generator:${BUILD_NUMBER} \
+      nexus3.systems.uk.hsbc:<port>/log-generator:${BUILD_NUMBER}
+
+Step 4: Jenkins pushes the tagged image to Nexus3
+
+    docker push nexus3.systems.uk.hsbc:<port>/log-generator:${BUILD_NUMBER}
+
+Step 5: Jenkins logs out (security best practice)
+
+    docker logout nexus3.systems.uk.hsbc:<port>
+
+6.4 VERIFYING THE PUSH IN NEXUS3 UI
+--------------------------------------
+After the Jenkins pipeline runs successfully:
+
+  1. Open Nexus3 UI in your browser: nexus3.systems.uk.hsbc:<port>
+  2. Log in with your credentials
+  3. Click "Browse" in the left sidebar
+  4. Select your Docker hosted repository
+  5. Navigate to: log-generator → <BUILD_NUMBER>
+  6. You should see the image manifest and layers listed
+
+  Screenshot guidance:
+    WHEN  : After a successful Jenkins pipeline run with Nexus push stage
+    WHAT  : The Nexus3 repository browser showing the "log-generator" image
+            with version tags (e.g., :1, :2, :3) listed under the repository.
+            Capture the full browser page showing the image name and tags.
+
+6.5 EXPECTED OUTPUT / RESULT
+------------------------------
+  - Docker image tagged with Nexus3 URL
+  - Image pushed to Nexus3 hosted repository
+  - Image visible in Nexus3 UI under the correct repository
+  - Image tagged with Jenkins build number for traceability
+
+================================================================================
+7. TOOL 4 — JENKINS (CI/CD PIPELINE)
+================================================================================
+
+7.1 PURPOSE
+-----------
+Jenkins is the automation engine that ties everything together.
+
+Every time you push code to the develop branch on GitHub Enterprise,
+Jenkins automatically:
+  1. Pulls the latest code
+  2. Logs in to Nexus3
+  3. Builds the Docker image
+  4. Runs the container and generates the log
+  5. Archives the log as a build artifact
+  6. Pushes the image to Nexus3
+  7. Deploys the container to Kubernetes
+  8. Cleans up the local Docker image
+
+Without Jenkins, all of these steps would need to be done manually every
+time code changes. Jenkins makes the process fast, consistent, and reliable.
+
+7.2 KEY CONFIGURATION DETAILS
+-------------------------------
+
+  Jenkins Job Name  : log-generator-pipeline
+  Job Type          : Pipeline (regular Pipeline, not Multibranch)
+  Script Path       : log-generator/Jenkinsfile
+  Trigger           : GitHub webhook on push to develop branch
+  Branch            : develop
+  Credentials ID    : Service Account (for Nexus3 login)
+
+7.3 JENKINS JOB SETUP — STEP BY STEP
+--------------------------------------
+
+Step 1: Create a new Pipeline job
+
+  - Open Jenkins in browser
+  - Click "New Item" on the left sidebar
+  - Enter job name: log-generator-pipeline
+  - Select "Pipeline" (not Freestyle, not Multibranch)
+  - Click OK
+
+  Screenshot guidance:
+    WHEN  : On the "New Item" page before clicking OK
+    WHAT  : The Jenkins "New Item" page showing the job name
+            "log-generator-pipeline" typed in, with the "Pipeline"
+            option selected (highlighted in blue)
+
+Step 2: Configure the job
+
+  Scroll to the "Pipeline" section at the bottom of the job config page.
+  Set the following:
+    Definition   : Pipeline script from SCM
+    SCM          : Git
+    Repository   : <your internal GHE URL>/devops_poc.git
+    Branch       : */develop
+    Script Path  : log-generator/Jenkinsfile
+
+  Screenshot guidance:
+    WHEN  : After filling in all fields, before saving
+    WHAT  : The Pipeline section of the Jenkins job config page showing
+            "Pipeline script from SCM", the Git repository URL, branch
+            "*/develop", and Script Path "log-generator/Jenkinsfile"
+
+Step 3: Configure the GitHub webhook trigger
+
+  In the job config, under "Build Triggers":
+    Check: "GitHub hook trigger for GITScm polling"
+
+  On GitHub Enterprise side:
+    Go to devops_poc repository → Settings → Webhooks → Add webhook
+    Payload URL  : http://<jenkins-server>/github-webhook/
+    Content type : application/json
+    Events       : Just the push event
+    Click "Add webhook"
+
+  Screenshot guidance — Jenkins:
+    WHAT  : Jenkins job config showing "GitHub hook trigger for GITScm
+            polling" checkbox ticked under Build Triggers
+
+  Screenshot guidance — GitHub Enterprise:
+    WHEN  : After saving the webhook
+    WHAT  : The Webhooks page on your devops_poc GHE repository showing
+            the webhook URL with a green tick (✓) indicating the last
+            delivery was successful
+
+Step 4: Add the Service Account credential to Jenkins
+
+  Go to: Jenkins → Manage Jenkins → Credentials → System →
+         Global credentials → Add Credentials
+
+    Kind        : Username with password
+    Username    : <service account username provided by DevOps team>
+    Password    : <service account password>
+    ID          : Service Account
+    Description : Nexus3 Service Account for Docker login
+
+  Screenshot guidance:
+    WHEN  : After saving the credential
+    WHAT  : The Jenkins Credentials page showing "Service Account" listed
+            with Kind "Username with password" and the description.
+            Do NOT show the password — only the credential name/ID.
+
+7.4 THE JENKINSFILE — COMPLETE PIPELINE
+-----------------------------------------
+This file lives at: devops_poc/log-generator/Jenkinsfile
+
+--------------------------------------------------------------------------------
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME    = "log-generator"
+        IMAGE_TAG     = "${BUILD_NUMBER}"
+        NEXUS_REGISTRY = "nexus3.systems.uk.hsbc:<port>"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                echo "Checking out source code..."
+                checkout scm
+            }
+        }
+
+        stage('Docker Login') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'Service Account',
+                    usernameVariable: 'NEXUS_USER',
+                    passwordVariable: 'NEXUS_PASS'
+                )]) {
+                    sh """
+                        echo "$NEXUS_PASS" | docker login ${NEXUS_REGISTRY} \
+                          -u "$NEXUS_USER" --password-stdin
+                    """
+                }
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                echo "Building Docker image: ${IMAGE_NAME}:${IMAGE_TAG}"
+                sh """
+                    docker build \
+                      -t ${IMAGE_NAME}:${IMAGE_TAG} \
+                      log-generator/
+                """
+            }
+        }
+
+        stage('Docker Run') {
+            steps {
+                echo "Running container to generate log..."
+                sh """
+                    docker run --name log-gen-${IMAGE_TAG} \
+                      ${IMAGE_NAME}:${IMAGE_TAG}
+                    docker cp log-gen-${IMAGE_TAG}:/app/application.log \
+                      log-generator/application.log
+                    docker rm log-gen-${IMAGE_TAG}
+                """
+            }
+        }
+
+        stage('Archive Log') {
+            steps {
+                echo "Archiving log file as build artifact..."
+                archiveArtifacts artifacts: 'log-generator/application.log',
+                                 fingerprint: true
+            }
+        }
+
+        stage('Push to Nexus') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'Service Account',
+                    usernameVariable: 'NEXUS_USER',
+                    passwordVariable: 'NEXUS_PASS'
+                )]) {
+                    sh """
+                        docker tag ${IMAGE_NAME}:${IMAGE_TAG} \
+                          ${NEXUS_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+                        docker push \
+                          ${NEXUS_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+                        docker logout ${NEXUS_REGISTRY}
+                    """
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                withCredentials([file(
+                    credentialsId: 'kubeconfig',
+                    variable: 'KUBECONFIG'
+                )]) {
+                    sh """
+                        sed -i 's/BUILD_NUMBER_PLACEHOLDER/${IMAGE_TAG}/g' \
+                          log-generator/k8s/deployment.yaml
+                        kubectl --kubeconfig=$KUBECONFIG apply \
+                          -f log-generator/k8s/deployment.yaml
+                        kubectl --kubeconfig=$KUBECONFIG rollout status \
+                          deployment/log-generator -n devops-poc
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Pipeline succeeded — Build #${BUILD_NUMBER} complete"
+        }
+        failure {
+            echo "Pipeline FAILED — Build #${BUILD_NUMBER}"
+        }
+        always {
+            sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true"
+        }
+    }
+}
+--------------------------------------------------------------------------------
+
+7.5 PIPELINE STAGES — EXPLANATION TABLE
+-----------------------------------------
+
+  Stage                  What It Does
+  ---------------------  -------------------------------------------------------
+  Checkout               Pulls the latest code from GitHub Enterprise (develop)
+  Docker Login           Authenticates to Nexus3 using Service Account credential
+  Docker Build           Builds image from Dockerfile in log-generator/ folder
+  Docker Run             Runs container, executes script, copies log out
+  Archive Log            Saves application.log as a downloadable build artifact
+  Push to Nexus          Tags and pushes the image to Nexus3 private registry
+  Deploy to Kubernetes   Applies deployment.yaml and confirms rollout success
+  Post - always          Cleans up the local Docker image to free disk space
+
+7.6 RUNNING THE PIPELINE — STEP BY STEP
+-----------------------------------------
+
+Automatic trigger (normal workflow):
+  1. Make a code change
+  2. git add . → git commit -m "message" → git push origin develop
+  3. Jenkins detects the push via webhook and starts automatically
+
+Manual trigger (for testing):
+  1. Open Jenkins in browser
+  2. Click on "log-generator-pipeline" job
+  3. Click "Build Now" in the left sidebar
+  4. Click on the build number (#1, #2, etc.) that appears
+  5. Click "Console Output" to watch the live log
+
+  Screenshot guidance:
+    WHEN  : During an active build
+    WHAT  : The Jenkins Console Output page showing green stage names
+            passing — specifically capture the line showing each stage
+            completing successfully, e.g.
+            "[Pipeline] stage - Docker Build"
+            "[Pipeline] echo - Building Docker image: log-generator:5"
+            "Successfully built xxxxxxx"
+
+  Screenshot guidance — Stage View:
+    WHEN  : After a successful build completes
+    WHAT  : The Jenkins job's "Stage View" (main job page) showing a green
+            row with all stages (Checkout, Docker Login, Docker Build,
+            Docker Run, Archive Log, Push to Nexus, Deploy to Kubernetes)
+            all in green with build durations
+
+  Screenshot guidance — Build Artifacts:
+    WHEN  : After a successful build
+    WHAT  : The build page showing the "Build Artifacts" section with
+            "log-generator/application.log" listed as a downloadable link
+
+7.7 EXPECTED OUTPUT / RESULT
+------------------------------
+  - Pipeline triggers automatically on every push to develop
+  - All 7 stages pass (green in Stage View)
+  - application.log is archived as a build artifact
+  - Docker image pushed to Nexus3 with build number tag
+  - Kubernetes deployment updated and rollout confirmed
+  - Local Docker image cleaned up after every build
+
+================================================================================
+8. TOOL 5 — KUBERNETES
+================================================================================
+
+8.1 PURPOSE
+-----------
+Kubernetes (K8s) is the container orchestration platform — it runs and manages
+the Docker containers in production.
+
+Think of Docker as building and running a single container on one machine.
+Kubernetes takes that container and:
+  - Runs it across multiple machines (nodes)
+  - Automatically restarts it if it crashes
+  - Updates it to a new version with zero downtime (rolling update)
+  - Manages how many copies (replicas) run at any time
+
+In this project, Kubernetes is the final destination for the Docker image.
+Jenkins builds the image, pushes it to Nexus3, and then tells Kubernetes
+to deploy the latest version.
+
+8.2 KEY KUBERNETES CONCEPTS USED IN THIS PROJECT
+--------------------------------------------------
+
+  Concept         What It Is
+  --------------  -------------------------------------------------------------
+  Deployment      Tells K8s: "Run this container image, keep N copies alive"
+  Pod             The running instance of a container
+  Namespace       A logical separation/grouping of resources (devops-poc)
+  imagePullSecret Credentials K8s uses to pull images from private Nexus3
+  Rolling Update  K8s replaces old pods with new ones without downtime
+  kubectl         Command-line tool to interact with the K8s cluster
+
+8.3 THE DEPLOYMENT YAML
+------------------------
+This file lives at: devops_poc/log-generator/k8s/deployment.yaml
+
+The BUILD_NUMBER_PLACEHOLDER text is replaced by Jenkins at deploy time
+using the sed command in the pipeline.
+
+--------------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: log-generator
+  namespace: devops-poc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: log-generator
+  template:
+    metadata:
+      labels:
+        app: log-generator
+    spec:
+      imagePullSecrets:
+        - name: nexus-pull-secret
+      containers:
+        - name: log-generator
+          image: nexus3.systems.uk.hsbc:<port>/log-generator:BUILD_NUMBER_PLACEHOLDER
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "250m"
+            limits:
+              memory: "128Mi"
+              cpu: "500m"
+--------------------------------------------------------------------------------
+
+YAML explained:
+  replicas: 1         → Run 1 copy of this container
+  namespace: devops-poc → Isolate this in the devops-poc namespace
+  imagePullSecrets    → Use the nexus-pull-secret to authenticate with Nexus3
+  image               → The Docker image URL (BUILD_NUMBER_PLACEHOLDER gets
+                        replaced by Jenkins with the actual build number)
+  resources           → CPU and memory limits for the container
+
+8.4 ONE-TIME SETUP — imagePullSecret
+--------------------------------------
+Kubernetes needs a secret to pull images from Nexus3 (private registry).
+This is a one-time setup command, run once on the cluster by an admin.
+
+  kubectl create secret docker-registry nexus-pull-secret \
+    --docker-server=nexus3.systems.uk.hsbc:<port> \
+    --docker-username=<nexus-service-account-user> \
+    --docker-password=<nexus-service-account-password> \
+    -n devops-poc
+
+  This creates a secret named "nexus-pull-secret" in the devops-poc namespace.
+  The deployment.yaml references this secret so K8s can pull the image.
+
+8.5 STEP-BY-STEP — KUBERNETES DEPLOYMENT FLOW
+-----------------------------------------------
+(Done automatically by Jenkins — documented here for understanding)
+
+Step 1: Jenkins replaces the placeholder in deployment.yaml
+
+  sed -i 's/BUILD_NUMBER_PLACEHOLDER/5/g' log-generator/k8s/deployment.yaml
+
+  Result: The image line becomes:
+    nexus3.systems.uk.hsbc:<port>/log-generator:5
+
+Step 2: Jenkins applies the deployment to the cluster
+
+  kubectl --kubeconfig=$KUBECONFIG apply -f log-generator/k8s/deployment.yaml
+
+  What this does:
+    - If deployment doesn't exist → K8s creates it
+    - If deployment exists → K8s performs a rolling update to the new image
+
+Step 3: Jenkins waits for the rollout to complete
+
+  kubectl --kubeconfig=$KUBECONFIG rollout status \
+    deployment/log-generator -n devops-poc
+
+  Output (success):
+    "deployment "log-generator" successfully rolled out"
+
+8.6 VERIFYING THE DEPLOYMENT MANUALLY
+---------------------------------------
+After the pipeline runs, you can verify the deployment using kubectl:
+
+  Check deployment:
+    kubectl get deployments -n devops-poc
+
+  Check pods:
+    kubectl get pods -n devops-poc
+
+  Describe pod (detailed info):
+    kubectl describe pod <pod-name> -n devops-poc
+
+  Check pod logs:
+    kubectl logs <pod-name> -n devops-poc
+
+  Screenshot guidance — get pods:
+    WHEN  : After a successful Jenkins pipeline run
+    WHAT  : Terminal output of "kubectl get pods -n devops-poc" showing
+            the log-generator pod with STATUS "Running" or "Completed"
+            and RESTARTS as 0
+
+  Screenshot guidance — rollout status:
+    WHEN  : In the Jenkins Console Output after the Deploy to Kubernetes stage
+    WHAT  : The line in Jenkins console output reading
+            "deployment 'log-generator' successfully rolled out"
+
+8.7 EXPECTED OUTPUT / RESULT
+------------------------------
+  - Deployment exists in the devops-poc namespace
+  - Pod shows STATUS: Running (or Completed for a batch/log job)
+  - Image tag on the running pod matches the Jenkins build number
+  - Rolling update works — old pod replaced by new pod without downtime
+  - kubectl rollout status returns "successfully rolled out"
+
+================================================================================
+9. END-TO-END PIPELINE FLOW
+================================================================================
+
+This section shows the complete journey from a code change to deployment.
+
+TRIGGER: Developer pushes code to develop branch on GitHub Enterprise
+
+  Step 1  → GitHub Enterprise sends webhook to Jenkins
+  Step 2  → Jenkins: Checkout — pulls latest code from develop
+  Step 3  → Jenkins: Docker Login — authenticates to Nexus3 (Service Account)
+  Step 4  → Jenkins: Docker Build — builds image tagged log-generator:7
+  Step 5  → Jenkins: Docker Run — container runs, generates application.log
+  Step 6  → Jenkins: Archive Log — application.log saved as build artifact
+  Step 7  → Jenkins: Push to Nexus — image pushed as nexus3.../log-generator:7
+  Step 8  → Jenkins: Deploy to K8s — sed replaces placeholder with :7,
+                                     kubectl apply updates the deployment
+  Step 9  → Kubernetes pulls nexus3.../log-generator:7 using nexus-pull-secret
+  Step 10 → Old pod (log-generator:6) is gracefully stopped
+  Step 11 → New pod (log-generator:7) starts and runs
+  Step 12 → Jenkins: Cleanup — docker rmi log-generator:7 on Jenkins server
+  Step 13 → Jenkins marks build as SUCCESS
+
+RESULT:
+  - Confluence-ready artifacts: application.log downloadable from Jenkins
+  - Nexus3: new image stored with version :7
+  - Kubernetes: pod running version :7
+  - GitHub: full commit history in develop branch
+
+VISUAL REPRESENTATION:
+
+  [ Git Push ]
+       |
+       v
+  [ GitHub Enterprise ] --webhook--> [ Jenkins ]
+                                           |
+                         +—————————————————+—————————————————+
+                         |                                   |
+                    [ Nexus3 ]                        [ Kubernetes ]
+                    (image stored)                  (container deployed)
+
+================================================================================
+10. KEY DECISIONS & DESIGN CHOICES
+================================================================================
+
+Decision                       Reason
+-----------------------------  --------------------------------------------------
+Used Nexus3 instead of         HSBC policy — no external Docker Hub access.
+Docker Hub                     All images must stay within the HSBC network.
+
+Used Service Account           Security best practice. Passwords are never
+credential in Jenkins          written in code. Jenkins credentials store
+                               manages them securely.
+
+Used BUILD_NUMBER as           Every build gets a unique, traceable tag.
+image tag                      Easy to roll back to any previous version.
+
+Used sed to replace            Keeps deployment.yaml clean in Git.
+BUILD_NUMBER_PLACEHOLDER       Jenkins injects the actual build number at
+                               deploy time without modifying Git history.
+
+Script Path set to             Allows multiple Jenkins jobs to live in the
+log-generator/Jenkinsfile      same repo (monorepo pattern), each with their
+                               own Jenkinsfile in their subfolder.
+
+docker rmi in post always      Prevents disk space filling up on the Jenkins
+                               server over time. || true ensures cleanup
+                               failures do not fail the build.
+
+imagePullSecret in K8s         Required for Kubernetes to authenticate with
+deployment.yaml                Nexus3 private registry when pulling images.
+
+================================================================================
+11. TROUBLESHOOTING REFERENCE
+================================================================================
+
+Problem                            Solution
+---------------------------------  ------------------------------------------------
+Docker permission denied           Raise IT ticket to grant Docker access to
+on Jenkins server                  the Jenkins build user (jenbld). DevOps team
+                                   handles this.
+
+Dockerfile saved as Dockerfile.txt On Windows/Notepad, rename:
+                                   mv Dockerfile.txt Dockerfile
+
+"no such file or directory"        Check that Script Path in Jenkins job is set
+for Jenkinsfile                    to: log-generator/Jenkinsfile (not just Jenkinsfile)
+
+Image not found in Nexus after     Verify the NEXUS_REGISTRY URL and port in
+push                               Jenkinsfile matches the actual Nexus3 hosted
+                                   repository URL.
+
+Kubernetes pod stuck in            Check imagePullSecret exists in the namespace:
+ImagePullBackOff                   kubectl get secrets -n devops-poc
+                                   If missing, re-run the kubectl create secret
+                                   command from Section 8.4.
+
+kubectl: command not found         kubectl must be installed on the Jenkins agent.
+in Jenkins pipeline                Raise a request with the DevOps infrastructure
+                                   team to install kubectl on the Jenkins server.
+
+Webhook not triggering Jenkins     Verify the webhook URL in GHE settings.
+                                   Check Jenkins → Manage Jenkins → System Log
+                                   for webhook delivery errors.
+
+================================================================================
+DOCUMENT END
+================================================================================
+
+Notes for Confluence:
+  - Replace all placeholder text like nexus3.systems.uk.hsbc:<port> with
+    your actual internal URLs before publishing
+  - Add your screenshots at the points marked "Screenshot guidance" above
+  - Use Confluence's "Code Block" macro for all code sections
+  - Use Confluence's "Info" panel macro for the IMPORTANT NOTE boxes
+  - Use Confluence's "Note" panel macro for the Troubleshooting section
+  - Add a "Last updated by" and page owner field in Confluence metadata
+
+================================================================================
