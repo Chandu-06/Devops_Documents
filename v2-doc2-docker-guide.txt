@@ -1,0 +1,312 @@
+================================================================================
+              DOCKER — TEAM GUIDE
+              DevOps Onboarding Series | Document 2 of 5
+              Payment Data Programme | HSBC Technology
+================================================================================
+
+Last Updated  : April 2026
+Document Owner: Payment Data Programme — DevOps Team
+Confluence    : [Add Confluence page link here after publishing]
+
+--------------------------------------------------------------------------------
+RELATED GUIDES
+--------------------------------------------------------------------------------
+
+  Document 1 — Git & GitHub Guide          → [Add Confluence link after publishing]
+  Document 2 — Docker Guide                → [This document]
+  Document 3 — Nexus3 Guide               → [Add Confluence link after publishing]
+  Document 4 — Jenkins Guide              → [Add Confluence link after publishing]
+  Document 5 — Kubernetes Guide           → [Add Confluence link after publishing]
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+  1. Company Rule — Base Images
+  2. Writing a Dockerfile
+  3. Building an Image
+  4. Running a Container
+  5. Getting Output From a Container
+  6. Cleaning Up
+  7. Quick Reference — Docker Commands
+
+================================================================================
+1. COMPANY RULE — BASE IMAGES
+================================================================================
+
+IMPORTANT:
+  Never use images from Docker Hub in your Dockerfile.
+  Always use the company-approved base image from our internal Nexus3 registry.
+
+  Incorrect (do not use):
+    FROM ubuntu:22.04
+
+  Correct:
+    FROM nexus3.your-company.com:<port>/<approved-base-image>:<tag>
+
+The DevOps team will provide you with the exact FROM line to use.
+The approved base images are security-scanned and managed centrally.
+
+================================================================================
+2. WRITING A DOCKERFILE
+================================================================================
+
+The Dockerfile lives in your project folder alongside your code.
+The file must be named exactly "Dockerfile" — no extension.
+
+------------------------------------------------------------------------
+DOCKERFILE STRUCTURE THE TEAM USES
+------------------------------------------------------------------------
+
+  FROM nexus3.your-company.com:<port>/<approved-base-image>:<tag>
+
+  WORKDIR /app
+
+  COPY your-script.sh .
+
+  RUN chmod +x your-script.sh
+
+  CMD ["./your-script.sh"]
+
+------------------------------------------------------------------------
+WHAT EACH LINE DOES
+------------------------------------------------------------------------
+
+  FROM      The base image to build on top of. Always from Nexus3.
+
+  WORKDIR   Sets the working directory inside the container.
+            All subsequent instructions (COPY, RUN, CMD) run from here.
+            Docker creates this directory automatically if it does not exist.
+
+  COPY      Copies files from your project folder into the container.
+            "." means the current WORKDIR (/app in this case).
+
+  RUN       Runs a shell command during the build.
+            Used here to make the script executable.
+            Each RUN creates a new image layer.
+
+  CMD       The default command that runs when a container starts.
+            Use the array format ["command", "arg"] — more reliable
+            than the string format.
+
+------------------------------------------------------------------------
+DOCKERFILE RULES
+------------------------------------------------------------------------
+
+  Rule                              Reason
+  --------------------------------  ----------------------------------------
+  Always use Nexus3 base images     Docker Hub is not approved for use.
+                                    Base images must be security-vetted.
+
+  Never hardcode credentials        No passwords, tokens, or keys in the
+  in a Dockerfile                   Dockerfile or any file committed to Git.
+
+  Use specific tags — never latest  "latest" changes without warning.
+                                    Always pin to a known, stable tag.
+
+  One process per container         Each container should do one thing only.
+
+------------------------------------------------------------------------
+SCREENSHOT GUIDANCE — DOCKERFILE
+------------------------------------------------------------------------
+
+  WHEN : After creating the Dockerfile
+  WHAT : Your editor or terminal showing the Dockerfile contents with
+         the file name clearly visible as "Dockerfile" (no extension)
+
+================================================================================
+3. BUILDING AN IMAGE
+================================================================================
+
+COMMAND:
+  docker build -t <image-name>:<tag> <build-context>
+
+  -t                 Names and tags the image
+  <build-context>    The folder Docker uses — usually "." (current folder)
+
+TEAM CONVENTION FOR TAGGING:
+  In local development, use a simple number as the tag.
+  In Jenkins pipelines, the BUILD_NUMBER is used automatically.
+
+  Local example:
+    docker build -t my-application:1 .
+
+------------------------------------------------------------------------
+STEP-BY-STEP
+------------------------------------------------------------------------
+
+Step 1: Navigate to the folder containing your Dockerfile
+  cd path/to/your/project
+
+Step 2: Build the image
+  docker build -t my-application:1 .
+
+  Screenshot guidance:
+    WHEN : After the build completes
+    WHAT : Terminal output showing each Dockerfile step processed
+           (Step 1/5, Step 2/5...) ending with:
+           "Successfully built <image-id>"
+           "Successfully tagged my-application:1"
+
+Step 3: Verify the image exists
+  docker images
+
+  Screenshot guidance:
+    WHEN : After running docker images
+    WHAT : Terminal listing your image with name, tag, image ID, and size:
+           REPOSITORY        TAG   IMAGE ID       CREATED        SIZE
+           my-application    1     a1b2c3d4e5f6   1 minute ago   150MB
+
+================================================================================
+4. RUNNING A CONTAINER
+================================================================================
+
+COMMAND:
+  docker run <options> <image-name>:<tag>
+
+COMMONLY USED FLAGS IN THIS TEAM:
+
+  Flag              What It Does
+  ----------------  -----------------------------------------------------------
+  --name            Give the container a name for easier reference
+  --rm              Auto-remove the container when it exits
+  -v host:container Mount a folder from host into container (share files)
+  -e KEY=VALUE      Pass an environment variable into the container
+
+------------------------------------------------------------------------
+STEP-BY-STEP
+------------------------------------------------------------------------
+
+Step 1: Run the container
+  docker run --name my-container my-application:1
+
+  Screenshot guidance:
+    WHEN : After the container finishes running
+    WHAT : Terminal showing the application output — whatever the CMD
+           in your Dockerfile produces
+
+Step 2: Verify the container ran successfully
+  docker ps -a
+
+  Screenshot guidance:
+    WHEN : After running docker ps -a
+    WHAT : Terminal showing your container listed with:
+           STATUS: "Exited (0)" → completed successfully
+           STATUS: "Exited (1)" or any non-zero → something went wrong
+
+NOTE ON EXIT CODES:
+  Exit code 0 = container finished successfully.
+  Any other exit code = an error occurred. Check logs with docker logs.
+
+================================================================================
+5. GETTING OUTPUT FROM A CONTAINER
+================================================================================
+
+When your container produces a file you need outside the container,
+use one of these two approaches:
+
+------------------------------------------------------------------------
+METHOD 1: COPY FILE OUT AFTER THE CONTAINER RUNS
+------------------------------------------------------------------------
+
+  docker run --name my-container my-application:1
+  docker cp my-container:/app/output.log ./output.log
+  docker rm my-container
+
+  docker cp <container-name>:<path-inside-container> <path-on-host>
+
+  Screenshot guidance:
+    WHEN : After docker cp completes
+    WHAT : Run "ls -la output.log" — terminal showing the file exists
+           in your current directory with a recent timestamp
+
+------------------------------------------------------------------------
+METHOD 2: MOUNT A VOLUME AT RUN TIME
+------------------------------------------------------------------------
+
+  docker run --rm \
+    -v $(pwd):/output \
+    my-application:1 \
+    bash -c "./your-script.sh && cp output.log /output/"
+
+  -v $(pwd):/output  → mounts your current folder as /output inside
+                       the container. Files written to /output appear
+                       on your host machine immediately.
+  --rm               → container is removed automatically after exit
+  bash -c "..."      → overrides CMD to run a custom command sequence
+
+  Screenshot guidance:
+    WHEN : After the container exits
+    WHAT : Run "ls -la" — terminal showing output.log in the current
+           directory with a recent timestamp
+
+================================================================================
+6. CLEANING UP
+================================================================================
+
+Always clean up images and containers after use to free disk space.
+On the Jenkins server this is handled by the post always block in the
+Jenkinsfile — see Document 4 for details.
+
+For local cleanup:
+
+  Remove a specific container:
+    docker rm <container-name>
+
+  Remove a specific image:
+    docker rmi <image-name>:<tag>
+
+  Remove all stopped containers:
+    docker container prune
+
+  Remove all unused images:
+    docker image prune
+
+COMMON ERROR — IMAGE IN USE:
+  "Error: conflict: unable to remove — image is being used by stopped container"
+
+  Fix: remove the container first, then the image
+    docker rm <container-name>
+    docker rmi <image-name>:<tag>
+
+================================================================================
+7. QUICK REFERENCE — DOCKER COMMANDS
+================================================================================
+
+  IMAGES
+  docker build -t name:tag .          Build image from Dockerfile
+  docker images                       List all local images
+  docker rmi name:tag                 Remove an image
+  docker image prune                  Remove all unused images
+
+  CONTAINERS
+  docker run name:tag                 Run a container
+  docker run --name c name:tag        Run with a specific name
+  docker run --rm name:tag            Run and auto-remove on exit
+  docker run -v host:container name   Run with a mounted volume
+  docker ps                           List running containers
+  docker ps -a                        List all containers (including stopped)
+  docker rm <name-or-id>              Remove a stopped container
+  docker container prune              Remove all stopped containers
+  docker logs <name-or-id>            View container output
+  docker cp container:/path ./path    Copy file from container to host
+
+  REGISTRY
+  docker login <registry-url>         Log in to a registry
+  docker logout <registry-url>        Log out
+  docker tag name:tag registry/n:tag  Tag image with registry URL
+  docker push registry/name:tag       Push image to registry
+
+================================================================================
+RELATED GUIDES
+================================================================================
+
+  Document 1 — Git & GitHub Guide          → [Add Confluence link after publishing]
+  Document 2 — Docker Guide                → [This document]
+  Document 3 — Nexus3 Guide               → [Add Confluence link after publishing]
+  Document 4 — Jenkins Guide              → [Add Confluence link after publishing]
+  Document 5 — Kubernetes Guide           → [Add Confluence link after publishing]
+
+================================================================================
+DOCUMENT END — Docker Guide (Document 2 of 5)
+================================================================================

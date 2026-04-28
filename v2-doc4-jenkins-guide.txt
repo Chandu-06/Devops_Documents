@@ -1,0 +1,637 @@
+================================================================================
+              JENKINS — TEAM GUIDE
+              DevOps Onboarding Series | Document 4 of 5
+              Payment Data Programme | HSBC Technology
+================================================================================
+
+Last Updated  : April 2026
+Document Owner: Payment Data Programme — DevOps Team
+Confluence    : [Add Confluence page link here after publishing]
+
+--------------------------------------------------------------------------------
+RELATED GUIDES
+--------------------------------------------------------------------------------
+
+  Document 1 — Git & GitHub Guide          → [Add Confluence link after publishing]
+  Document 2 — Docker Guide               → [Add Confluence link after publishing]
+  Document 3 — Nexus3 Guide              → [Add Confluence link after publishing]
+  Document 4 — Jenkins Guide              → [This document]
+  Document 5 — Kubernetes Guide           → [Add Confluence link after publishing]
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+  1. How Jenkins Fits Into Our Workflow
+  2. Creating a Pipeline Job
+  3. Connecting Jenkins to GitHub
+  4. Setting Up the Webhook Trigger
+  5. Storing Credentials Securely
+  6. Jenkinsfile Structure the Team Uses
+  7. Pipeline Stages — What Each One Does
+  8. The Post Block
+  9. Running and Monitoring a Build
+  10. Reading Console Output
+  11. Team Rules
+  12. Quick Reference
+
+================================================================================
+1. HOW JENKINS FITS INTO OUR WORKFLOW
+================================================================================
+
+  Developer pushes code to GitHub (develop branch)
+          │
+          │  GitHub sends webhook → Jenkins starts automatically
+          ▼
+  Jenkins reads the Jenkinsfile and runs each stage in sequence:
+
+    Checkout → Docker Login → Docker Build → Docker Run →
+    Archive Artifacts → Push to Nexus → Deploy to Kubernetes
+
+          │
+          ▼
+  Post block runs (cleanup)
+          │
+          ▼
+  Build marked SUCCESS or FAILURE — visible in Jenkins UI
+
+================================================================================
+2. CREATING A PIPELINE JOB
+================================================================================
+
+We use a regular Pipeline job — not Freestyle, not Multibranch Pipeline.
+
+------------------------------------------------------------------------
+STEP 1: Create a new item
+------------------------------------------------------------------------
+
+  1. Open Jenkins in your browser
+  2. Click "New Item" in the left sidebar
+
+  Screenshot guidance:
+    WHEN : On the Jenkins dashboard
+    WHAT : The Jenkins main dashboard showing "New Item" in the
+           left navigation sidebar
+
+------------------------------------------------------------------------
+STEP 2: Name the job and select Pipeline
+------------------------------------------------------------------------
+
+  1. Enter the job name (lowercase with hyphens — e.g., my-app-pipeline)
+  2. Select "Pipeline" from the list
+     (NOT Freestyle Project, NOT Multibranch Pipeline)
+  3. Click OK
+
+  Screenshot guidance:
+    WHEN : After entering the name and selecting Pipeline, before clicking OK
+    WHAT : The New Item page showing the job name typed in and the
+           "Pipeline" option selected/highlighted
+
+------------------------------------------------------------------------
+STEP 3: Configure General settings
+------------------------------------------------------------------------
+
+  - Add a description of what this pipeline does
+  - Check "Discard old builds"
+  - Set "Max # of builds to keep" to 10
+
+  Screenshot guidance:
+    WHEN : After filling in the General section
+    WHAT : The General section showing the description and Discard Old
+           Builds settings filled in
+
+------------------------------------------------------------------------
+STEP 4: Set the Build Trigger
+------------------------------------------------------------------------
+
+  Under "Build Triggers":
+    Check: "GitHub hook trigger for GITScm polling"
+
+  This tells Jenkins to accept webhook notifications from GitHub.
+
+  Screenshot guidance:
+    WHEN : After checking the trigger
+    WHAT : The Build Triggers section with "GitHub hook trigger for
+           GITScm polling" ticked
+
+------------------------------------------------------------------------
+STEP 5: Configure the Pipeline definition
+------------------------------------------------------------------------
+
+  Scroll to the "Pipeline" section at the bottom.
+
+  Set the following:
+    Definition   : Pipeline script from SCM
+    SCM          : Git
+    Repository URL: <your repository URL>
+    Branch       : */develop
+    Script Path  : path/to/your/Jenkinsfile
+
+  ABOUT SCRIPT PATH:
+    If your Jenkinsfile is inside a subfolder (e.g., my-app/Jenkinsfile),
+    set Script Path to: my-app/Jenkinsfile
+    If it is in the root of the repo, set it to: Jenkinsfile
+
+  Screenshot guidance:
+    WHEN : After filling in all Pipeline fields, before saving
+    WHAT : The Pipeline section showing "Pipeline script from SCM",
+           Git selected, repository URL filled in, branch set to
+           */develop, and Script Path correctly set
+
+------------------------------------------------------------------------
+STEP 6: Save
+------------------------------------------------------------------------
+
+  Click "Save" — you are taken to the job's main page.
+
+  Screenshot guidance:
+    WHEN : After saving
+    WHAT : The Jenkins job main page showing the job name,
+           description, and an empty Stage View
+
+================================================================================
+3. CONNECTING JENKINS TO GITHUB
+================================================================================
+
+If your repository is private, Jenkins needs credentials to pull from it.
+
+  1. Go to: Jenkins → Manage Jenkins → Credentials → System →
+            Global credentials → Add Credentials
+
+  2. Fill in:
+       Kind        : Username with password
+       Username    : Your GitHub username
+       Password    : Your GitHub personal access token (not your password)
+       ID          : github-credentials
+       Description : GitHub access for SCM checkout
+
+  3. Click Save
+
+  4. Back in the job config, under Pipeline → Credentials:
+     Select the credential you just created
+
+  Screenshot guidance:
+    WHEN : After saving the credential
+    WHAT : The Jenkins credentials list showing the new GitHub credential
+           with its ID and description (password column will show ****)
+
+================================================================================
+4. SETTING UP THE WEBHOOK TRIGGER
+================================================================================
+
+The webhook has two parts — Jenkins side (already done in Step 4 above)
+and GitHub side (done here).
+
+------------------------------------------------------------------------
+GITHUB SIDE — ADD THE WEBHOOK
+------------------------------------------------------------------------
+
+Step 1: Go to your repository on GitHub
+
+Step 2: Navigate to webhook settings
+  Click: Settings (repository top navigation)
+  Click: Webhooks (left sidebar)
+  Click: Add webhook
+
+  Screenshot guidance:
+    WHEN : On the Webhooks settings page
+    WHAT : The repository Settings → Webhooks page showing the
+           "Add webhook" button
+
+Step 3: Fill in the webhook details
+
+  Payload URL  : http://<your-jenkins-server-url>/github-webhook/
+                 The URL must end with /github-webhook/
+
+  Content type : application/json
+
+  Which events : Just the push event
+
+  Active       : Checked
+
+  Click "Add webhook"
+
+  Screenshot guidance:
+    WHEN : After filling in all fields, before clicking Add webhook
+    WHAT : The Add Webhook form showing the Payload URL, content type
+           as application/json, and "Just the push event" selected
+
+Step 4: Verify the webhook works
+
+  After saving, GitHub sends a test ping to Jenkins.
+  On the Webhooks page, click on your webhook.
+  Scroll to "Recent Deliveries" — you should see a green tick (✓).
+
+  Screenshot guidance:
+    WHEN : After the ping is delivered
+    WHAT : The webhook Recent Deliveries section showing a green tick
+           next to the latest delivery — confirms Jenkins received it
+
+HOW TO TEST:
+  Push any small change to the develop branch.
+  Go to Jenkins — the pipeline should start automatically within seconds.
+
+================================================================================
+5. STORING CREDENTIALS SECURELY
+================================================================================
+
+NEVER put passwords, tokens, or keys in the Jenkinsfile or any file
+committed to Git. Always use the Jenkins credentials store.
+
+------------------------------------------------------------------------
+ADDING A CREDENTIAL
+------------------------------------------------------------------------
+
+  Go to: Jenkins → Manage Jenkins → Credentials → System →
+         Global credentials → Add Credentials
+
+  CREDENTIAL TYPES USED IN THIS TEAM:
+
+  Type                    When Used
+  ----------------------  ------------------------------------------------
+  Username with password  Nexus3 Service Account, GitHub access
+  Secret file             kubeconfig file for Kubernetes access
+
+------------------------------------------------------------------------
+EXAMPLE — ADDING NEXUS3 SERVICE ACCOUNT
+------------------------------------------------------------------------
+
+  Kind        : Username with password
+  Username    : <service account username from DevOps team>
+  Password    : <service account password from DevOps team>
+  ID          : nexus-service-account
+  Description : Nexus3 Service Account for Docker login
+
+  Click Save.
+
+  Screenshot guidance:
+    WHEN : After saving
+    WHAT : The Jenkins credentials list showing the new credential
+           with its ID and description. Do NOT capture the password.
+
+IMPORTANT — THE ID FIELD:
+  The ID is how you reference the credential in the Jenkinsfile.
+  Choose a clear name. Do not change it after pipelines start using it —
+  all pipelines referencing this ID will break.
+
+------------------------------------------------------------------------
+USING A CREDENTIAL IN THE JENKINSFILE
+------------------------------------------------------------------------
+
+  For username/password (e.g., Nexus3 login):
+
+    withCredentials([usernamePassword(
+        credentialsId: 'nexus-service-account',
+        usernameVariable: 'NEXUS_USER',
+        passwordVariable: 'NEXUS_PASS'
+    )]) {
+        sh 'echo "$NEXUS_PASS" | docker login registry.url:<port> -u "$NEXUS_USER" --password-stdin'
+    }
+
+  For a secret file (e.g., kubeconfig):
+
+    withCredentials([file(
+        credentialsId: 'kubeconfig',
+        variable: 'KUBECONFIG'
+    )]) {
+        sh 'kubectl --kubeconfig=$KUBECONFIG get pods -n my-namespace'
+    }
+
+  Credential values are automatically masked in Console Output (shown as ****).
+
+================================================================================
+6. JENKINSFILE STRUCTURE THE TEAM USES
+================================================================================
+
+The Jenkinsfile lives in the repository alongside your code — it is
+version-controlled like everything else. Changes to the pipeline go
+through the same PR review process as code changes.
+
+------------------------------------------------------------------------
+COMPLETE JENKINSFILE EXAMPLE
+------------------------------------------------------------------------
+
+  pipeline {
+      agent any
+
+      environment {
+          IMAGE_NAME = "my-application"
+          IMAGE_TAG  = "${BUILD_NUMBER}"
+          REGISTRY   = "nexus3.your-company.com:<port>"
+      }
+
+      stages {
+
+          stage('Checkout') {
+              steps {
+                  echo "Checking out source code..."
+                  checkout scm
+              }
+          }
+
+          stage('Docker Login') {
+              steps {
+                  withCredentials([usernamePassword(
+                      credentialsId: 'nexus-service-account',
+                      usernameVariable: 'NEXUS_USER',
+                      passwordVariable: 'NEXUS_PASS'
+                  )]) {
+                      sh 'echo "$NEXUS_PASS" | docker login ${REGISTRY} -u "$NEXUS_USER" --password-stdin'
+                  }
+              }
+          }
+
+          stage('Docker Build') {
+              steps {
+                  echo "Building image: ${IMAGE_NAME}:${IMAGE_TAG}"
+                  sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
+              }
+          }
+
+          stage('Docker Run') {
+              steps {
+                  sh """
+                      docker run --name app-${IMAGE_TAG} ${IMAGE_NAME}:${IMAGE_TAG}
+                      docker cp app-${IMAGE_TAG}:/app/output.log ./output.log
+                      docker rm app-${IMAGE_TAG}
+                  """
+              }
+          }
+
+          stage('Archive Artifacts') {
+              steps {
+                  archiveArtifacts artifacts: 'output.log', fingerprint: true
+              }
+          }
+
+          stage('Push to Nexus') {
+              steps {
+                  withCredentials([usernamePassword(
+                      credentialsId: 'nexus-service-account',
+                      usernameVariable: 'NEXUS_USER',
+                      passwordVariable: 'NEXUS_PASS'
+                  )]) {
+                      sh """
+                          docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+                          docker push ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+                          docker logout ${REGISTRY}
+                      """
+                  }
+              }
+          }
+
+          stage('Deploy to Kubernetes') {
+              steps {
+                  withCredentials([file(
+                      credentialsId: 'kubeconfig',
+                      variable: 'KUBECONFIG'
+                  )]) {
+                      sh """
+                          sed -i 's/BUILD_NUMBER_PLACEHOLDER/${IMAGE_TAG}/g' k8s/deployment.yaml
+                          kubectl --kubeconfig=$KUBECONFIG apply -f k8s/deployment.yaml
+                          kubectl --kubeconfig=$KUBECONFIG rollout status deployment/my-application -n my-namespace
+                      """
+                  }
+              }
+          }
+
+      }
+
+      post {
+          success {
+              echo "Pipeline succeeded — Build #${BUILD_NUMBER} complete"
+          }
+          failure {
+              echo "Pipeline FAILED — Build #${BUILD_NUMBER}"
+          }
+          always {
+              sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true"
+          }
+      }
+
+  }
+
+================================================================================
+7. PIPELINE STAGES — WHAT EACH ONE DOES
+================================================================================
+
+  Stage               What It Does
+  ------------------  ----------------------------------------------------------
+  Checkout            Pulls the latest code from GitHub into the Jenkins
+                      workspace using checkout scm. Reads repo URL and branch
+                      from the job configuration.
+
+  Docker Login        Authenticates to Nexus3 using the Service Account
+                      credential. Required before build (to pull the base image)
+                      and before push (to upload the built image).
+
+  Docker Build        Builds the Docker image from the Dockerfile.
+                      Tagged with Jenkins BUILD_NUMBER for traceability.
+
+  Docker Run          Runs a container from the built image. Copies any output
+                      files out using docker cp. Removes the container.
+
+  Archive Artifacts   Saves output files as downloadable attachments on the
+                      Jenkins build page. Accessible from the build history
+                      without re-running the pipeline.
+
+  Push to Nexus       Tags the image with the full Nexus3 URL and build number,
+                      pushes it, and logs out. Image is now available for
+                      Kubernetes to pull.
+
+  Deploy to K8s       Injects the build number into deployment.yaml using sed,
+                      applies the manifest via kubectl, and waits for the
+                      rollout to complete before marking the stage as passed.
+
+================================================================================
+8. THE POST BLOCK
+================================================================================
+
+The post block runs after all stages — regardless of success or failure.
+
+  post {
+      success { }    Runs only if all stages passed
+      failure { }    Runs only if any stage failed
+      always  { }    Runs regardless of outcome — use for cleanup
+  }
+
+CLEANUP PATTERN:
+  Always put Docker image removal in the always block — not success.
+  If a stage fails mid-pipeline, the image may still exist locally.
+  Cleanup in always ensures disk space is freed even after failures.
+
+    always {
+        sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true"
+    }
+
+  "|| true" means: if the rmi command fails (image not found), do not
+  fail the build because of it. Cleanup failure should never override
+  the actual build result.
+
+================================================================================
+9. RUNNING AND MONITORING A BUILD
+================================================================================
+
+------------------------------------------------------------------------
+AUTOMATIC TRIGGER
+------------------------------------------------------------------------
+
+  Push code to the develop branch → GitHub webhook → Jenkins starts.
+  No manual action needed. The pipeline runs within seconds of the push.
+
+------------------------------------------------------------------------
+MANUAL TRIGGER (for testing)
+------------------------------------------------------------------------
+
+  1. Open Jenkins in your browser
+  2. Click your pipeline job name
+  3. Click "Build Now" in the left sidebar
+  4. A new entry appears under "Build History"
+  5. Click the build number to open it
+
+  Screenshot guidance:
+    WHEN : After clicking Build Now
+    WHAT : The Jenkins job page showing a new build appearing in the
+           Build History section with a progress indicator
+
+------------------------------------------------------------------------
+MONITORING PROGRESS
+------------------------------------------------------------------------
+
+  The Stage View on the job main page shows real-time progress:
+    - Spinning indicator = stage currently running
+    - Green = passed
+    - Red = failed
+    - Grey = not yet run
+
+  Screenshot guidance — DURING BUILD:
+    WHEN : While the build is running
+    WHAT : Stage View showing some stages green, one with a spinner,
+           and the rest grey
+
+  Screenshot guidance — AFTER SUCCESSFUL BUILD:
+    WHEN : After a build completes successfully
+    WHAT : Stage View showing a full row with ALL stages in green,
+           with build number and duration visible for each stage
+
+================================================================================
+10. READING CONSOLE OUTPUT
+================================================================================
+
+Console Output is the full log of everything Jenkins did during a build.
+When a build fails, this is always the first place to look.
+
+  Access: Job page → Build History → Build number → Console Output
+
+WHAT TO LOOK FOR:
+
+  Success:
+    [Pipeline] stage - Stage Name    → stage started
+    Finished: SUCCESS                → pipeline passed
+
+  Failure:
+    ERROR: ...                       → error message
+    + the-command-that-failed        → the exact command that failed
+    Finished: FAILURE                → pipeline failed
+
+  To find the error quickly:
+    Press Ctrl+F (or Cmd+F) → search for "ERROR" or "FAILED"
+    Look at the lines immediately above — they show what was running
+    before the failure.
+
+  Credential values show as **** — this is correct. Jenkins masks them.
+
+  Screenshot guidance:
+    WHEN : After a successful build
+    WHAT : The Console Output page showing the final lines:
+           "[Pipeline] End of Pipeline"
+           "Finished: SUCCESS"
+
+  Screenshot guidance — BUILD ARTIFACTS:
+    WHEN : After a successful build with archived files
+    WHAT : The build page showing the "Build Artifacts" section with
+           the archived file listed as a clickable download link
+
+================================================================================
+11. TEAM RULES
+================================================================================
+
+  Rule                              Reason
+  --------------------------------  ------------------------------------------
+  Always use Jenkinsfile from SCM   Pipeline as Code — version controlled
+  — never "Pipeline script"         in Git, reviewed like any other change.
+
+  Never put credentials in the      Anyone with repo access can read the
+  Jenkinsfile or Git                Jenkinsfile. Use the credentials store.
+
+  Use BUILD_NUMBER for image tags   Every build produces a unique, traceable
+                                    image. Enables rollback.
+
+  Cleanup in post always block      Prevents disk space filling up on the
+                                    Jenkins server over time.
+
+  Use "|| true" on cleanup          Cleanup failure should not override a
+  commands                          successful build result.
+
+  Request access via IT ticket      If Docker or kubectl are not available
+  for missing tools on agents       on the Jenkins agent, raise a ticket.
+                                    Do not install tools manually on the server.
+
+================================================================================
+12. QUICK REFERENCE
+================================================================================
+
+JENKINS UI NAVIGATION
+  New job          : Dashboard → New Item
+  Credentials      : Manage Jenkins → Credentials → System → Global
+  Console Output   : Job → Build History → Build # → Console Output
+  Stage View       : Job main page
+  Build Artifacts  : Job → Build History → Build # → Build Artifacts
+  Webhook logs     : GitHub → Repo → Settings → Webhooks → Recent Deliveries
+
+JENKINSFILE SNIPPETS
+
+  Run a shell command:
+    sh "your-command"
+
+  Multi-line shell:
+    sh """
+        command one
+        command two
+    """
+
+  Print a message:
+    echo "Your message"
+
+  Credential — username/password:
+    withCredentials([usernamePassword(credentialsId: 'id',
+        usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+        sh 'echo "$PASS" | docker login registry -u "$USER" --password-stdin'
+    }
+
+  Credential — secret file:
+    withCredentials([file(credentialsId: 'id', variable: 'FILE')]) {
+        sh 'kubectl --kubeconfig=$FILE get pods'
+    }
+
+  Archive artifacts:
+    archiveArtifacts artifacts: 'path/to/file', fingerprint: true
+
+  Built-in variables:
+    ${BUILD_NUMBER}    → current build number
+    ${JOB_NAME}        → name of the Jenkins job
+    ${WORKSPACE}       → path to the Jenkins workspace on disk
+
+================================================================================
+RELATED GUIDES
+================================================================================
+
+  Document 1 — Git & GitHub Guide          → [Add Confluence link after publishing]
+  Document 2 — Docker Guide               → [Add Confluence link after publishing]
+  Document 3 — Nexus3 Guide              → [Add Confluence link after publishing]
+  Document 4 — Jenkins Guide              → [This document]
+  Document 5 — Kubernetes Guide           → [Add Confluence link after publishing]
+
+================================================================================
+DOCUMENT END — Jenkins Guide (Document 4 of 5)
+================================================================================
