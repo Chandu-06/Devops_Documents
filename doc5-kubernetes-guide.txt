@@ -1,0 +1,691 @@
+================================================================================
+              KUBERNETES — TEAM GUIDE
+              DevOps Onboarding Series | Document 5 of 5
+              Payment Data Programme | HSBC Technology
+================================================================================
+
+Last Updated  : April 2026
+Document Owner: Payment Data Programme — DevOps Team
+Confluence    : [Add Confluence page link here after publishing]
+
+--------------------------------------------------------------------------------
+RELATED GUIDES
+--------------------------------------------------------------------------------
+
+  Document 1 — Git & GitHub Guide          → [Add Confluence link after publishing]
+  Document 2 — Docker Guide               → [Add Confluence link after publishing]
+  Document 3 — Nexus3 Guide              → [Add Confluence link after publishing]
+  Document 4 — Jenkins Guide             → [Add Confluence link after publishing]
+  Document 5 — Kubernetes Guide           → [This document]
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+  1. What Is Kubernetes and Why Do We Use It
+  2. Key Concepts You Need to Know
+  3. Prerequisites
+  4. How Kubernetes Fits Into Our Workflow
+  5. Understanding the Deployment Manifest (YAML)
+  6. Setting Up imagePullSecret for Nexus3
+  7. Applying a Deployment — Step by Step
+  8. Verifying a Deployment
+  9. Common kubectl Commands the Team Uses
+  10. How Jenkins Automates the Deployment
+  11. Understanding Rolling Updates
+  12. Company Rules for Kubernetes
+  13. Quick Reference — kubectl Commands
+
+================================================================================
+1. WHAT IS KUBERNETES AND WHY DO WE USE IT
+================================================================================
+
+Kubernetes (often abbreviated as K8s) is an open-source container
+orchestration platform. It manages the running of Docker containers
+across one or more machines — automatically handling availability,
+scaling, and updates.
+
+DOCKER VS KUBERNETES — WHAT IS THE DIFFERENCE?
+
+  Docker alone:
+    - Runs a container on one machine
+    - If the container crashes, it stays down until you manually restart it
+    - To update the app, you stop the old container and start a new one
+      (causing downtime)
+    - Runs on a single server — no distribution across machines
+
+  Kubernetes:
+    - Runs containers across a cluster of machines
+    - Automatically restarts containers if they crash
+    - Updates containers with zero downtime (rolling updates)
+    - Manages how many copies (replicas) of a container are running
+    - Scales up or down based on load
+
+WHY THE TEAM USES KUBERNETES:
+  - Applications deployed to Kubernetes are self-healing — if a container
+    crashes, K8s brings it back up automatically without anyone intervening
+  - Zero-downtime deployments — the old version stays running until the new
+    version is confirmed healthy
+  - Consistent deployment process — kubectl apply works the same way
+    whether deploying once or a hundred times
+  - Works seamlessly with Jenkins and Nexus3 — Jenkins pushes the image,
+    tells K8s to deploy, and K8s pulls the image from Nexus3
+
+================================================================================
+2. KEY CONCEPTS YOU NEED TO KNOW
+================================================================================
+
+  Concept           What It Means
+  ----------------  -------------------------------------------------------------
+  Cluster           A group of machines (nodes) managed by Kubernetes together.
+                    The team has a shared cluster — the DevOps team manages it.
+
+  Node              An individual machine (physical or virtual) in the cluster.
+                    Kubernetes decides which node runs each container.
+
+  Pod               The smallest deployable unit in Kubernetes.
+                    A pod runs one or more containers. In most cases,
+                    one pod = one container.
+
+  Deployment        A Kubernetes object that manages a set of identical pods.
+                    You tell the Deployment: "run 2 replicas of this image".
+                    K8s ensures that number is always maintained.
+
+  Replica           A copy of a pod. If you set replicas: 2, Kubernetes
+                    always keeps 2 copies of your pod running. If one crashes,
+                    K8s starts a new one automatically.
+
+  Namespace         A logical grouping of resources within a cluster.
+                    Keeps different teams' or environments' resources separated.
+                    Our team uses the "devops-poc" namespace.
+
+  Manifest / YAML   A text file that describes what you want Kubernetes to
+                    create or manage. You write what you want (declarative),
+                    and K8s figures out how to make it happen.
+
+  kubectl           The command-line tool for interacting with Kubernetes.
+                    All K8s commands start with "kubectl".
+
+  imagePullSecret   A Kubernetes Secret that contains credentials for pulling
+                    Docker images from a private registry (Nexus3 in our case).
+                    Without this, K8s cannot pull images from Nexus3.
+
+  Rolling Update    The default strategy Kubernetes uses when updating a
+                    Deployment. New pods start first, then old pods are
+                    removed — ensuring zero downtime during updates.
+
+  kubeconfig        A file containing the credentials and endpoint for your
+                    Kubernetes cluster. kubectl uses this to know which cluster
+                    to connect to and how to authenticate.
+
+================================================================================
+3. PREREQUISITES
+================================================================================
+
+Before following this guide, make sure you have:
+
+  [ ] kubectl installed on your machine
+        Verify: kubectl version --client
+        Expected: a version number output
+
+  [ ] kubeconfig file from the DevOps team
+        This file authenticates you to the cluster
+        Store it at: ~/.kube/config (default location)
+        Or specify it explicitly: kubectl --kubeconfig=/path/to/config ...
+
+  [ ] Access to the team namespace on the cluster
+        The DevOps team will grant namespace access
+        Verify: kubectl get pods -n devops-poc
+        (If you see "forbidden", raise an access request ticket)
+
+  [ ] Nexus3 access to push images (see Document 3 — Nexus3 Guide)
+
+  [ ] Docker installed and working (see Document 2 — Docker Guide)
+
+  [ ] imagePullSecret created in your namespace (see Section 6)
+
+================================================================================
+4. HOW KUBERNETES FITS INTO OUR WORKFLOW
+================================================================================
+
+Kubernetes is the final step in the CI/CD pipeline. After Jenkins builds
+the Docker image and pushes it to Nexus3, it tells Kubernetes to deploy
+the new version.
+
+  Developer pushes code to GitHub
+          │
+          ▼
+       Jenkins Pipeline
+          │
+          ├── Builds Docker image
+          ├── Pushes image to Nexus3  →  Nexus3 stores the image
+          │
+          └── Deploy to Kubernetes stage
+                    │
+                    │  kubectl apply -f deployment.yaml
+                    ▼
+             Kubernetes receives the instruction
+                    │
+                    │  Kubernetes pulls image from Nexus3
+                    │  (using imagePullSecret for authentication)
+                    ▼
+             Old pods gracefully stopped
+             New pods started with new image version
+                    │
+                    ▼
+             Rollout complete — application running on new version
+
+================================================================================
+5. UNDERSTANDING THE DEPLOYMENT MANIFEST (YAML)
+================================================================================
+
+A Kubernetes manifest is a YAML file that describes the desired state
+of your application. You declare what you want, and Kubernetes makes it
+happen — and keeps it that way.
+
+The primary manifest type we use is a Deployment.
+
+------------------------------------------------------------------------
+DEPLOYMENT YAML — STRUCTURE AND EXPLANATION
+------------------------------------------------------------------------
+
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: my-application
+    namespace: devops-poc
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
+        app: my-application
+    template:
+      metadata:
+        labels:
+          app: my-application
+      spec:
+        imagePullSecrets:
+          - name: nexus-pull-secret
+        containers:
+          - name: my-application
+            image: nexus3.company.com:<port>/my-application:BUILD_NUMBER_PLACEHOLDER
+            resources:
+              requests:
+                memory: "64Mi"
+                cpu: "250m"
+              limits:
+                memory: "128Mi"
+                cpu: "500m"
+
+------------------------------------------------------------------------
+FIELD-BY-FIELD EXPLANATION
+------------------------------------------------------------------------
+
+apiVersion: apps/v1
+  The version of the Kubernetes API this manifest uses.
+  Deployments always use apps/v1.
+
+kind: Deployment
+  The type of Kubernetes object being created.
+
+metadata.name: my-application
+  The name of this Deployment. Used to reference it in kubectl commands.
+
+metadata.namespace: devops-poc
+  The namespace this Deployment belongs to.
+  All resources for our team go in the devops-poc namespace.
+
+spec.replicas: 1
+  How many copies (pods) of this container to keep running.
+  Set to 1 for development/POC work. Production typically uses 2 or more
+  for high availability.
+
+spec.selector.matchLabels
+  How Kubernetes identifies which pods belong to this Deployment.
+  Must match the labels in spec.template.metadata.labels.
+
+spec.template.metadata.labels
+  Labels applied to every pod created by this Deployment.
+  Labels are key-value pairs used for identification and selection.
+
+spec.template.spec.imagePullSecrets
+  References the secret that contains Nexus3 credentials.
+  Kubernetes uses this to authenticate when pulling the image.
+  Must match the name of the secret created in your namespace.
+  See Section 6 for how to create this secret.
+
+spec.template.spec.containers[].name
+  The name of the container inside the pod.
+
+spec.template.spec.containers[].image
+  The Docker image to run — including the full Nexus3 registry URL and tag.
+  In our CI/CD setup, Jenkins replaces BUILD_NUMBER_PLACEHOLDER with the
+  actual build number before applying the manifest.
+
+resources.requests
+  The minimum resources the container needs.
+  Kubernetes uses this for scheduling — it places the pod on a node
+  that has at least this much available.
+
+resources.limits
+  The maximum resources the container is allowed to use.
+  If the container tries to exceed these, Kubernetes throttles or
+  restarts it. Always set limits to prevent one container consuming
+  all resources on a node.
+
+------------------------------------------------------------------------
+THE BUILD_NUMBER_PLACEHOLDER PATTERN
+------------------------------------------------------------------------
+
+The image tag in the YAML is written as a placeholder:
+  image: nexus3.company.com:<port>/my-application:BUILD_NUMBER_PLACEHOLDER
+
+Before applying the manifest, Jenkins replaces the placeholder with
+the actual build number using sed:
+
+  sed -i 's/BUILD_NUMBER_PLACEHOLDER/5/g' k8s/deployment.yaml
+
+After this command, the line becomes:
+  image: nexus3.company.com:<port>/my-application:5
+
+WHY THIS PATTERN?
+  - The YAML file in Git always has a clean placeholder — no actual
+    build numbers committed to source control
+  - Jenkins injects the correct version at deploy time
+  - Every deployment uses the exact image built in that Jenkins run
+  - Easy to see in the YAML that the image tag is dynamic
+
+================================================================================
+6. SETTING UP imagePullSecret FOR NEXUS3
+================================================================================
+
+Kubernetes needs credentials to pull images from Nexus3 (private registry).
+These credentials are stored as a Kubernetes Secret called imagePullSecret.
+
+This is a ONE-TIME SETUP per namespace. Once created, it does not need
+to be recreated unless the credentials change.
+
+------------------------------------------------------------------------
+STEP-BY-STEP: CREATE THE imagePullSecret
+------------------------------------------------------------------------
+
+Step 1: Confirm you have kubectl access to the namespace
+
+  kubectl get pods -n devops-poc
+
+  If this returns results (even "No resources found"), you have access.
+  If it returns "forbidden", raise an IT access ticket first.
+
+Step 2: Create the secret
+
+  kubectl create secret docker-registry nexus-pull-secret \
+    --docker-server=nexus3.company.com:<port> \
+    --docker-username=<service-account-username> \
+    --docker-password=<service-account-password> \
+    -n devops-poc
+
+  EXPLANATION:
+    docker-registry       → the type of secret (for Docker registry auth)
+    nexus-pull-secret     → the name of the secret (must match imagePullSecrets
+                            in your deployment.yaml)
+    --docker-server       → the Nexus3 registry URL including port
+    --docker-username     → the service account username (from DevOps team)
+    --docker-password     → the service account password (from DevOps team)
+    -n devops-poc         → the namespace to create the secret in
+
+  Screenshot guidance:
+    WHEN : After running the create secret command
+    WHAT : Terminal output showing:
+           "secret/nexus-pull-secret created"
+
+Step 3: Verify the secret was created
+
+  kubectl get secrets -n devops-poc
+
+  Screenshot guidance:
+    WHEN : After running kubectl get secrets
+    WHAT : Terminal output listing secrets in the namespace, showing
+           "nexus-pull-secret" with type "kubernetes.io/dockerconfigjson"
+
+IMPORTANT NOTES:
+  - The secret name (nexus-pull-secret) must match exactly what is
+    written in the imagePullSecrets section of your deployment.yaml
+  - If the credentials change (password rotation), delete the old secret
+    and recreate it:
+      kubectl delete secret nexus-pull-secret -n devops-poc
+      kubectl create secret docker-registry nexus-pull-secret ...
+
+================================================================================
+7. APPLYING A DEPLOYMENT — STEP BY STEP
+================================================================================
+
+Applying a deployment tells Kubernetes to create or update your application
+based on what is defined in the YAML file.
+
+------------------------------------------------------------------------
+STEP 1: Confirm your deployment.yaml is correct
+------------------------------------------------------------------------
+
+  Review the file and check:
+    - namespace matches your namespace (devops-poc)
+    - image URL includes the correct Nexus3 registry URL
+    - imagePullSecrets name matches the secret you created (nexus-pull-secret)
+    - replicas is set to what you need
+
+------------------------------------------------------------------------
+STEP 2: Apply the manifest
+------------------------------------------------------------------------
+
+  kubectl apply -f k8s/deployment.yaml -n devops-poc
+
+  WHAT "apply" DOES:
+    - If this Deployment does not exist → K8s creates it (first time)
+    - If this Deployment already exists → K8s updates it (subsequent runs)
+    - K8s compares what you want (the YAML) with what exists,
+      and makes only the changes needed
+
+  Screenshot guidance:
+    WHEN : After running kubectl apply
+    WHAT : Terminal output showing:
+           "deployment.apps/my-application created"    (first time)
+           or
+           "deployment.apps/my-application configured" (update)
+
+------------------------------------------------------------------------
+STEP 3: Monitor the rollout
+------------------------------------------------------------------------
+
+  kubectl rollout status deployment/my-application -n devops-poc
+
+  This command waits and prints status updates until the rollout completes.
+
+  Screenshot guidance:
+    WHEN : After rollout completes
+    WHAT : Terminal output showing:
+           "Waiting for deployment 'my-application' rollout to finish:
+            0 of 1 updated replicas are available..."
+           ending with:
+           "deployment 'my-application' successfully rolled out"
+
+================================================================================
+8. VERIFYING A DEPLOYMENT
+================================================================================
+
+After applying a deployment, always verify it is running correctly.
+
+------------------------------------------------------------------------
+CHECK THE DEPLOYMENT
+------------------------------------------------------------------------
+
+  kubectl get deployments -n devops-poc
+
+  Screenshot guidance:
+    WHEN : After the deployment is applied
+    WHAT : Terminal output showing your deployment with:
+           NAME             READY   UP-TO-DATE   AVAILABLE   AGE
+           my-application   1/1     1            1           2m
+
+  WHAT THE COLUMNS MEAN:
+    READY       : pods ready / total pods requested (1/1 = all good)
+    UP-TO-DATE  : number of pods updated to the latest version
+    AVAILABLE   : number of pods available to serve traffic
+    AGE         : how long the deployment has existed
+
+------------------------------------------------------------------------
+CHECK THE PODS
+------------------------------------------------------------------------
+
+  kubectl get pods -n devops-poc
+
+  Screenshot guidance:
+    WHEN : After the deployment is applied and pods are running
+    WHAT : Terminal output showing:
+           NAME                              READY  STATUS    RESTARTS  AGE
+           my-application-7d9f8b6c5-xk2pq   1/1    Running   0         90s
+
+  WHAT STATUS VALUES MEAN:
+    Running     : Container is running — this is what you want to see
+    Completed   : Container finished successfully (for batch/job workloads)
+    Pending     : Waiting to be scheduled or for the image to be pulled
+    Error       : Container exited with an error — check logs
+    CrashLoopBackOff : Container is crashing and restarting repeatedly
+
+------------------------------------------------------------------------
+CHECK POD LOGS
+------------------------------------------------------------------------
+
+  kubectl logs <pod-name> -n devops-poc
+
+  Replace <pod-name> with the actual pod name from kubectl get pods output.
+
+  Screenshot guidance:
+    WHEN : After checking logs of the running pod
+    WHAT : Terminal output showing the application's log output from
+           inside the container
+
+------------------------------------------------------------------------
+DESCRIBE A POD (DETAILED VIEW)
+------------------------------------------------------------------------
+
+  kubectl describe pod <pod-name> -n devops-poc
+
+  This shows detailed information about the pod including:
+  - Which node it is running on
+  - The image it is running
+  - Events (very useful for debugging — shows if image pull failed,
+    if the container crashed, etc.)
+
+  Screenshot guidance:
+    WHEN : When debugging a pod that is not starting correctly
+    WHAT : Terminal output of kubectl describe showing the Events
+           section at the bottom, which lists what happened to the pod
+
+------------------------------------------------------------------------
+VERIFY THE IMAGE VERSION
+------------------------------------------------------------------------
+
+  To confirm the pod is running the expected image version:
+
+  kubectl describe pod <pod-name> -n devops-poc | grep Image
+
+  Screenshot guidance:
+    WHAT : Terminal output showing the Image line:
+           Image: nexus3.company.com:<port>/my-application:5
+           Confirming the pod is running the correct build number
+
+================================================================================
+9. COMMON KUBECTL COMMANDS THE TEAM USES
+================================================================================
+
+VIEWING RESOURCES
+  kubectl get pods -n devops-poc                    List pods in namespace
+  kubectl get deployments -n devops-poc             List deployments
+  kubectl get secrets -n devops-poc                 List secrets
+  kubectl get all -n devops-poc                     List all resources
+
+INSPECTING RESOURCES
+  kubectl describe pod <pod-name> -n devops-poc     Full pod details + events
+  kubectl describe deployment <name> -n devops-poc  Full deployment details
+  kubectl logs <pod-name> -n devops-poc             View container logs
+  kubectl logs <pod-name> -n devops-poc -f          Stream logs live (follow)
+
+APPLYING AND UPDATING
+  kubectl apply -f deployment.yaml -n devops-poc    Apply or update manifest
+  kubectl rollout status deployment/<name> -n ns    Wait for rollout to finish
+  kubectl rollout history deployment/<name> -n ns   View rollout history
+
+ROLLBACK
+  kubectl rollout undo deployment/<name> -n ns      Roll back to previous version
+
+DELETING RESOURCES
+  kubectl delete pod <pod-name> -n devops-poc       Delete a pod (K8s restarts it)
+  kubectl delete deployment <name> -n devops-poc    Delete a deployment and pods
+
+SECRETS
+  kubectl create secret docker-registry <name> \   Create imagePullSecret
+    --docker-server=... --docker-username=... \
+    --docker-password=... -n devops-poc
+  kubectl get secrets -n devops-poc                 List secrets
+  kubectl delete secret <name> -n devops-poc        Delete a secret
+
+DEBUGGING
+  kubectl exec -it <pod-name> -n devops-poc -- bash   Open shell inside pod
+  kubectl get events -n devops-poc                    View recent cluster events
+  kubectl top pods -n devops-poc                      View resource usage
+
+================================================================================
+10. HOW JENKINS AUTOMATES THE DEPLOYMENT
+================================================================================
+
+In our CI/CD pipeline, the Kubernetes deployment is fully automated by
+Jenkins. You do not need to run kubectl manually after every build.
+
+WHAT JENKINS DOES IN THE DEPLOY STAGE:
+
+Step 1: Injects the build number into the YAML
+  Jenkins uses sed to replace BUILD_NUMBER_PLACEHOLDER in deployment.yaml
+  with the actual Jenkins build number:
+    sed -i 's/BUILD_NUMBER_PLACEHOLDER/${BUILD_NUMBER}/g' k8s/deployment.yaml
+
+Step 2: Applies the deployment using a stored kubeconfig
+  The kubeconfig file is stored as a Secret File credential in Jenkins.
+  Jenkins injects it at runtime — never stored on disk:
+    kubectl --kubeconfig=$KUBECONFIG apply -f k8s/deployment.yaml
+
+Step 3: Waits for the rollout to complete
+  Jenkins will not mark the stage as passed until K8s confirms success:
+    kubectl --kubeconfig=$KUBECONFIG rollout status \
+      deployment/my-application -n devops-poc
+
+  If the rollout fails (pod crashes, image not found, etc.), Jenkins
+  marks the Deploy stage as FAILED — giving you immediate feedback.
+
+WHY USE --kubeconfig IN JENKINS:
+  Jenkins is a shared server. Storing a kubeconfig at ~/.kube/config
+  on the Jenkins server would affect all jobs. By injecting it only
+  within the withCredentials block, each pipeline uses the correct
+  kubeconfig for its own cluster/namespace without affecting others.
+
+================================================================================
+11. UNDERSTANDING ROLLING UPDATES
+================================================================================
+
+A Rolling Update is Kubernetes' default strategy for updating a Deployment.
+It ensures your application stays available during the update — no downtime.
+
+HOW IT WORKS:
+  Before update: 1 pod running version :5
+          │
+          │  kubectl apply -f deployment.yaml (with version :6)
+          ▼
+  Kubernetes starts: 1 new pod with version :6
+          │
+          │  Kubernetes waits for new pod to be Ready
+          ▼
+  New pod is healthy and running version :6
+          │
+          │  Kubernetes terminates old pod running version :5
+          ▼
+  After update: 1 pod running version :6 — zero downtime
+
+WHAT THIS MEANS PRACTICALLY:
+  - During the update, briefly both the old and new pod may exist
+  - Traffic is only routed to pods that are healthy and Ready
+  - If the new pod fails to start, Kubernetes stops the rollout
+    and the old pod continues running — your service stays up
+  - "rollout status" waits until the new pod is confirmed healthy
+
+ROLLING BACK:
+  If a deployment was successful but the application has a bug,
+  you can immediately roll back to the previous version:
+
+  kubectl rollout undo deployment/my-application -n devops-poc
+
+  This brings back the previous image version without needing to
+  run the Jenkins pipeline.
+
+================================================================================
+12. COMPANY RULES FOR KUBERNETES
+================================================================================
+
+  Rule                              Reason
+  --------------------------------  ------------------------------------------
+  Always use a namespace            Never deploy to the default namespace.
+  — never the default               Namespaces keep team resources separated
+                                    and apply access controls per team.
+
+  Always set resource requests      Prevents a single container from consuming
+  and limits in the YAML            all CPU/memory on a node, which would
+                                    affect other teams' workloads.
+
+  Always use imagePullSecret        Required to pull images from Nexus3.
+  in deployment.yaml                Without it, the pod will fail with
+                                    ImagePullBackOff.
+
+  Never use "latest" as an          "latest" makes it impossible to know
+  image tag in deployment.yaml      which version is running. Always use
+                                    a specific build number or version.
+
+  Always use kubectl apply          "apply" is declarative and idempotent —
+  — not kubectl create              running it multiple times with the same
+                                    file produces the same result. "create"
+                                    fails if the resource already exists.
+
+  Store kubeconfig as a Jenkins     The kubeconfig file contains cluster
+  Secret File credential            credentials. Never commit it to Git or
+                                    store it as plain text anywhere.
+
+  Always verify rollout status      Never assume a deployment succeeded.
+  after applying                    "rollout status" confirms the new pods
+                                    are actually running before moving on.
+
+================================================================================
+13. QUICK REFERENCE — KUBECTL COMMANDS
+================================================================================
+
+  EVERYDAY COMMANDS
+  kubectl get pods -n <namespace>                    List pods
+  kubectl get deployments -n <namespace>             List deployments
+  kubectl get all -n <namespace>                     List everything
+  kubectl logs <pod> -n <namespace>                  View pod logs
+  kubectl logs <pod> -n <namespace> -f               Stream logs live
+  kubectl describe pod <pod> -n <namespace>          Full pod details
+
+  APPLY AND ROLLOUT
+  kubectl apply -f file.yaml -n <namespace>          Apply manifest
+  kubectl rollout status deployment/<name> -n <ns>   Wait for rollout
+  kubectl rollout undo deployment/<name> -n <ns>     Roll back
+  kubectl rollout history deployment/<name> -n <ns>  View history
+
+  SECRETS
+  kubectl get secrets -n <namespace>                 List secrets
+  kubectl create secret docker-registry <name> \     Create pull secret
+    --docker-server=<url> \
+    --docker-username=<user> \
+    --docker-password=<pass> \
+    -n <namespace>
+  kubectl delete secret <name> -n <namespace>        Delete secret
+
+  DEBUGGING
+  kubectl describe pod <pod> -n <namespace>          Events and details
+  kubectl exec -it <pod> -n <namespace> -- bash      Shell into pod
+  kubectl get events -n <namespace>                  Recent events
+  kubectl top pods -n <namespace>                    Resource usage
+
+  CLEANING UP
+  kubectl delete deployment <name> -n <namespace>    Delete deployment
+  kubectl delete pod <pod> -n <namespace>            Delete pod (restarts)
+
+================================================================================
+RELATED GUIDES
+================================================================================
+
+  Document 1 — Git & GitHub Guide          → [Add Confluence link after publishing]
+  Document 2 — Docker Guide               → [Add Confluence link after publishing]
+  Document 3 — Nexus3 Guide              → [Add Confluence link after publishing]
+  Document 4 — Jenkins Guide             → [Add Confluence link after publishing]
+  Document 5 — Kubernetes Guide           → [This document]
+
+================================================================================
+DOCUMENT END — Kubernetes Guide (Document 5 of 5)
+================================================================================

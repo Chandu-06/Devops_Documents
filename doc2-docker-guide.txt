@@ -1,0 +1,590 @@
+================================================================================
+              DOCKER — TEAM GUIDE
+              DevOps Onboarding Series | Document 2 of 5
+              Payment Data Programme | HSBC Technology
+================================================================================
+
+Last Updated  : April 2026
+Document Owner: Payment Data Programme — DevOps Team
+Confluence    : [Add Confluence page link here after publishing]
+
+--------------------------------------------------------------------------------
+RELATED GUIDES
+--------------------------------------------------------------------------------
+
+  Document 1 — Git & GitHub Guide          → [Add Confluence link after publishing]
+  Document 2 — Docker Guide                → [This document]
+  Document 3 — Nexus3 Guide               → [Add Confluence link after publishing]
+  Document 4 — Jenkins Guide              → [Add Confluence link after publishing]
+  Document 5 — Kubernetes Guide           → [Add Confluence link after publishing]
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+  1. What Is Docker and Why Do We Use It
+  2. Key Concepts You Need to Know
+  3. Prerequisites
+  4. How Docker Works — The Big Picture
+  5. Writing a Dockerfile
+  6. Building a Docker Image
+  7. Running a Docker Container
+  8. Getting Output From a Container
+  9. Managing Images and Containers
+  10. Company Rules for Docker
+  11. Quick Reference — Most Used Docker Commands
+
+================================================================================
+1. WHAT IS DOCKER AND WHY DO WE USE IT
+================================================================================
+
+Docker is a containerisation platform. It packages an application along
+with everything it needs to run — the operating system layer, libraries,
+dependencies, configuration — into a single portable unit called a container.
+
+THE PROBLEM DOCKER SOLVES:
+  Without Docker, an application might work perfectly on one machine but
+  fail on another because of differences in OS version, installed libraries,
+  or environment configuration. This is the classic "it works on my machine"
+  problem.
+
+  With Docker, the application and its entire environment are packaged
+  together. The container runs identically on any machine that has Docker
+  installed — a developer's laptop, a Jenkins build server, or a Kubernetes
+  cluster in production.
+
+WHY THE TEAM USES DOCKER:
+  - Consistent environments across dev, test, and production
+  - Applications are isolated from each other — no conflicts between
+    different apps running on the same server
+  - Easy to version and roll back — every image has a tag
+  - Works directly with Jenkins (build in CI) and Kubernetes (deploy to cluster)
+  - Containers start in seconds — much faster than virtual machines
+
+DOCKER VS VIRTUAL MACHINES:
+  Virtual Machine : Runs a full separate OS — heavy, slow to start (minutes)
+  Container       : Shares the host OS kernel — lightweight, starts in seconds
+
+================================================================================
+2. KEY CONCEPTS YOU NEED TO KNOW
+================================================================================
+
+  Concept         What It Means
+  --------------  -------------------------------------------------------------
+  Image           A read-only template used to create containers. Think of it
+                  as a blueprint or a snapshot. Built from a Dockerfile.
+
+  Container       A running instance of an image. You can run many containers
+                  from the same image simultaneously.
+
+  Dockerfile      A plain text file with instructions for building an image.
+                  Like a recipe — Docker follows it step by step.
+
+  Registry        A storage location for Docker images. Docker Hub is the
+                  public registry. Our team uses Nexus3 — a private registry.
+                  See Document 3 for details.
+
+  Tag             A label on an image to identify its version.
+                  Example: my-app:1, my-app:2, my-app:latest
+                  We always use a specific version tag — never rely on
+                  "latest" in a team environment.
+
+  Layer           Each instruction in a Dockerfile creates a layer.
+                  Layers are cached — if nothing changed in a layer,
+                  Docker reuses it, making builds faster.
+
+  Volume          A way to share data between a container and the host machine,
+                  or between containers. Used when you need output from inside
+                  a container to be accessible outside.
+
+  Base Image      The starting point for your Docker image — defined in the
+                  FROM line of the Dockerfile. Always use the company-approved
+                  base image from Nexus3, never a public image.
+
+================================================================================
+3. PREREQUISITES
+================================================================================
+
+Before following this guide, make sure you have:
+
+  [ ] Docker installed on your machine
+        Verify: open a terminal and run — docker --version
+        Expected output: Docker version XX.X.X, build xxxxxxx
+
+  [ ] Access to the company Nexus3 registry
+        This is needed to pull the approved base image
+        Raise an IT access request ticket if you do not have access
+
+  [ ] A terminal / command line available
+
+  NOTE: On the company build server (Jenkins), Docker is already installed.
+  The steps in this guide apply both to your local machine and the
+  build server environment.
+
+================================================================================
+4. HOW DOCKER WORKS — THE BIG PICTURE
+================================================================================
+
+The workflow always follows this sequence:
+
+  1. Write a Dockerfile        → defines what goes into the image
+         │
+         ▼
+  2. Build the image           → Docker reads the Dockerfile and creates
+         │                       the image layer by layer
+         ▼
+  3. Run a container           → Docker starts a container from the image
+         │                       and executes the application inside it
+         ▼
+  4. Use the output            → collect logs, files, or results from
+         │                       the container
+         ▼
+  5. Push to registry          → store the image in Nexus3 so others
+                                 (Jenkins, Kubernetes) can use it
+
+In our CI/CD pipeline:
+  - Steps 2–4 are done automatically by Jenkins on every code push
+  - Step 5 (push to Nexus3) is also automated by Jenkins
+  - Kubernetes then pulls the image from Nexus3 and runs it in the cluster
+
+================================================================================
+5. WRITING A DOCKERFILE
+================================================================================
+
+A Dockerfile is a plain text file named exactly "Dockerfile" — no extension.
+It contains a series of instructions that Docker executes top to bottom
+to build your image.
+
+------------------------------------------------------------------------
+DOCKERFILE STRUCTURE
+------------------------------------------------------------------------
+
+  FROM    <base-image>:<tag>
+  WORKDIR <working-directory>
+  COPY    <source> <destination>
+  RUN     <command>
+  ENV     <key>=<value>
+  EXPOSE  <port>
+  CMD     ["command", "argument"]
+
+------------------------------------------------------------------------
+INSTRUCTION-BY-INSTRUCTION EXPLANATION
+------------------------------------------------------------------------
+
+FROM — The starting point
+  Every Dockerfile must start with FROM. It defines the base image —
+  the foundation your image is built on top of.
+
+  IMPORTANT — COMPANY RULE:
+    Never use images from Docker Hub (e.g., FROM ubuntu:22.04).
+    Always use the company-approved base image from our Nexus3 registry.
+    The DevOps team will provide you with the correct FROM line to use.
+
+  Example format:
+    FROM nexus3.your-company.com:<port>/<approved-base-image>:<tag>
+
+WORKDIR — Set the working directory
+  Sets the directory inside the container where all subsequent commands
+  (COPY, RUN, CMD) will execute. If the directory does not exist,
+  Docker creates it automatically.
+
+  Example:
+    WORKDIR /app
+
+  After this, all commands run inside /app inside the container.
+
+COPY — Copy files into the image
+  Copies files from your local machine (or build context) into the image.
+
+  Example:
+    COPY script.sh .
+
+  This copies script.sh from your project folder into /app/ inside the image
+  (because WORKDIR is /app and "." means "current directory").
+
+RUN — Execute a command during build
+  Runs a shell command during the image build process. Used for things like
+  installing packages or setting file permissions. Each RUN instruction
+  creates a new layer in the image.
+
+  Example:
+    RUN chmod +x script.sh
+
+  This makes script.sh executable inside the image.
+
+ENV — Set environment variables
+  Sets environment variables that are available inside the container at runtime.
+
+  Example:
+    ENV APP_ENV=production
+
+CMD — Default command when container starts
+  Defines what command runs when a container starts from this image.
+  There should only be one CMD in a Dockerfile.
+  Use the "exec form" (array format) — it is more reliable than shell form.
+
+  Example:
+    CMD ["./script.sh"]
+
+  This runs ./script.sh as the default command when the container starts.
+
+EXPOSE — Document which port the app listens on
+  Informational only — tells developers which port the application uses.
+  Does not actually publish the port. Used mainly for documentation.
+
+  Example:
+    EXPOSE 8080
+
+------------------------------------------------------------------------
+EXAMPLE DOCKERFILE (Generic)
+------------------------------------------------------------------------
+
+  FROM nexus3.your-company.com:<port>/<approved-base-image>:<tag>
+
+  WORKDIR /app
+
+  COPY your-script.sh .
+
+  RUN chmod +x your-script.sh
+
+  CMD ["./your-script.sh"]
+
+------------------------------------------------------------------------
+DOCKERFILE BEST PRACTICES
+------------------------------------------------------------------------
+
+  Practice                         Reason
+  -------------------------------  ----------------------------------------
+  Use specific tags (not latest)   "latest" can change without warning and
+                                   break your build unpredictably
+
+  Keep images small                Only copy what the container needs —
+                                   fewer files means faster builds and
+                                   less attack surface
+
+  One process per container        Each container should do one thing.
+                                   Do not run multiple apps in one container.
+
+  Never hardcode secrets           No passwords, tokens, or keys inside
+                                   the Dockerfile — ever. Use environment
+                                   variables or secret managers instead.
+
+  Order instructions carefully     Put instructions that change frequently
+                                   (like COPY) after instructions that
+                                   change rarely (like RUN apt-get install).
+                                   This maximises layer caching and speeds
+                                   up builds.
+
+------------------------------------------------------------------------
+SCREENSHOT GUIDANCE — DOCKERFILE
+------------------------------------------------------------------------
+
+  WHEN : After creating the Dockerfile in your project folder
+  WHAT : Your code editor or terminal showing the Dockerfile contents,
+         with the file name clearly visible as "Dockerfile" (no extension)
+
+================================================================================
+6. BUILDING A DOCKER IMAGE
+================================================================================
+
+The build command reads your Dockerfile and creates an image from it.
+
+COMMAND:
+  docker build -t <image-name>:<tag> <build-context>
+
+EXPLANATION:
+  docker build       → tells Docker to build an image
+  -t                 → "tag" — gives the image a name and version label
+  <image-name>:<tag> → the name and version of your image
+  <build-context>    → the folder Docker uses as its working directory
+                       (usually "." meaning the current folder)
+
+EXAMPLE:
+  docker build -t my-application:1 .
+
+  This builds an image named "my-application" with tag "1"
+  using the Dockerfile in the current folder.
+
+------------------------------------------------------------------------
+STEP-BY-STEP: BUILD YOUR FIRST IMAGE
+------------------------------------------------------------------------
+
+Step 1: Navigate to the folder containing your Dockerfile
+
+  cd path/to/your/project
+
+Step 2: Run the build command
+
+  docker build -t my-application:1 .
+
+  Screenshot guidance:
+    WHEN : While the build is running
+    WHAT : Terminal output showing each Dockerfile instruction being
+           processed — Step 1/5, Step 2/5, etc. — ending with:
+           "Successfully built <image-id>"
+           "Successfully tagged my-application:1"
+
+Step 3: Verify the image was created
+
+  docker images
+
+  Screenshot guidance:
+    WHEN : After the build completes
+    WHAT : Terminal output of "docker images" showing your image listed
+           with its name, tag, image ID, and size
+
+EXPECTED OUTPUT:
+  REPOSITORY         TAG    IMAGE ID       CREATED         SIZE
+  my-application     1      a1b2c3d4e5f6   2 minutes ago   150MB
+
+------------------------------------------------------------------------
+HOW DOCKER USES LAYERS AND CACHE
+------------------------------------------------------------------------
+
+Every instruction in the Dockerfile creates a layer. Docker caches each
+layer. On subsequent builds, if a layer has not changed, Docker reuses
+the cached version instead of rebuilding it — this makes builds much faster.
+
+Example:
+  - First build: all 5 steps run — takes 60 seconds
+  - Second build (only script.sh changed): steps 1–3 use cache,
+    only steps 4–5 re-run — takes 5 seconds
+
+You will see "Using cache" in the build output when layers are reused.
+
+================================================================================
+7. RUNNING A DOCKER CONTAINER
+================================================================================
+
+Running a container starts an instance of your image and executes
+the command defined in CMD.
+
+BASIC COMMAND:
+  docker run <image-name>:<tag>
+
+USEFUL FLAGS:
+
+  Flag              What It Does
+  ----------------  -----------------------------------------------------------
+  --name            Give the container a name (easier to manage than random IDs)
+  --rm              Automatically remove the container when it exits
+  -d                Run in detached mode (background — does not block terminal)
+  -it               Interactive mode with terminal (useful for debugging)
+  -v host:container Mount a folder from host into the container (share files)
+  -e KEY=VALUE      Set an environment variable inside the container
+  -p host:container Map a port from host to container (e.g. -p 8080:8080)
+
+------------------------------------------------------------------------
+STEP-BY-STEP: RUN A CONTAINER
+------------------------------------------------------------------------
+
+Step 1: Run the container
+
+  docker run --name my-container my-application:1
+
+  Screenshot guidance:
+    WHEN : After the container finishes running
+    WHAT : Terminal output showing the application's output —
+           whatever the CMD in your Dockerfile produces
+
+Step 2: Verify the container ran
+
+  docker ps -a
+
+  This shows all containers — running and stopped.
+
+  Screenshot guidance:
+    WHEN : After running docker ps -a
+    WHAT : Terminal showing your container listed with:
+           - Container ID
+           - Image name and tag
+           - Status: "Exited (0)" for a successfully completed container
+             or "Up X seconds" for a running container
+
+WHAT "Exited (0)" MEANS:
+  Exit code 0 = the container finished successfully with no errors.
+  Any other exit code (1, 2, etc.) means something went wrong.
+
+================================================================================
+8. GETTING OUTPUT FROM A CONTAINER
+================================================================================
+
+Sometimes your container produces a file (like a log) that you need
+to access from outside the container. There are two ways to do this.
+
+------------------------------------------------------------------------
+METHOD 1: COPY FILE OUT AFTER THE CONTAINER RUNS
+------------------------------------------------------------------------
+
+Run the container first, then copy the file out:
+
+  docker run --name my-container my-application:1
+  docker cp my-container:/app/output.log ./output.log
+  docker rm my-container
+
+EXPLANATION:
+  docker cp <container-name>:<path-inside-container> <path-on-host>
+
+  This copies the file from inside the container to your current folder.
+  You then remove the container with docker rm to keep things clean.
+
+  Screenshot guidance:
+    WHEN : After running docker cp
+    WHAT : Terminal showing the cp command completed, then run
+           "ls -la output.log" to confirm the file exists on your machine
+
+------------------------------------------------------------------------
+METHOD 2: MOUNT A VOLUME WHEN RUNNING
+------------------------------------------------------------------------
+
+Mount a folder from your machine into the container at run time.
+The container writes its output directly to the mounted folder —
+the file appears on your host machine as the container writes it.
+
+  docker run --rm \
+    -v $(pwd):/output \
+    my-application:1 \
+    bash -c "./your-script.sh && cp output.log /output/"
+
+EXPLANATION:
+  -v $(pwd):/output  → mounts your current folder as /output inside container
+  bash -c "..."      → overrides CMD to run a custom command sequence
+  --rm               → removes the container automatically after it exits
+
+  Screenshot guidance:
+    WHEN : After the container exits
+    WHAT : Run "ls -la" and capture the terminal showing output.log
+           in your current directory with a recent timestamp
+
+================================================================================
+9. MANAGING IMAGES AND CONTAINERS
+================================================================================
+
+Over time, Docker accumulates images and containers on your machine.
+It is good practice to clean up regularly to free disk space.
+
+------------------------------------------------------------------------
+VIEWING WHAT EXISTS
+------------------------------------------------------------------------
+
+  List all images:
+    docker images
+
+  List running containers:
+    docker ps
+
+  List all containers (including stopped):
+    docker ps -a
+
+------------------------------------------------------------------------
+REMOVING IMAGES AND CONTAINERS
+------------------------------------------------------------------------
+
+  Remove a specific container:
+    docker rm <container-name-or-id>
+
+  Remove a specific image:
+    docker rmi <image-name>:<tag>
+
+  Remove all stopped containers:
+    docker container prune
+
+  Remove all unused images:
+    docker image prune
+
+  NOTE: You cannot remove an image that has a container (even a stopped
+  one) using it. Remove the container first, then the image.
+
+------------------------------------------------------------------------
+COMMON ISSUE — IMAGE IN USE
+------------------------------------------------------------------------
+
+  Error: "Error response from daemon: conflict: unable to remove repository
+         reference — image is being used by stopped container"
+
+  Fix:
+    docker rm <container-id>    → remove the container first
+    docker rmi <image-name>     → then remove the image
+
+================================================================================
+10. COMPANY RULES FOR DOCKER
+================================================================================
+
+These rules exist for security and compliance reasons.
+Follow them on every Docker task — no exceptions.
+
+  Rule                              Reason
+  --------------------------------  ------------------------------------------
+  Always use base images from       Public Docker Hub images are not vetted
+  Nexus3 — never from Docker Hub    for security. Our Nexus3 registry contains
+                                    company-approved, scanned base images only.
+
+  Never hardcode credentials        Passwords, tokens, and API keys must never
+  in a Dockerfile or script         appear in a Dockerfile, script, or any
+                                    file committed to Git. Use Jenkins
+                                    credentials store or environment variables.
+
+  Always tag images with a          Using "latest" is unpredictable — it
+  specific version — never "latest" changes without notice. Use build numbers
+                                    or semantic versions so images are
+                                    traceable and reproducible.
+
+  Clean up local images after       Disk space on shared servers is limited.
+  use in pipelines                  Jenkins pipelines should always include
+                                    a cleanup step to remove images after
+                                    they have been pushed to Nexus3.
+
+  Do not run containers as root     Where possible, create a non-root user
+  inside the image                  inside the Dockerfile and switch to it.
+                                    Running as root inside a container is
+                                    a security risk.
+
+================================================================================
+11. QUICK REFERENCE — MOST USED DOCKER COMMANDS
+================================================================================
+
+IMAGES
+  docker build -t name:tag .          Build image from Dockerfile in current dir
+  docker images                       List all local images
+  docker rmi name:tag                 Remove an image
+  docker image prune                  Remove all unused images
+  docker pull registry/image:tag      Pull an image from a registry
+
+CONTAINERS
+  docker run name:tag                 Run a container from an image
+  docker run --name c name:tag        Run with a specific container name
+  docker run --rm name:tag            Run and auto-remove when done
+  docker run -it name:tag bash        Run interactively with a shell
+  docker run -v host:container name   Run with a mounted volume
+  docker ps                           List running containers
+  docker ps -a                        List all containers (including stopped)
+  docker stop <name-or-id>            Stop a running container
+  docker rm <name-or-id>              Remove a stopped container
+  docker container prune              Remove all stopped containers
+  docker logs <name-or-id>            View container output/logs
+  docker cp container:/path ./path    Copy file from container to host
+
+REGISTRY
+  docker login <registry-url>         Log in to a registry
+  docker logout <registry-url>        Log out of a registry
+  docker tag name:tag registry/name:tag   Tag image with registry URL
+  docker push registry/name:tag       Push image to registry
+
+INSPECTION
+  docker inspect <name-or-id>         Full details of image or container
+  docker exec -it <name> bash         Open a shell inside a running container
+  docker stats                        Live resource usage of running containers
+
+================================================================================
+RELATED GUIDES
+================================================================================
+
+  Document 1 — Git & GitHub Guide          → [Add Confluence link after publishing]
+  Document 2 — Docker Guide                → [This document]
+  Document 3 — Nexus3 Guide               → [Add Confluence link after publishing]
+  Document 4 — Jenkins Guide              → [Add Confluence link after publishing]
+  Document 5 — Kubernetes Guide           → [Add Confluence link after publishing]
+
+================================================================================
+DOCUMENT END — Docker Guide (Document 2 of 5)
+================================================================================

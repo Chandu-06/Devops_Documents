@@ -1,0 +1,538 @@
+================================================================================
+              GIT & GITHUB — TEAM GUIDE
+              DevOps Onboarding Series | Document 1 of 5
+              Payment Data Programme | HSBC Technology
+================================================================================
+
+Last Updated  : April 2026
+Document Owner: Payment Data Programme — DevOps Team
+Confluence    : [Add Confluence page link here after publishing]
+
+--------------------------------------------------------------------------------
+RELATED GUIDES
+--------------------------------------------------------------------------------
+
+  Document 1 — Git & GitHub Guide          → [This document]
+  Document 2 — Docker Guide                → [Add Confluence link after publishing]
+  Document 3 — Nexus3 Guide               → [Add Confluence link after publishing]
+  Document 4 — Jenkins Guide              → [Add Confluence link after publishing]
+  Document 5 — Kubernetes Guide           → [Add Confluence link after publishing]
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+  1. What Is Git and Why Do We Use It
+  2. What Is GitHub and How We Use It
+  3. Prerequisites
+  4. One-Time Setup — Configure Git
+  5. Understanding Git Flow — Our Branching Strategy
+  6. Step-by-Step — Daily Git Workflow
+  7. Working With Pull Requests on GitHub
+  8. Commit Message Guidelines
+  9. Rules the Team Follows
+  10. Quick Reference — Most Used Git Commands
+
+================================================================================
+1. WHAT IS GIT AND WHY DO WE USE IT
+================================================================================
+
+Git is a version control system. It tracks every change made to every file
+in a project, along with who made the change and when.
+
+Without Git:
+  - You overwrite a file and lose the previous version forever
+  - Two people edit the same file and one person's work gets lost
+  - There is no history of what changed or why
+
+With Git:
+  - Every change is saved with a message explaining what was done
+  - Multiple people can work on the same project at the same time
+  - You can go back to any previous version at any point
+  - You can work on a new feature without affecting anyone else's work
+
+Git works locally on your machine. It does not need the internet to function.
+Changes are only shared with others when you explicitly push them.
+
+================================================================================
+2. WHAT IS GITHUB AND HOW WE USE IT
+================================================================================
+
+GitHub is the remote hosting platform for Git repositories. Think of it as
+the central shared location where everyone's code lives.
+
+  Your machine (local)  ←→  GitHub (remote / shared)
+
+When you push your changes, they go from your machine to GitHub.
+When someone else pushes their changes, you pull them from GitHub to your machine.
+
+In this team:
+  - All code lives in a repository on the company GitHub instance
+  - GitHub is also where Pull Requests are raised and reviewed
+  - GitHub sends notifications to Jenkins whenever code is pushed
+    (this is what triggers the CI/CD pipeline automatically)
+
+================================================================================
+3. PREREQUISITES
+================================================================================
+
+Before following this guide, make sure you have:
+
+  [ ] Git installed on your machine
+        Verify: open a terminal and run — git --version
+        Expected output: git version 2.x.x
+
+  [ ] Access to the company GitHub repository
+        If you do not have access, raise an IT access request ticket
+
+  [ ] Your company email configured in Git (see Section 4)
+
+  [ ] A terminal / command line available
+        Windows: Git Bash or Command Prompt
+        Mac/Linux: Terminal
+
+================================================================================
+4. ONE-TIME SETUP — CONFIGURE GIT
+================================================================================
+
+This only needs to be done once when you first start using Git on a machine.
+
+PURPOSE:
+  Git records who made each change. These two settings tell Git your name
+  and email so every commit is correctly attributed to you.
+
+STEP 1: Set your name
+
+  git config --global user.name "Your Full Name"
+
+  Replace "Your Full Name" with your actual name.
+  Example: git config --global user.name "Pranay Devineni"
+
+STEP 2: Set your email
+
+  git config --global user.email "your.email@company.com"
+
+  Use your company email address — the same one linked to your GitHub account.
+
+STEP 3: Verify the settings were saved
+
+  git config --list
+
+  Screenshot guidance:
+    WHEN : After running git config --list
+    WHAT : Terminal output showing user.name and user.email with the values
+           you just set. Capture the full terminal output.
+
+EXPECTED OUTPUT:
+  user.name=Your Full Name
+  user.email=your.email@company.com
+
+================================================================================
+5. UNDERSTANDING GIT FLOW — OUR BRANCHING STRATEGY
+================================================================================
+
+This team follows Git Flow — a structured branching strategy that keeps
+the codebase stable and makes collaboration predictable.
+
+WHY DO WE NEED A BRANCHING STRATEGY?
+  Without rules on branching, everyone pushes directly to the same place,
+  changes overwrite each other, and broken code reaches production.
+  Git Flow prevents this by giving every type of work its own branch.
+
+THE BRANCHES AND WHAT THEY ARE FOR:
+
+  Branch          Purpose                               Who pushes here
+  --------------  ------------------------------------  ----------------------
+  master          Production-ready code only            No one directly —
+                                                        only via release branch
+  develop         Integration branch — all completed    No one directly —
+                  feature work comes here first         only via Pull Request
+  feature/*       Your working branch for a task        You — daily work here
+  release/*       Pre-release stabilisation             Team lead / senior dev
+
+THE FLOW OF A CHANGE:
+
+  You create a feature branch from develop
+          │
+          │  (you do your work here)
+          ▼
+  feature/your-task
+          │
+          │  Pull Request → reviewed → approved → merged
+          ▼
+       develop
+          │
+          │  When ready for release
+          ▼
+    release/v1.0
+          │
+          │  Final checks → merged to master
+          ▼
+        master  ←─── tagged as v1.0.0
+
+KEY RULES:
+  - NEVER push directly to master or develop
+  - ALL changes go through a Pull Request — no exceptions
+  - A feature branch is for ONE task only — keep it focused
+  - Delete the feature branch after it is merged — keep the repo clean
+
+BRANCH NAMING CONVENTION:
+
+  Type        Format                    Example
+  ----------  ------------------------  ----------------------------
+  Feature     feature/short-description feature/log-generator
+  Bug fix     fix/short-description     fix/pipeline-timeout
+  Release     release/version           release/v1.0
+  Hotfix      hotfix/short-description  hotfix/nexus-auth-error
+
+  Rules for naming:
+    - Use lowercase only
+    - Use hyphens between words, not spaces or underscores
+    - Keep it short but descriptive — someone should understand
+      what the branch is for just by reading the name
+
+================================================================================
+6. STEP-BY-STEP — DAILY GIT WORKFLOW
+================================================================================
+
+This is the sequence you follow every time you work on something new.
+Follow these steps in order — do not skip any.
+
+------------------------------------------------------------------------
+STEP 1: Clone the repository (first time only)
+------------------------------------------------------------------------
+
+PURPOSE: Gets a copy of the remote repository onto your local machine.
+You only do this once. After cloning, you work inside that folder.
+
+  On GitHub, navigate to the repository page.
+  Click the green "Code" button.
+  Copy the HTTPS URL shown in the dropdown.
+
+  In your terminal:
+    git clone <repository-HTTPS-URL>
+    cd <repository-folder-name>
+
+  Screenshot guidance:
+    WHEN : Before clicking Clone, on the GitHub repository page
+    WHAT : The repository page showing the green "Code" button clicked,
+           with the HTTPS URL visible in the dropdown
+
+------------------------------------------------------------------------
+STEP 2: Switch to develop and get the latest code
+------------------------------------------------------------------------
+
+PURPOSE: Always start your work from the latest version of develop.
+If you skip this, your feature branch may be based on old code.
+
+  git checkout develop
+  git pull origin develop
+
+  Screenshot guidance:
+    WHEN : After running git pull origin develop
+    WHAT : Terminal output showing "Already up to date." or a list of
+           files that were updated — confirms you have the latest code
+
+------------------------------------------------------------------------
+STEP 3: Create your feature branch
+------------------------------------------------------------------------
+
+PURPOSE: Creates a new branch for your work — separate from develop.
+Your changes stay isolated here until they are reviewed and approved.
+
+  git checkout -b feature/your-task-name
+
+  Replace "your-task-name" with a short description of your task.
+  Example: git checkout -b feature/add-dockerfile
+
+  Screenshot guidance:
+    WHEN : After running the checkout -b command
+    WHAT : Terminal output showing:
+           "Switched to a new branch 'feature/your-task-name'"
+
+------------------------------------------------------------------------
+STEP 4: Do your work
+------------------------------------------------------------------------
+
+Make your changes — create files, edit code, write scripts.
+You can check what has changed at any point:
+
+  git status         → shows which files are changed or new
+  git diff           → shows exactly what changed inside files
+
+------------------------------------------------------------------------
+STEP 5: Stage your changes
+------------------------------------------------------------------------
+
+PURPOSE: Staging tells Git which changes you want to include in your
+next commit. You choose what goes in — not everything has to be committed.
+
+  Stage everything:
+    git add .
+
+  Stage a specific file:
+    git add filename.txt
+
+  Verify what is staged:
+    git status
+
+  Screenshot guidance:
+    WHEN : After running git add . and then git status
+    WHAT : Terminal output showing files listed under
+           "Changes to be committed" in green
+
+------------------------------------------------------------------------
+STEP 6: Commit your changes
+------------------------------------------------------------------------
+
+PURPOSE: A commit saves a snapshot of your staged changes with a message
+explaining what was done. This becomes part of the permanent history.
+
+  git commit -m "Brief description of what you did"
+
+  Example: git commit -m "Add Dockerfile for log generator app"
+
+  Good commit messages:
+    - Start with a verb: Add, Fix, Update, Remove, Refactor
+    - Describe what was done, not why
+    - Keep it under 72 characters
+    - Be specific — "Add Dockerfile" is better than "changes"
+
+  Screenshot guidance:
+    WHEN : After running git commit
+    WHAT : Terminal output showing:
+           "[feature/your-task-name abc1234] Your commit message"
+           along with the number of files changed
+
+------------------------------------------------------------------------
+STEP 7: Push your branch to GitHub
+------------------------------------------------------------------------
+
+PURPOSE: Sends your local branch and commits to GitHub so others can
+see it and so you can raise a Pull Request.
+
+  git push origin feature/your-task-name
+
+  First time pushing this branch, Git may prompt you to set the upstream:
+    git push --set-upstream origin feature/your-task-name
+
+  Screenshot guidance:
+    WHEN : After the push completes
+    WHAT : Terminal output showing the push success message, for example:
+           "Branch 'feature/your-task-name' set up to track remote
+            branch 'feature/your-task-name' from 'origin'"
+           and a URL to create a Pull Request (GitHub often shows this)
+
+------------------------------------------------------------------------
+STEP 8: Raise a Pull Request on GitHub
+------------------------------------------------------------------------
+
+PURPOSE: A Pull Request (PR) is a request for your team to review your
+changes before they are merged into develop. This is where code review
+happens.
+
+  1. Go to the repository on GitHub
+  2. GitHub usually shows a banner: "feature/your-task-name had recent
+     pushes — Compare & pull request" → click it
+     (If you do not see the banner: click "Pull requests" tab →
+      "New pull request")
+  3. Set the branches:
+       base    : develop          ← where your code will go
+       compare : feature/your-task-name  ← your branch
+  4. Add a clear title — what does this PR do?
+  5. Add a description — brief summary of changes made
+  6. Click "Create pull request"
+
+  Screenshot guidance:
+    WHEN : After the PR is created (before it is merged)
+    WHAT : The open Pull Request page on GitHub showing:
+           - The PR title
+           - Branch comparison (feature/... → develop)
+           - The green "Open" badge
+           - The list of commits included in the PR
+
+------------------------------------------------------------------------
+STEP 9: PR is reviewed and merged
+------------------------------------------------------------------------
+
+A team member reviews the PR. They may:
+  - Approve it directly → you or they click "Merge pull request"
+  - Leave comments → you address them, push more commits to the same
+    feature branch, and the PR updates automatically
+
+After approval:
+  Click "Merge pull request" → "Confirm merge"
+
+  Screenshot guidance:
+    WHEN : After the merge is complete
+    WHAT : The PR page showing the purple "Merged" badge and the message
+           "Pull request successfully merged and closed"
+
+------------------------------------------------------------------------
+STEP 10: Clean up — delete the feature branch
+------------------------------------------------------------------------
+
+PURPOSE: Once merged, the feature branch is no longer needed.
+Keeping old branches around clutters the repository.
+
+  Delete on GitHub:
+    After merging, GitHub shows a "Delete branch" button — click it.
+
+  Delete locally on your machine:
+    git checkout develop
+    git pull origin develop
+    git branch -d feature/your-task-name
+
+  Screenshot guidance:
+    WHEN : After deleting the branch
+    WHAT : Terminal output showing:
+           "Deleted branch feature/your-task-name (was abc1234)"
+
+================================================================================
+7. WORKING WITH PULL REQUESTS ON GITHUB
+================================================================================
+
+WHAT IS A PULL REQUEST?
+  A Pull Request is not just a way to merge code — it is the team's
+  quality gate. Before any change reaches develop, at least one other
+  person has reviewed it. This catches bugs early and spreads knowledge
+  across the team.
+
+WHEN YOUR PR GETS COMMENTS:
+  1. Read each comment carefully
+  2. Make the required changes on your local feature branch
+  3. Stage and commit the changes:
+       git add .
+       git commit -m "Address PR review comments"
+  4. Push the branch again:
+       git push origin feature/your-task-name
+  5. The PR on GitHub updates automatically — no need to close and
+     re-open it
+
+REVIEWING SOMEONE ELSE'S PR:
+  1. Go to the repository → Pull requests tab
+  2. Click the PR you want to review
+  3. Click the "Files changed" tab to see what was modified
+  4. Click the "+" icon next to a line to leave an inline comment
+  5. When done reviewing:
+       - "Approve" if everything looks good
+       - "Request changes" if something needs fixing
+       - "Comment" if you just want to ask a question
+
+================================================================================
+8. COMMIT MESSAGE GUIDELINES
+================================================================================
+
+A good commit message tells the next person (or future you) exactly what
+was done and why — without needing to read the code.
+
+FORMAT:
+  <verb> <what was changed>
+
+GOOD EXAMPLES:
+  Add Dockerfile for the application
+  Fix incorrect file path in pipeline script
+  Update Jenkinsfile to include Nexus push stage
+  Remove unused environment variable from config
+  Refactor log generation script for readability
+
+BAD EXAMPLES:
+  changes             ← too vague
+  fix                 ← what was fixed?
+  WIP                 ← do not commit work in progress to shared branches
+  asdfgh              ← not acceptable
+  updated stuff       ← meaningless
+
+RULES:
+  - Start with a capital letter
+  - Use present tense: "Add" not "Added"
+  - No full stop at the end
+  - Keep it under 72 characters
+  - One commit = one logical change. Do not bundle unrelated changes
+    into a single commit.
+
+================================================================================
+9. RULES THE TEAM FOLLOWS
+================================================================================
+
+These are non-negotiable practices that keep the codebase stable and
+the team working smoothly.
+
+  Rule                              Reason
+  --------------------------------  ------------------------------------------
+  Never push directly to master     master is production — broken code here
+                                    affects everyone immediately
+
+  Never push directly to develop    develop must always be in a working state
+                                    — all changes must be reviewed first
+
+  Always start from latest develop  Prevents merge conflicts later and ensures
+  before creating a feature branch  your work is based on current code
+
+  One feature branch per task       Keeps PRs small and easy to review.
+                                    Large PRs with many unrelated changes
+                                    are hard to review and error-prone.
+
+  Always raise a PR — no            Even small changes need a second pair
+  exceptions                        of eyes. This is how the team shares
+                                    knowledge and catches mistakes early.
+
+  Delete merged branches            Keeps the repository clean. A long list
+                                    of stale branches confuses everyone.
+
+  Write meaningful commit messages  The commit history is the project diary.
+                                    Vague messages make debugging harder
+                                    for everyone — including yourself.
+
+================================================================================
+10. QUICK REFERENCE — MOST USED GIT COMMANDS
+================================================================================
+
+SETUP
+  git config --global user.name "Name"     Set your name
+  git config --global user.email "email"   Set your email
+  git config --list                         View current config
+
+GETTING CODE
+  git clone <url>                           Clone a remote repository
+  git pull origin develop                   Get latest changes from develop
+
+BRANCHING
+  git checkout develop                      Switch to develop branch
+  git checkout -b feature/name             Create and switch to new branch
+  git branch                               List all local branches
+  git branch -d feature/name              Delete a local branch
+
+MAKING CHANGES
+  git status                               See what has changed
+  git diff                                 See exact line-by-line changes
+  git add .                                Stage all changes
+  git add filename                         Stage a specific file
+  git commit -m "message"                  Commit staged changes
+
+SHARING CHANGES
+  git push origin feature/name            Push branch to GitHub
+  git push --set-upstream origin name     Push a new branch for first time
+
+HISTORY
+  git log                                  Full commit history
+  git log --oneline                        Compact commit history (one line each)
+
+UNDOING
+  git restore filename                     Undo changes to a file (not staged)
+  git restore --staged filename            Unstage a file
+  git revert <commit-hash>                 Undo a commit safely (keeps history)
+
+================================================================================
+RELATED GUIDES
+================================================================================
+
+  Document 1 — Git & GitHub Guide          → [This document]
+  Document 2 — Docker Guide                → [Add Confluence link after publishing]
+  Document 3 — Nexus3 Guide               → [Add Confluence link after publishing]
+  Document 4 — Jenkins Guide              → [Add Confluence link after publishing]
+  Document 5 — Kubernetes Guide           → [Add Confluence link after publishing]
+
+================================================================================
+DOCUMENT END — Git & GitHub Guide (Document 1 of 5)
+================================================================================

@@ -1,0 +1,507 @@
+================================================================================
+              NEXUS3 — TEAM GUIDE
+              DevOps Onboarding Series | Document 3 of 5
+              Payment Data Programme | HSBC Technology
+================================================================================
+
+Last Updated  : April 2026
+Document Owner: Payment Data Programme — DevOps Team
+Confluence    : [Add Confluence page link here after publishing]
+
+--------------------------------------------------------------------------------
+RELATED GUIDES
+--------------------------------------------------------------------------------
+
+  Document 1 — Git & GitHub Guide          → [Add Confluence link after publishing]
+  Document 2 — Docker Guide               → [Add Confluence link after publishing]
+  Document 3 — Nexus3 Guide               → [This document]
+  Document 4 — Jenkins Guide              → [Add Confluence link after publishing]
+  Document 5 — Kubernetes Guide           → [Add Confluence link after publishing]
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+  1. What Is Nexus3 and Why Do We Use It
+  2. Key Concepts
+  3. Prerequisites
+  4. How Nexus3 Fits Into Our Workflow
+  5. Image Tagging Convention
+  6. Authenticating to Nexus3
+  7. Pulling an Image From Nexus3
+  8. Pushing an Image to Nexus3
+  9. Verifying a Push in the Nexus3 UI
+  10. How Jenkins Handles Nexus3 (Automated Flow)
+  11. Company Rules for Nexus3
+  12. Troubleshooting Common Issues
+
+================================================================================
+1. WHAT IS NEXUS3 AND WHY DO WE USE IT
+================================================================================
+
+Nexus3 (Sonatype Nexus Repository) is the company's private artifact
+repository manager. In the context of Docker, it acts as a private Docker
+image registry — the internal equivalent of Docker Hub.
+
+WHY NOT JUST USE DOCKER HUB?
+  Docker Hub is a public registry. Any image pushed there is publicly
+  accessible by default. For a financial institution, this is not acceptable:
+
+  - Images may contain proprietary code or configuration
+  - Public images cannot be controlled or audited by the company
+  - External internet access may not be available on company servers
+  - Security scanning of base images must be done centrally
+
+  Nexus3 solves all of these:
+    - Images stay within the company network — never leave the firewall
+    - Access is controlled — only authorised users and service accounts
+      can push or pull
+    - The security team can scan and approve base images centrally
+    - Works without any external internet access
+
+WHAT NEXUS3 STORES:
+  In our team, Nexus3 stores two types of Docker images:
+  1. Company-approved base images — used in the FROM line of Dockerfiles
+  2. Application images built by Jenkins — stored after every CI/CD build
+
+================================================================================
+2. KEY CONCEPTS
+================================================================================
+
+  Concept             What It Means
+  ------------------  ----------------------------------------------------------
+  Repository          A storage location inside Nexus3. Different repositories
+                      serve different purposes (hosted, proxy, group).
+
+  Hosted Repository   Where you push your own built images. This is where
+                      Jenkins pushes application images after a build.
+
+  Proxy Repository    A cached mirror of an external registry. Nexus3 can
+                      proxy Docker Hub — when you pull an image, Nexus3
+                      fetches it, caches it, and serves it from within
+                      the network going forward.
+
+  Group Repository    A combined view of multiple repositories. Pulling from
+                      a group repo searches across hosted and proxy repos
+                      automatically.
+
+  Image Tag           The version label on an image.
+                      Format: registry-url:port/image-name:tag
+                      Example: nexus3.company.com:8082/my-app:5
+
+  Service Account     A non-personal account used by automated systems
+                      (like Jenkins) to authenticate to Nexus3.
+                      Credentials are stored securely — never in code.
+
+  Port                Nexus3 uses different ports for different repository
+                      types. The DevOps team will provide the correct port
+                      for your repository. Commonly:
+                        - 8082 for hosted Docker repositories
+                        - 8083 for proxy Docker repositories
+
+================================================================================
+3. PREREQUISITES
+================================================================================
+
+Before following this guide, make sure you have:
+
+  [ ] Access to the Nexus3 web UI
+        Raise an IT access request ticket if you do not have access
+        The DevOps team will provide the Nexus3 URL
+
+  [ ] Docker installed on your machine (see Document 2 — Docker Guide)
+
+  [ ] The correct Nexus3 registry URL and port from the DevOps team
+
+  [ ] Your Nexus3 credentials (username and password)
+        For automated use in Jenkins, a Service Account credential
+        is set up — you do not use your personal credentials in pipelines
+
+  [ ] For Jenkins integration: a credential stored in Jenkins credentials
+        store (see Document 4 — Jenkins Guide)
+
+================================================================================
+4. HOW NEXUS3 FITS INTO OUR WORKFLOW
+================================================================================
+
+Nexus3 plays two roles in our CI/CD workflow:
+
+ROLE 1 — SOURCE OF BASE IMAGES (pull)
+  When Docker builds an image, the FROM line in the Dockerfile tells it
+  where to get the base image. We always pull from Nexus3 — never from
+  Docker Hub directly.
+
+  Developer writes Dockerfile
+         │
+         │  FROM nexus3.company.com:<port>/approved-base-image:tag
+         ▼
+  Docker pulls base image from Nexus3
+         │
+         ▼
+  Docker builds application image on top of base image
+
+ROLE 2 — STORAGE OF BUILT IMAGES (push)
+  After Jenkins builds the application image, it pushes it to Nexus3.
+  Kubernetes then pulls it from Nexus3 when deploying to the cluster.
+
+  Jenkins builds image
+         │
+         ▼
+  Jenkins pushes image to Nexus3 hosted repository
+         │
+         ▼
+  Kubernetes pulls image from Nexus3 for deployment
+
+COMPLETE FLOW:
+
+  Nexus3 (base image)  →  Docker Build  →  Nexus3 (app image)  →  Kubernetes
+
+================================================================================
+5. IMAGE TAGGING CONVENTION
+================================================================================
+
+Every image pushed to Nexus3 must be tagged with the full registry URL.
+This tells Docker exactly where to push to (or pull from).
+
+TAG FORMAT:
+  nexus3.company.com:<port>/<image-name>:<version>
+
+EXAMPLES:
+  nexus3.company.com:8082/my-application:1
+  nexus3.company.com:8082/my-application:2
+  nexus3.company.com:8082/my-application:15
+
+VERSION CONVENTION:
+  We use the Jenkins BUILD_NUMBER as the version tag. This means:
+  - Every Jenkins build produces a uniquely tagged image
+  - The image version is directly traceable to a Jenkins build
+  - You can roll back to any previous version by deploying an earlier tag
+
+  NEVER use "latest" as a tag in a team environment:
+  - "latest" is ambiguous — which build does it refer to?
+  - It gets overwritten on every push, making rollback impossible
+  - Jenkins builds become indistinguishable from each other
+
+TAGGING AN IMAGE (COMMAND):
+  After building an image locally or in Jenkins, tag it with the full
+  Nexus3 URL before pushing:
+
+  docker tag <image-name>:<build-number> \
+    nexus3.company.com:<port>/<image-name>:<build-number>
+
+  Example:
+    docker tag my-application:5 nexus3.company.com:8082/my-application:5
+
+================================================================================
+6. AUTHENTICATING TO NEXUS3
+================================================================================
+
+Before you can push or pull images, Docker needs to authenticate with Nexus3.
+
+------------------------------------------------------------------------
+MANUAL LOGIN (for local testing only)
+------------------------------------------------------------------------
+
+  docker login nexus3.company.com:<port>
+
+  Docker will prompt for your username and password.
+  Enter your Nexus3 credentials when prompted.
+
+  Screenshot guidance:
+    WHEN : After successful login
+    WHAT : Terminal output showing:
+           "Login Succeeded"
+
+  IMPORTANT: Manual login stores credentials in plain text in
+  ~/.docker/config.json on your machine. This is acceptable for local
+  development but NEVER use personal credentials in automated scripts
+  or pipelines.
+
+------------------------------------------------------------------------
+AUTOMATED LOGIN IN JENKINS (correct approach for CI/CD)
+------------------------------------------------------------------------
+
+In Jenkins pipelines, credentials are stored securely in the Jenkins
+credentials store and injected at runtime using withCredentials block.
+The password is never visible in logs or code.
+
+  withCredentials([usernamePassword(
+      credentialsId: 'Service Account',
+      usernameVariable: 'NEXUS_USER',
+      passwordVariable: 'NEXUS_PASS'
+  )]) {
+      sh 'echo "$NEXUS_PASS" | docker login nexus3.company.com:<port> -u "$NEXUS_USER" --password-stdin'
+  }
+
+  See Document 4 — Jenkins Guide for full details on credentials.
+
+------------------------------------------------------------------------
+LOGGING OUT
+------------------------------------------------------------------------
+
+Always log out after pushing in automated scripts — security best practice:
+
+  docker logout nexus3.company.com:<port>
+
+================================================================================
+7. PULLING AN IMAGE FROM NEXUS3
+================================================================================
+
+Pulling is needed when:
+  - Docker needs the base image during a build (FROM line)
+  - You want to run an existing image locally for testing
+
+COMMAND:
+  docker pull nexus3.company.com:<port>/<image-name>:<tag>
+
+Example:
+  docker pull nexus3.company.com:8082/approved-base-image:22.04
+
+NOTE: If you are logged in to Nexus3, Docker will pull automatically
+when it encounters the FROM line during a build. You do not need to
+pull separately before building.
+
+  Screenshot guidance:
+    WHEN : After the pull completes
+    WHAT : Terminal output showing each layer being pulled with progress
+           bars, ending with:
+           "Status: Downloaded newer image for nexus3.../image:tag"
+           or
+           "Status: Image is up to date for nexus3.../image:tag"
+
+================================================================================
+8. PUSHING AN IMAGE TO NEXUS3
+================================================================================
+
+Pushing stores your built image in the Nexus3 hosted repository so it
+can be used by Kubernetes and other team members.
+
+SEQUENCE — always follow this order:
+
+  Step 1: Log in to Nexus3
+  Step 2: Build your image
+  Step 3: Tag the image with the full Nexus3 URL
+  Step 4: Push the tagged image
+  Step 5: Log out
+
+------------------------------------------------------------------------
+STEP-BY-STEP: PUSH AN IMAGE TO NEXUS3
+------------------------------------------------------------------------
+
+Step 1: Log in (if not already logged in)
+
+  docker login nexus3.company.com:<port>
+
+  Screenshot guidance:
+    WHEN : After login
+    WHAT : Terminal showing "Login Succeeded"
+
+Step 2: Build your image (if not already built)
+
+  docker build -t my-application:5 .
+
+  (See Document 2 — Docker Guide for full build steps)
+
+Step 3: Tag the image with the Nexus3 registry URL
+
+  docker tag my-application:5 nexus3.company.com:<port>/my-application:5
+
+  Verify the tag was applied:
+    docker images
+
+  Screenshot guidance:
+    WHEN : After running docker images
+    WHAT : Terminal output showing both the original image AND the
+           newly tagged image with the full Nexus3 URL:
+           REPOSITORY                              TAG
+           my-application                          5
+           nexus3.company.com:8082/my-application  5
+
+Step 4: Push the image to Nexus3
+
+  docker push nexus3.company.com:<port>/my-application:5
+
+  Screenshot guidance:
+    WHEN : While the push is running and after it completes
+    WHAT : Terminal output showing each layer being pushed with progress,
+           ending with:
+           "5: digest: sha256:xxxxxxx size: xxxx"
+           This confirms the image was successfully pushed.
+
+Step 5: Log out
+
+  docker logout nexus3.company.com:<port>
+
+================================================================================
+9. VERIFYING A PUSH IN THE NEXUS3 UI
+================================================================================
+
+After pushing, always verify the image appears in Nexus3 UI.
+This confirms the push was successful and the image is accessible.
+
+STEP-BY-STEP:
+
+Step 1: Open Nexus3 in your browser
+
+  Navigate to: nexus3.company.com:<port>
+  Log in with your credentials
+
+  Screenshot guidance:
+    WHAT : The Nexus3 login page
+
+Step 2: Go to Browse
+
+  Click "Browse" in the left sidebar navigation
+
+  Screenshot guidance:
+    WHAT : The Nexus3 main dashboard with the Browse option visible
+           in the left sidebar
+
+Step 3: Select your Docker repository
+
+  You will see a list of repositories.
+  Click on the hosted Docker repository (name provided by DevOps team)
+
+  Screenshot guidance:
+    WHAT : The list of repositories in Nexus3 Browse view showing
+           the Docker hosted repository name
+
+Step 4: Find your image
+
+  Navigate through the folder structure:
+    <repository-name> → <image-name> → <tag>
+
+  You should see your image name listed with the tags that have been pushed.
+
+  Screenshot guidance:
+    WHEN : After navigating to your image
+    WHAT : The Nexus3 repository browser showing your image name
+           with version tags listed (e.g., :1, :2, :3, :5).
+           Capture the full browser page showing the image and tags clearly.
+
+Step 5: Click on a tag to see details
+
+  Clicking a specific tag shows the image manifest and layer details.
+  This confirms the image contents are stored correctly.
+
+  Screenshot guidance:
+    WHAT : The image detail page in Nexus3 showing the manifest,
+           digest (sha256 hash), and layer information for a specific tag
+
+EXPECTED RESULT:
+  - Your image appears in the Nexus3 repository browser
+  - The correct tag (build number) is visible
+  - The image size and upload timestamp are shown
+  - The sha256 digest matches what was shown in the push output
+
+================================================================================
+10. HOW JENKINS HANDLES NEXUS3 (AUTOMATED FLOW)
+================================================================================
+
+In our CI/CD pipeline, the Nexus3 login, tag, push, and logout steps
+are all automated by Jenkins. You do not need to do them manually.
+
+This is what Jenkins does in the pipeline:
+
+  Stage: Docker Login
+    Jenkins retrieves the Service Account credentials from the
+    Jenkins credentials store (by ID, not by exposing the password).
+    Docker logs in to Nexus3 using those credentials.
+
+  Stage: Docker Build
+    Docker builds the image using the Dockerfile in the repository.
+    The FROM line pulls the base image from Nexus3 automatically
+    because Jenkins is already authenticated.
+
+  Stage: Push to Nexus
+    Jenkins tags the image with the full Nexus3 URL and build number.
+    Jenkins pushes the tagged image to the Nexus3 hosted repository.
+    Jenkins logs out of Nexus3.
+
+  Post / Always block:
+    Jenkins removes the local copy of the image to free disk space.
+
+The result: every successful Jenkins build automatically stores a
+versioned image in Nexus3 — no manual steps needed.
+
+See Document 4 — Jenkins Guide for the full Jenkinsfile with these stages.
+
+================================================================================
+11. COMPANY RULES FOR NEXUS3
+================================================================================
+
+  Rule                              Reason
+  --------------------------------  ------------------------------------------
+  Always use Nexus3 — never         Images must stay within the company
+  Docker Hub or any public          network. External registries are not
+  registry                          approved for use.
+
+  Use Service Account credentials   Personal credentials must not be used in
+  in automated pipelines            automated systems. Service accounts are
+                                    managed centrally and can be rotated
+                                    without affecting individual users.
+
+  Never store credentials in        Credentials in code or scripts are a
+  Dockerfiles, scripts, or Git      serious security risk. Always use the
+                                    Jenkins credentials store.
+
+  Always tag images with a          Ensures every image is traceable to a
+  specific version number           build and can be rolled back if needed.
+                                    Never use "latest" in pipelines.
+
+  Always verify push in Nexus3      Confirms the image is accessible to
+  UI after pushing                  Kubernetes and other consumers before
+                                    deployment proceeds.
+
+  Log out after every push in       Prevents credentials from remaining
+  automated pipelines               active longer than necessary.
+
+================================================================================
+12. TROUBLESHOOTING COMMON ISSUES
+================================================================================
+
+PROBLEM: "unauthorized: authentication required" when pushing or pulling
+  CAUSE  : You are not logged in to Nexus3
+  FIX    : Run docker login nexus3.company.com:<port> and enter credentials
+
+PROBLEM: "denied: requested access to the resource is denied"
+  CAUSE  : Your account does not have push access to this repository
+  FIX    : Raise an IT access ticket to get write access to the
+           Nexus3 hosted repository
+
+PROBLEM: "no such host" or connection refused when logging in
+  CAUSE  : The Nexus3 URL or port is incorrect
+  FIX    : Verify the URL and port with the DevOps team.
+           Check that you are connected to the company network / VPN.
+
+PROBLEM: Image pushed but not visible in Nexus3 UI
+  CAUSE  : You may have pushed to the wrong repository or wrong port
+  FIX    : Check the registry URL in your docker tag command.
+           Confirm the port matches the hosted repository (not proxy).
+           Refresh the Nexus3 UI and navigate to the correct repository.
+
+PROBLEM: "http: server gave HTTP response to HTTPS client"
+  CAUSE  : Docker is trying HTTPS but Nexus3 on that port uses HTTP,
+           or vice versa
+  FIX    : Contact the DevOps team — they will advise whether to add
+           the registry as an insecure registry in Docker daemon config,
+           or confirm the correct HTTPS port to use.
+
+PROBLEM: Pull fails during Docker build (FROM line)
+  CAUSE  : Docker is not logged in to Nexus3 before the build
+  FIX    : Ensure the Docker Login stage runs before Docker Build
+           in your Jenkins pipeline. See Document 4 — Jenkins Guide.
+
+================================================================================
+RELATED GUIDES
+================================================================================
+
+  Document 1 — Git & GitHub Guide          → [Add Confluence link after publishing]
+  Document 2 — Docker Guide               → [Add Confluence link after publishing]
+  Document 3 — Nexus3 Guide               → [This document]
+  Document 4 — Jenkins Guide              → [Add Confluence link after publishing]
+  Document 5 — Kubernetes Guide           → [Add Confluence link after publishing]
+
+================================================================================
+DOCUMENT END — Nexus3 Guide (Document 3 of 5)
+================================================================================
