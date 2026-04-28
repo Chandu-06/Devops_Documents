@@ -1,0 +1,310 @@
+================================================================================
+              GIT & GITHUB — TEAM GUIDE
+              DevOps Onboarding Series | Document 1 of 5
+              Payment Data Programme | HSBC Technology
+================================================================================
+
+Last Updated  : April 2026
+Document Owner: Payment Data Programme — DevOps Team
+Confluence    : [Add Confluence page link here after publishing]
+
+--------------------------------------------------------------------------------
+RELATED GUIDES
+--------------------------------------------------------------------------------
+
+  Document 1 — Git & GitHub Guide          → [This document]
+  Document 2 — Docker Guide                → [Add Confluence link after publishing]
+  Document 3 — Nexus3 Guide               → [Add Confluence link after publishing]
+  Document 4 — Jenkins Guide              → [Add Confluence link after publishing]
+  Document 5 — Kubernetes Guide           → [Add Confluence link after publishing]
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+  1. Branching Strategy — Git Flow
+  2. Branch Naming Rules
+  3. Day-to-Day Git Workflow
+  4. Raising a Pull Request on GitHub
+  5. Commit Message Format
+  6. Team Rules
+  7. Quick Reference — Git Commands
+
+================================================================================
+1. BRANCHING STRATEGY — GIT FLOW
+================================================================================
+
+This team follows Git Flow. Every change goes through a structured branch
+path before it reaches master.
+
+  feature/your-task
+        │
+        │  Pull Request → reviewed → merged
+        ▼
+     develop                 ← active development branch
+        │
+        │  When ready for release
+        ▼
+   release/v1.0
+        │
+        ▼
+      master                 ← stable code only, tagged on every release
+
+  Branch          Purpose
+  --------------  -------------------------------------------------------------
+  master          Stable, production-ready code. Never pushed to directly.
+  develop         Integration branch. All feature work lands here via PR.
+  feature/*       Your working branch. One branch per task.
+  release/*       Pre-release stabilisation. Managed by team lead.
+
+================================================================================
+2. BRANCH NAMING RULES
+================================================================================
+
+  Type        Format                      Example
+  ----------  --------------------------  ------------------------------
+  Feature     feature/short-description   feature/add-dockerfile
+  Bug fix     fix/short-description       fix/pipeline-auth-error
+  Release     release/version             release/v1.0
+  Hotfix      hotfix/short-description    hotfix/nexus-push-failure
+
+  Rules:
+    - Lowercase only
+    - Hyphens between words — no spaces, no underscores
+    - Short but descriptive — the name should tell someone what the
+      branch is for without opening it
+
+================================================================================
+3. DAY-TO-DAY GIT WORKFLOW
+================================================================================
+
+Follow these steps in order every time you work on something new.
+
+------------------------------------------------------------------------
+STEP 1: Get the latest code from develop
+------------------------------------------------------------------------
+
+  git checkout develop
+  git pull origin develop
+
+  Always start from the latest develop. Skipping this causes merge
+  conflicts later.
+
+  Screenshot guidance:
+    WHEN : After git pull
+    WHAT : Terminal showing "Already up to date." or a list of updated
+           files — confirms you are working from the latest code
+
+------------------------------------------------------------------------
+STEP 2: Create your feature branch
+------------------------------------------------------------------------
+
+  git checkout -b feature/your-task-name
+
+  Screenshot guidance:
+    WHEN : After the command runs
+    WHAT : Terminal showing:
+           "Switched to a new branch 'feature/your-task-name'"
+
+------------------------------------------------------------------------
+STEP 3: Do your work
+------------------------------------------------------------------------
+
+  Make your changes. Check what has changed at any point:
+
+    git status        → which files changed
+    git diff          → exact line-by-line changes
+
+------------------------------------------------------------------------
+STEP 4: Stage your changes
+------------------------------------------------------------------------
+
+  Stage everything:
+    git add .
+
+  Stage a specific file:
+    git add filename
+
+  Verify what is staged:
+    git status
+
+  Screenshot guidance:
+    WHEN : After git add . and git status
+    WHAT : Terminal showing files listed under "Changes to be committed"
+           in green
+
+------------------------------------------------------------------------
+STEP 5: Commit
+------------------------------------------------------------------------
+
+  git commit -m "Your commit message here"
+
+  Screenshot guidance:
+    WHEN : After the commit
+    WHAT : Terminal showing:
+           "[feature/your-task abc1234] Your commit message"
+           and the number of files changed
+
+------------------------------------------------------------------------
+STEP 6: Push your branch to GitHub
+------------------------------------------------------------------------
+
+  git push origin feature/your-task-name
+
+  First push on a new branch:
+    git push --set-upstream origin feature/your-task-name
+
+  Screenshot guidance:
+    WHEN : After the push completes
+    WHAT : Terminal showing the push success message and the upstream
+           tracking confirmation
+
+------------------------------------------------------------------------
+STEP 7: Raise a Pull Request (see Section 4)
+------------------------------------------------------------------------
+
+------------------------------------------------------------------------
+STEP 8: After PR is merged — clean up
+------------------------------------------------------------------------
+
+  On GitHub: click "Delete branch" after the merge confirmation
+
+  Locally:
+    git checkout develop
+    git pull origin develop
+    git branch -d feature/your-task-name
+
+  Screenshot guidance:
+    WHEN : After deleting locally
+    WHAT : Terminal showing:
+           "Deleted branch feature/your-task-name (was abc1234)"
+
+================================================================================
+4. RAISING A PULL REQUEST ON GITHUB
+================================================================================
+
+Step 1: Go to the repository on GitHub
+
+Step 2: GitHub usually shows a banner after a push:
+        "feature/your-task-name had recent pushes — Compare & pull request"
+        Click it.
+
+        If the banner is not visible:
+          Click "Pull requests" tab → "New pull request"
+
+Step 3: Set the branches
+          base    : develop
+          compare : feature/your-task-name
+
+Step 4: Add a clear title and a brief description of what was changed
+
+Step 5: Click "Create pull request"
+
+  Screenshot guidance:
+    WHEN : After the PR is created, before it is merged
+    WHAT : The open PR page showing the title, branch comparison
+           (feature/... → develop), and the green "Open" badge
+
+Step 6: After approval — click "Merge pull request" → "Confirm merge"
+
+  Screenshot guidance:
+    WHEN : After the merge completes
+    WHAT : The PR page showing the purple "Merged" badge and the message
+           "Pull request successfully merged and closed"
+
+IF YOUR PR GETS REVIEW COMMENTS:
+  1. Make the changes on your local feature branch
+  2. git add . → git commit -m "Address review comments"
+  3. git push origin feature/your-task-name
+  The PR on GitHub updates automatically — no need to close and reopen.
+
+================================================================================
+5. COMMIT MESSAGE FORMAT
+================================================================================
+
+  Format : <Verb> <what was changed>
+  Example: Add Dockerfile for the application
+  Example: Fix incorrect path in Jenkinsfile
+  Example: Update deployment YAML with resource limits
+  Example: Remove unused environment variable
+
+  Rules:
+    - Start with a capital letter
+    - Use present tense — "Add" not "Added"
+    - No full stop at the end
+    - Under 72 characters
+    - One commit = one logical change
+    - Be specific — "Add Dockerfile" is better than "changes"
+
+  Avoid:
+    - "fix", "changes", "WIP", "misc updates", "asdf"
+
+================================================================================
+6. TEAM RULES
+================================================================================
+
+  Rule                              Reason
+  --------------------------------  ------------------------------------------
+  Never push directly to master     master is production — broken code here
+  or develop                        affects the whole team immediately.
+                                    All changes go through a PR.
+
+  Always start from latest develop  Prevents merge conflicts and ensures your
+  before creating a feature branch  work is based on current code.
+
+  One feature branch per task       Keeps PRs small and easy to review.
+                                    Large PRs with many unrelated changes
+                                    are harder to review and more error-prone.
+
+  Always raise a PR — no            Even small changes need a second pair
+  exceptions                        of eyes before merging.
+
+  Delete merged branches            Keeps the repository clean. Stale branches
+                                    cause confusion.
+
+  Write meaningful commit messages  The commit history is the project diary.
+                                    Vague messages make debugging harder
+                                    for everyone — including future you.
+
+================================================================================
+7. QUICK REFERENCE — GIT COMMANDS
+================================================================================
+
+  BRANCHING
+  git checkout develop                      Switch to develop
+  git pull origin develop                   Get latest from develop
+  git checkout -b feature/name             Create and switch to new branch
+  git branch                               List local branches
+  git branch -d feature/name              Delete a local branch
+
+  MAKING CHANGES
+  git status                               See what has changed
+  git diff                                 See line-by-line changes
+  git add .                                Stage all changes
+  git add filename                         Stage a specific file
+  git commit -m "message"                  Commit staged changes
+
+  PUSHING
+  git push origin feature/name            Push branch to GitHub
+  git push --set-upstream origin name     First push of a new branch
+
+  HISTORY
+  git log --oneline                        Compact commit history
+
+  UNDOING
+  git restore filename                     Undo unstaged changes to a file
+  git restore --staged filename            Unstage a file
+
+================================================================================
+RELATED GUIDES
+================================================================================
+
+  Document 1 — Git & GitHub Guide          → [This document]
+  Document 2 — Docker Guide                → [Add Confluence link after publishing]
+  Document 3 — Nexus3 Guide               → [Add Confluence link after publishing]
+  Document 4 — Jenkins Guide              → [Add Confluence link after publishing]
+  Document 5 — Kubernetes Guide           → [Add Confluence link after publishing]
+
+================================================================================
+DOCUMENT END — Git & GitHub Guide (Document 1 of 5)
+================================================================================
