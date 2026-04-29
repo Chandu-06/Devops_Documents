@@ -1,0 +1,25 @@
+5. Storing Credentials Securely
+Never put passwords, tokens, or keys in the Jenkinsfile or any file committed to Git. Always use the Jenkins credentials store.
+On the company Jenkins server, credentials are pre-configured by the DevOps/infrastructure team. You do not create them yourself. When you need to use a credential in your pipeline, you reference it by its ID — a short name the team has already assigned to it.
+For example, the Nexus3 Service Account credential is already stored on the Jenkins server under a specific ID. The DevOps team will tell you the credential ID to use. You simply reference that ID in your Jenkinsfile using the withCredentials block.
+Using a credential in the Jenkinsfile
+For a username/password credential — e.g. Nexus3 Service Account login:
+withCredentials([usernamePassword(
+    credentialsId: 'nexus-service-account',
+    usernameVariable: 'NEXUS_USER',
+    passwordVariable: 'NEXUS_PASS'
+)]) {
+    sh 'echo "$NEXUS_PASS" | docker login nexus3.your-company.com:<port> -u "$NEXUS_USER" --password-stdin'
+}
+
+Nexus3 — Section 3: Authenticating to Nexus3
+Authentication to Nexus3 is handled entirely by Jenkins using a pre-configured Service Account credential. You do not log in to Nexus3 manually as part of the pipeline workflow.
+The Service Account was already set up on the company Jenkins server by the infrastructure team. Jenkins retrieves the credentials at runtime using the withCredentials block and passes them to Docker login — the password is never visible in logs or code.
+withCredentials([usernamePassword(
+    credentialsId: 'nexus-service-account',
+    usernameVariable: 'NEXUS_USER',
+    passwordVariable: 'NEXUS_PASS'
+)]) {
+    sh 'echo "$NEXUS_PASS" | docker login nexus3.your-company.com:<port> -u "$NEXUS_USER" --password-stdin'
+}
+
