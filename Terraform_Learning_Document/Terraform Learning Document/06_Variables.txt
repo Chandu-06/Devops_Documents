@@ -1,0 +1,314 @@
+================================================================
+ TERRAFORM LEARNING DOCUMENT
+ Topic 06: Variables (Input Variables)
+================================================================
+
+----------------------------------------------------------------
+ WHY DO WE NEED VARIABLES?
+----------------------------------------------------------------
+
+Imagine you write Terraform code that creates an EC2 server in AWS.
+You hardcode the region as "us-east-1" and instance_type as "t2.micro".
+
+Now your manager asks: "Can you deploy the same thing in EU region
+with a bigger server for production?"
+
+Without variables, you have to copy-paste the code and manually change values.
+That's messy, error-prone, and hard to maintain.
+
+With variables, you write the code ONCE and pass different values
+when running it. Just like function parameters in Python!
+
+----------------------------------------------------------------
+ WHAT IS AN INPUT VARIABLE?
+----------------------------------------------------------------
+
+An input variable is a parameter you can pass into your Terraform code
+from outside. It makes your code reusable and flexible.
+
+Real-life analogy:
+  A variable is like a form field.
+  The Terraform code is the form template.
+  You fill in different values each time you use the form.
+
+----------------------------------------------------------------
+ DECLARING A VARIABLE
+----------------------------------------------------------------
+
+Variables are declared using the "variable" block:
+
+  variable "VARIABLE_NAME" {
+    description = "What this variable is for"
+    type        = string            # Data type
+    default     = "some_value"      # Default value (optional)
+  }
+
+Example:
+
+  variable "region" {
+    description = "The AWS region to deploy into"
+    type        = string
+    default     = "us-east-1"
+  }
+
+  variable "instance_type" {
+    description = "The size of the EC2 instance"
+    type        = string
+    default     = "t2.micro"
+  }
+
+  variable "server_count" {
+    description = "How many servers to create"
+    type        = number
+    default     = 1
+  }
+
+----------------------------------------------------------------
+ USING A VARIABLE
+----------------------------------------------------------------
+
+You reference a variable using: var.VARIABLE_NAME
+
+  provider "aws" {
+    region = var.region        # Uses the "region" variable
+  }
+
+  resource "aws_instance" "server" {
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = var.instance_type    # Uses the "instance_type" variable
+    count         = var.server_count     # Uses the "server_count" variable
+  }
+
+----------------------------------------------------------------
+ VARIABLE TYPES
+----------------------------------------------------------------
+
+  string  - A text value
+            variable "env" { type = string }
+            Usage: var.env = "dev"
+
+  number  - A numeric value (integer or decimal)
+            variable "port" { type = number }
+            Usage: var.port = 8080
+
+  bool    - True or false
+            variable "enable_monitoring" { type = bool }
+            Usage: var.enable_monitoring = true
+
+  list(type) - An ordered list of values
+            variable "availability_zones" {
+              type    = list(string)
+              default = ["us-east-1a", "us-east-1b"]
+            }
+            Usage: var.availability_zones[0] = "us-east-1a"
+
+  map(type) - Key-value pairs
+            variable "instance_sizes" {
+              type = map(string)
+              default = {
+                dev  = "t2.micro"
+                uat  = "t2.small"
+                prod = "t2.large"
+              }
+            }
+            Usage: var.instance_sizes["dev"] = "t2.micro"
+
+  object({}) - Complex structured type
+            variable "server_config" {
+              type = object({
+                name          = string
+                instance_type = string
+                count         = number
+              })
+              default = {
+                name          = "web-server"
+                instance_type = "t2.micro"
+                count         = 1
+              }
+            }
+            Usage: var.server_config.name = "web-server"
+
+  any - Terraform infers the type automatically
+            variable "anything" { type = any }
+
+----------------------------------------------------------------
+ SENSITIVE VARIABLES
+----------------------------------------------------------------
+
+For passwords, keys, tokens — mark them as sensitive:
+
+  variable "db_password" {
+    description = "Database password"
+    type        = string
+    sensitive   = true    # Terraform will NOT print this in logs/output!
+  }
+
+IMPORTANT: Even with sensitive = true, the value is still in
+terraform.tfstate in PLAIN TEXT! Secure your state file!
+
+----------------------------------------------------------------
+ HOW TO PROVIDE VARIABLE VALUES
+----------------------------------------------------------------
+
+There are MULTIPLE ways to pass values to variables:
+
+  METHOD 1: Default value (in variable block)
+  --------------------------------------------
+    variable "env" {
+      default = "dev"
+    }
+    No input needed — it uses "dev" automatically.
+
+  METHOD 2: .tfvars file (most common in projects)
+  -------------------------------------------------
+    Create a file called "terraform.tfvars" or "*.tfvars":
+
+    # terraform.tfvars
+    region        = "us-east-1"
+    instance_type = "t2.micro"
+    server_count  = 2
+
+    Terraform automatically loads "terraform.tfvars".
+    For other filenames, specify explicitly:
+      $ terraform apply -var-file="production.tfvars"
+
+  METHOD 3: -var flag (command line)
+  -----------------------------------
+    $ terraform apply -var="instance_type=t2.large"
+    $ terraform apply -var="region=eu-west-1" -var="instance_type=t2.large"
+
+  METHOD 4: Environment variables
+  --------------------------------
+    Name the env var: TF_VAR_variable_name
+
+    $ export TF_VAR_region="us-east-1"
+    $ export TF_VAR_instance_type="t2.micro"
+    $ terraform apply
+
+  METHOD 5: Interactive prompt (no default, no value given)
+  ----------------------------------------------------------
+    If you run terraform apply without providing a value for a required
+    variable (no default), Terraform will PROMPT you to type it:
+
+      var.instance_type
+        The size of the EC2 instance
+        Enter a value: t2.micro
+
+----------------------------------------------------------------
+ VARIABLE PRECEDENCE (which value wins?)
+----------------------------------------------------------------
+
+When multiple methods provide a value for the same variable,
+Terraform uses this order (LOWEST to HIGHEST):
+
+  1. Default in variable block               (lowest priority)
+  2. terraform.tfvars
+  3. terraform.tfvars.json
+  4. *.auto.tfvars (alphabetical order)
+  5. -var-file flag
+  6. -var flag
+  7. TF_VAR_ environment variables           (highest priority)
+
+So: -var flag overrides .tfvars, which overrides the default.
+
+----------------------------------------------------------------
+ VALIDATION RULES IN VARIABLES
+----------------------------------------------------------------
+
+You can add validation to reject bad values:
+
+  variable "environment" {
+    type        = string
+    description = "Deployment environment"
+
+    validation {
+      condition     = contains(["dev", "uat", "prod"], var.environment)
+      error_message = "Environment must be dev, uat, or prod."
+    }
+  }
+
+  variable "instance_count" {
+    type        = number
+    description = "Number of instances"
+
+    validation {
+      condition     = var.instance_count >= 1 && var.instance_count <= 10
+      error_message = "Instance count must be between 1 and 10."
+    }
+  }
+
+----------------------------------------------------------------
+ PRACTICAL EXAMPLE: Full Setup
+----------------------------------------------------------------
+
+  # variables.tf
+  variable "region" {
+    description = "AWS region"
+    type        = string
+    default     = "us-east-1"
+  }
+
+  variable "env" {
+    description = "Environment name (dev, uat, prod)"
+    type        = string
+  }
+
+  variable "instance_type" {
+    description = "EC2 instance type"
+    type        = string
+    default     = "t2.micro"
+  }
+
+  ---
+
+  # main.tf
+  provider "aws" {
+    region = var.region
+  }
+
+  resource "aws_instance" "server" {
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = var.instance_type
+
+    tags = {
+      Name        = "server-${var.env}"
+      Environment = var.env
+    }
+  }
+
+  ---
+
+  # dev.tfvars
+  region        = "us-east-1"
+  env           = "dev"
+  instance_type = "t2.micro"
+
+  # prod.tfvars
+  region        = "eu-west-1"
+  env           = "prod"
+  instance_type = "t2.large"
+
+  ---
+
+  # Deploy to dev:
+  $ terraform apply -var-file="dev.tfvars"
+
+  # Deploy to prod:
+  $ terraform apply -var-file="prod.tfvars"
+
+----------------------------------------------------------------
+ SUMMARY
+----------------------------------------------------------------
+
+  - Variables make Terraform code reusable and flexible
+  - Declare with: variable "name" { type, description, default }
+  - Use with: var.variable_name
+  - Types: string, number, bool, list, map, object, any
+  - Mark passwords as sensitive = true
+  - Provide values via: default, .tfvars, -var flag, env variables, prompt
+  - Use validation blocks to enforce rules on variable values
+  - Common pattern: one .tfvars file per environment
+
+================================================================
+ END OF FILE: 06_Variables.txt
+================================================================

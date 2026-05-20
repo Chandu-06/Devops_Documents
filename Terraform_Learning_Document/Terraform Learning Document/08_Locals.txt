@@ -1,0 +1,178 @@
+================================================================
+ TERRAFORM LEARNING DOCUMENT
+ Topic 08: Locals (Local Values)
+================================================================
+
+----------------------------------------------------------------
+ WHAT ARE LOCALS?
+----------------------------------------------------------------
+
+Locals are like internal variables that you compute ONCE and reuse
+throughout your Terraform code. Unlike input variables (which come
+from outside), locals are computed INSIDE your code.
+
+Real-life analogy:
+  Imagine you're filling out a form and you need to write your
+  full address 10 times. Instead of writing it 10 times, you write
+  it once at the top and refer to it as "my address" everywhere else.
+  Locals are that shortcut.
+
+----------------------------------------------------------------
+ LOCALS BLOCK SYNTAX
+----------------------------------------------------------------
+
+  locals {
+    name1 = value1
+    name2 = value2
+    name3 = expression
+  }
+
+  You reference a local with: local.name (singular "local", not "locals")
+
+----------------------------------------------------------------
+ SIMPLE EXAMPLE
+----------------------------------------------------------------
+
+  locals {
+    env         = "dev"
+    project     = "payment-data"
+    region      = "us-east-1"
+    full_name   = "hsbc-${local.project}-${local.env}"
+    common_tags = {
+      Environment = local.env
+      Project     = local.project
+      ManagedBy   = "Terraform"
+      Owner       = "Chandu"
+    }
+  }
+
+  resource "aws_instance" "web" {
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.micro"
+
+    tags = local.common_tags    # Reuse the tags map defined above
+  }
+
+  resource "aws_s3_bucket" "logs" {
+    bucket = "${local.full_name}-logs"    # "hsbc-payment-data-dev-logs"
+    tags   = local.common_tags
+  }
+
+  resource "aws_vpc" "main" {
+    cidr_block = "10.0.0.0/16"
+    tags       = local.common_tags
+  }
+
+  Notice: common_tags is defined ONCE and used in 3 places.
+  If you need to change the ManagedBy tag, you change it in ONE place!
+
+----------------------------------------------------------------
+ LOCALS vs VARIABLES - KEY DIFFERENCES
+----------------------------------------------------------------
+
+  Feature            | locals                  | variables (var.)
+  -------------------|-------------------------|------------------------
+  Where defined      | Inside .tf files        | Declared in variable block
+  Where set          | In your code            | From outside (tfvars, CLI)
+  Who provides value | You (hardcoded/computed)| User (external input)
+  Syntax             | local.name              | var.name
+  Can be overridden? | No                      | Yes (via -var, tfvars, etc.)
+  Use case           | Internal computation    | Reusable, configurable inputs
+
+  Rule of thumb:
+    - Use VAR when you want the value to come from OUTSIDE (per environment, per user)
+    - Use LOCAL when you want to compute or combine values INTERNALLY
+
+----------------------------------------------------------------
+ USING EXPRESSIONS IN LOCALS
+----------------------------------------------------------------
+
+  Locals are powerful because you can use full expressions:
+
+  locals {
+    # Concatenation
+    bucket_name = "hsbc-${var.project}-${var.env}-logs"
+
+    # Conditional expression
+    instance_type = var.env == "prod" ? "t2.large" : "t2.micro"
+
+    # Arithmetic
+    total_instances = var.web_count + var.app_count
+
+    # List transformation
+    upper_names = [for name in var.names : upper(name)]
+
+    # Computed map
+    tags = merge(var.common_tags, {
+      Environment = var.env
+      LastUpdated = "2024-01-01"
+    })
+  }
+
+----------------------------------------------------------------
+ COMMON USE CASES FOR LOCALS
+----------------------------------------------------------------
+
+  USE CASE 1: Avoid repeating long expressions
+  ---------------------------------------------
+    Without locals:
+      resource "aws_instance" "a" {
+        tags = { Name = "hsbc-payment-dev-server-a", Env = "dev" }
+      }
+      resource "aws_instance" "b" {
+        tags = { Name = "hsbc-payment-dev-server-b", Env = "dev" }
+      }
+
+    With locals:
+      locals {
+        base_tags = { Project = "hsbc-payment", Env = "dev" }
+      }
+      resource "aws_instance" "a" {
+        tags = merge(local.base_tags, { Name = "server-a" })
+      }
+      resource "aws_instance" "b" {
+        tags = merge(local.base_tags, { Name = "server-b" })
+      }
+
+  USE CASE 2: Naming convention
+  ------------------------------
+    locals {
+      prefix = "${var.company}-${var.project}-${var.env}"
+      # Result: "hsbc-payments-dev"
+    }
+
+    resource "aws_s3_bucket" "logs"    { bucket = "${local.prefix}-logs" }
+    resource "aws_s3_bucket" "backups" { bucket = "${local.prefix}-backups" }
+    resource "aws_vpc" "main"          { tags = { Name = "${local.prefix}-vpc" } }
+
+  USE CASE 3: Environment-based configuration
+  --------------------------------------------
+    locals {
+      instance_types = {
+        dev  = "t2.micro"
+        uat  = "t2.small"
+        prod = "t2.large"
+      }
+      instance_type = local.instance_types[var.env]
+      # Looks up the instance type based on environment
+    }
+
+    resource "aws_instance" "app" {
+      instance_type = local.instance_type
+    }
+
+----------------------------------------------------------------
+ SUMMARY
+----------------------------------------------------------------
+
+  - Locals are computed values defined inside your Terraform code
+  - Declared with locals { } block
+  - Referenced with local.name (singular "local")
+  - Great for avoiding repetition and keeping code DRY (Don't Repeat Yourself)
+  - Can contain expressions, conditionals, function calls
+  - NOT overridable from outside (unlike variables)
+  - Common use: shared tags, naming prefixes, environment-based lookups
+
+================================================================
+ END OF FILE: 08_Locals.txt
+================================================================

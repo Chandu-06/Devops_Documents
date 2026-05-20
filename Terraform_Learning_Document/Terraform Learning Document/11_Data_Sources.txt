@@ -1,0 +1,218 @@
+================================================================
+ TERRAFORM LEARNING DOCUMENT
+ Topic 11: Data Sources
+================================================================
+
+----------------------------------------------------------------
+ WHAT IS A DATA SOURCE?
+----------------------------------------------------------------
+
+A DATA SOURCE lets you FETCH information about existing infrastructure
+that was NOT created by your current Terraform code.
+
+The key difference:
+  - "resource" block  → CREATE new infrastructure
+  - "data" block      → READ existing infrastructure (read-only!)
+
+Real-life analogy:
+  You're renting a flat. The building already exists — you didn't build it.
+  But you need the building's postal code to fill in a form.
+  A data source is how you "look up" that existing information.
+
+----------------------------------------------------------------
+ WHEN DO YOU USE DATA SOURCES?
+----------------------------------------------------------------
+
+  1. You want to use an existing VPC that was created manually or by another team
+  2. You want to find the latest Amazon Machine Image (AMI) ID for Ubuntu
+  3. You want to reference an existing IAM role or security group
+  4. You want to read a secret from AWS Secrets Manager
+  5. You want to reference infrastructure managed by a different Terraform project
+
+----------------------------------------------------------------
+ DATA SOURCE BLOCK SYNTAX
+----------------------------------------------------------------
+
+  data "DATA_SOURCE_TYPE" "LOCAL_NAME" {
+    filter_argument = filter_value
+    ...
+  }
+
+  You reference a data source with: data.DATA_SOURCE_TYPE.LOCAL_NAME.ATTRIBUTE
+
+----------------------------------------------------------------
+ EXAMPLE 1: Get the Latest Ubuntu AMI ID
+----------------------------------------------------------------
+
+  Without data sources, you hardcode the AMI ID:
+    ami = "ami-0c55b159cbfafe1f0"    # This ID can become outdated!
+
+  With data sources, you dynamically look up the latest one:
+
+  data "aws_ami" "ubuntu" {
+    most_recent = true
+    owners      = ["099720109477"]    # Canonical (Ubuntu's publisher) account ID
+
+    filter {
+      name   = "name"
+      values = ["ubuntu/images/hvm-ssd/ubuntu-*-22.04-amd64-server-*"]
+    }
+  }
+
+  resource "aws_instance" "web" {
+    ami           = data.aws_ami.ubuntu.id    # Always gets the latest Ubuntu AMI!
+    instance_type = "t2.micro"
+  }
+
+  Now your code always uses the latest Ubuntu 22.04 AMI automatically.
+
+----------------------------------------------------------------
+ EXAMPLE 2: Look Up an Existing VPC
+----------------------------------------------------------------
+
+  Suppose your network team created a VPC manually.
+  You need to put your EC2 server inside it.
+
+  data "aws_vpc" "existing" {
+    tags = {
+      Name = "hsbc-payments-vpc"    # Find the VPC by its name tag
+    }
+  }
+
+  resource "aws_subnet" "my_subnet" {
+    vpc_id     = data.aws_vpc.existing.id    # Use the VPC's ID
+    cidr_block = "10.0.50.0/24"
+  }
+
+  Terraform fetched the VPC ID from AWS — you didn't need to know it!
+
+----------------------------------------------------------------
+ EXAMPLE 3: Get Current AWS Account ID
+----------------------------------------------------------------
+
+  data "aws_caller_identity" "current" {}
+  # No filter needed — gets info about current credentials
+
+  output "account_id" {
+    value = data.aws_caller_identity.current.account_id
+  }
+
+  output "current_user_arn" {
+    value = data.aws_caller_identity.current.arn
+  }
+
+  Useful for constructing ARNs or policies dynamically.
+
+----------------------------------------------------------------
+ EXAMPLE 4: Read an Existing Security Group
+----------------------------------------------------------------
+
+  data "aws_security_group" "existing_sg" {
+    name   = "hsbc-payments-default-sg"
+    vpc_id = data.aws_vpc.existing.id
+  }
+
+  resource "aws_instance" "app" {
+    ami                    = data.aws_ami.ubuntu.id
+    instance_type          = "t2.micro"
+    vpc_security_group_ids = [data.aws_security_group.existing_sg.id]
+  }
+
+----------------------------------------------------------------
+ EXAMPLE 5: Read a Secret from AWS Secrets Manager
+----------------------------------------------------------------
+
+  data "aws_secretsmanager_secret_version" "db_password" {
+    secret_id = "hsbc/payments/db-password"
+  }
+
+  resource "aws_db_instance" "database" {
+    # ...
+    password = data.aws_secretsmanager_secret_version.db_password.secret_string
+  }
+
+  This way the password is NOT hardcoded in your code!
+
+----------------------------------------------------------------
+ EXAMPLE 6: Get Availability Zones
+----------------------------------------------------------------
+
+  data "aws_availability_zones" "available" {
+    state = "available"
+  }
+
+  output "all_azs" {
+    value = data.aws_availability_zones.available.names
+    # e.g., ["us-east-1a", "us-east-1b", "us-east-1c"]
+  }
+
+  resource "aws_subnet" "public" {
+    count             = 2
+    availability_zone = data.aws_availability_zones.available.names[count.index]
+    cidr_block        = "10.0.${count.index}.0/24"
+    vpc_id            = aws_vpc.main.id
+  }
+
+----------------------------------------------------------------
+ DATA SOURCE vs RESOURCE — COMPARISON
+----------------------------------------------------------------
+
+  Feature              | resource {}               | data {}
+  ---------------------|---------------------------|---------------------------
+  Action               | Creates new infra         | Reads existing infra
+  Manages lifecycle?   | Yes (create/update/delete)| No (read-only)
+  In state file?       | Yes (tracked)             | No (just fetched at runtime)
+  Syntax to reference  | resource_type.name.attr   | data.type.name.attr
+  Example              | resource "aws_vpc" "new"  | data "aws_vpc" "existing"
+
+----------------------------------------------------------------
+ HOW DATA SOURCES WORK INTERNALLY
+----------------------------------------------------------------
+
+When you run "terraform plan" or "terraform apply":
+  1. Terraform calls the cloud's API with your filter criteria
+  2. Gets the matching resource's attributes
+  3. Makes those attributes available in your code via data.TYPE.NAME.ATTR
+  4. Data source results are NOT stored in state (refreshed every run)
+
+This means data source values are always UP TO DATE every time you run plan/apply.
+
+----------------------------------------------------------------
+ FILTERING DATA SOURCES
+----------------------------------------------------------------
+
+Most data sources support FILTERS to narrow down which resource you want:
+
+  data "aws_ami" "web" {
+    most_recent = true
+    owners      = ["amazon"]
+
+    filter {
+      name   = "name"
+      values = ["amzn2-ami-hvm-*-x86_64-gp2"]    # Wildcard search
+    }
+
+    filter {
+      name   = "virtualization-type"
+      values = ["hvm"]
+    }
+  }
+
+Multiple filter blocks = AND condition (must match ALL filters).
+Multiple values in one filter = OR condition (must match ANY value).
+
+----------------------------------------------------------------
+ SUMMARY
+----------------------------------------------------------------
+
+  - Data sources fetch info about EXISTING infrastructure (read-only)
+  - Use "data" block; reference with data.TYPE.NAME.ATTRIBUTE
+  - Use when you need to reference infra not managed by your code
+  - Common uses: latest AMI, existing VPC, current account ID, secrets
+  - Data source results are refreshed on every plan/apply (not stored in state)
+  - Filters narrow down which resource to look up
+  - data {} = Read    vs    resource {} = Create
+
+================================================================
+ END OF FILE: 11_Data_Sources.txt
+================================================================

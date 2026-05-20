@@ -1,0 +1,227 @@
+================================================================
+ TERRAFORM LEARNING DOCUMENT
+ Topic 07: Outputs
+================================================================
+
+----------------------------------------------------------------
+ WHAT IS AN OUTPUT?
+----------------------------------------------------------------
+
+After Terraform creates your infrastructure, you often need to know
+certain values — like the IP address of a server, the URL of a
+load balancer, or the name of an S3 bucket.
+
+OUTPUT VALUES are how Terraform shows you these results after
+a successful "terraform apply".
+
+Think of it like this:
+  - You bake a cake (Terraform creates infrastructure)
+  - Output = the ticket they give you at the counter that says
+    "Your cake is ready. Rack number 7." (key info you need after)
+
+----------------------------------------------------------------
+ OUTPUT BLOCK SYNTAX
+----------------------------------------------------------------
+
+  output "OUTPUT_NAME" {
+    value       = <expression>
+    description = "What this output means"
+    sensitive   = false           # Optional; set true to hide value in logs
+  }
+
+----------------------------------------------------------------
+ SIMPLE EXAMPLE
+----------------------------------------------------------------
+
+  resource "aws_instance" "web_server" {
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.micro"
+  }
+
+  output "server_public_ip" {
+    description = "The public IP address of the web server"
+    value       = aws_instance.web_server.public_ip
+  }
+
+  output "server_id" {
+    description = "The EC2 instance ID"
+    value       = aws_instance.web_server.id
+  }
+
+After running terraform apply, you'll see:
+
+  Outputs:
+
+  server_id = "i-0a12345678b9cdef0"
+  server_public_ip = "54.203.123.45"
+
+----------------------------------------------------------------
+ WHY ARE OUTPUTS IMPORTANT?
+----------------------------------------------------------------
+
+Outputs serve 3 major purposes:
+
+  1. DISPLAY INFO TO THE USER
+     After apply, key details are printed to the screen.
+     e.g., "Your server IP is 54.203.123.45 — SSH to it now!"
+
+  2. PASS VALUES BETWEEN MODULES
+     When you use modules (reusable code blocks), outputs are how
+     a child module passes values back to the parent module.
+     (Covered in detail in the Modules topic)
+
+  3. USE IN SCRIPTS AND CI/CD PIPELINES
+     You can capture output values in a shell script:
+       BUCKET_NAME=$(terraform output -raw bucket_name)
+       echo "Deploying app to $BUCKET_NAME"
+
+----------------------------------------------------------------
+ SENSITIVE OUTPUTS
+----------------------------------------------------------------
+
+If an output contains a secret (password, key, token):
+
+  output "db_password" {
+    description = "Database password"
+    value       = aws_db_instance.my_db.password
+    sensitive   = true     # Will be shown as <sensitive> in logs
+  }
+
+  Apply output:
+    db_password = <sensitive>
+
+You can still retrieve it with:
+  $ terraform output -json db_password
+
+NOTE: Even sensitive outputs are stored in terraform.tfstate as plain text.
+Keep your state file secure!
+
+----------------------------------------------------------------
+ QUERYING OUTPUTS FROM COMMAND LINE
+----------------------------------------------------------------
+
+After applying, you can query outputs without reapplying:
+
+  # List all outputs
+  $ terraform output
+
+  # Get a specific output
+  $ terraform output server_public_ip
+
+  # Get the raw value (no quotes, useful in scripts)
+  $ terraform output -raw server_public_ip
+
+  # Get all outputs in JSON format (useful in automation)
+  $ terraform output -json
+
+  Example:
+  $ IP=$(terraform output -raw server_public_ip)
+  $ ssh ubuntu@$IP
+
+----------------------------------------------------------------
+ MULTIPLE VALUES IN OUTPUTS
+----------------------------------------------------------------
+
+  # Output a list
+  resource "aws_instance" "servers" {
+    count         = 3
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.micro"
+  }
+
+  output "all_server_ips" {
+    description = "IPs of all 3 servers"
+    value       = aws_instance.servers[*].public_ip
+    # [*] = splat expression = get this attribute from ALL instances
+  }
+
+  # Output a map
+  output "server_info" {
+    value = {
+      id  = aws_instance.servers[0].id
+      ip  = aws_instance.servers[0].public_ip
+      dns = aws_instance.servers[0].public_dns
+    }
+  }
+
+----------------------------------------------------------------
+ OUTPUT IN MODULES (Advanced Preview)
+----------------------------------------------------------------
+
+When you use modules (covered in detail in Module topic),
+outputs are how data flows OUT of a module:
+
+  # Inside module "networking" (modules/networking/outputs.tf)
+  output "vpc_id" {
+    value = aws_vpc.main.id
+  }
+
+  # In your root main.tf, you use this output:
+  module "networking" {
+    source = "./modules/networking"
+  }
+
+  resource "aws_subnet" "my_subnet" {
+    vpc_id     = module.networking.vpc_id   # Uses the output from the module
+    cidr_block = "10.0.1.0/24"
+  }
+
+----------------------------------------------------------------
+ PRACTICAL EXAMPLE: EC2 + S3 with Multiple Outputs
+----------------------------------------------------------------
+
+  # main.tf
+  resource "aws_instance" "web" {
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.micro"
+  }
+
+  resource "aws_s3_bucket" "logs" {
+    bucket = "my-log-bucket-chandu-2024"
+  }
+
+  # outputs.tf
+  output "web_server_public_ip" {
+    description = "Public IP of web server"
+    value       = aws_instance.web.public_ip
+  }
+
+  output "web_server_id" {
+    description = "EC2 Instance ID"
+    value       = aws_instance.web.id
+  }
+
+  output "log_bucket_name" {
+    description = "S3 bucket name for logs"
+    value       = aws_s3_bucket.logs.bucket
+  }
+
+  output "log_bucket_arn" {
+    description = "ARN of the S3 log bucket"
+    value       = aws_s3_bucket.logs.arn
+  }
+
+  Console after terraform apply:
+  --------------------------------
+  Outputs:
+
+  log_bucket_arn = "arn:aws:s3:::my-log-bucket-chandu-2024"
+  log_bucket_name = "my-log-bucket-chandu-2024"
+  web_server_id = "i-0abc12345678"
+  web_server_public_ip = "3.91.45.123"
+
+----------------------------------------------------------------
+ SUMMARY
+----------------------------------------------------------------
+
+  - Outputs display important values after terraform apply
+  - Syntax: output "name" { value = ... }
+  - Mark secrets as sensitive = true to hide from logs
+  - Use terraform output to query values after apply
+  - Use terraform output -raw for clean values in shell scripts
+  - Outputs are essential for passing values between modules
+  - All output values (even sensitive) are stored in state file
+
+================================================================
+ END OF FILE: 07_Outputs.txt
+================================================================

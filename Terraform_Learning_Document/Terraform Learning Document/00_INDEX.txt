@@ -1,0 +1,154 @@
+================================================================
+ TERRAFORM LEARNING DOCUMENT — INDEX
+ Complete Guide for Freshers | HSBC DevOps Onboarding
+ Author: Chandu | Team: PDPOnPrem | Week: Terraform
+================================================================
+
+This folder contains a complete, fresher-friendly Terraform
+learning guide — one concept per file, all with real examples.
+
+----------------------------------------------------------------
+ TABLE OF CONTENTS
+----------------------------------------------------------------
+
+  FILE                                   TOPIC
+  ─────────────────────────────────────────────────────────────
+  01_What_is_Terraform.txt             │ What Terraform is, IaC concept,
+                                       │ key terms, real-life analogy
+  ─────────────────────────────────────────────────────────────
+  02_How_Terraform_Works.txt           │ Core workflow: init, plan, apply,
+                                       │ destroy; files Terraform creates
+  ─────────────────────────────────────────────────────────────
+  03_HCL_Syntax.txt                    │ HashiCorp Configuration Language:
+                                       │ blocks, data types, expressions,
+                                       │ comments, file naming conventions
+  ─────────────────────────────────────────────────────────────
+  04_Providers.txt                     │ Plugins for AWS/Azure/GCP/Docker/K8s;
+                                       │ authentication methods; aliases;
+                                       │ version pinning; terraform registry
+  ─────────────────────────────────────────────────────────────
+  05_Resources.txt                     │ Creating infrastructure with resource{};
+                                       │ attributes; dependencies; count;
+                                       │ for_each; lifecycle; meta-arguments
+  ─────────────────────────────────────────────────────────────
+  06_Variables.txt                     │ Input variables; types; sensitive;
+                                       │ .tfvars; -var flag; TF_VAR_ env vars;
+                                       │ validation; precedence order
+  ─────────────────────────────────────────────────────────────
+  07_Outputs.txt                       │ Output values; sensitive outputs;
+                                       │ terraform output command; module outputs;
+                                       │ use in CI/CD scripts
+  ─────────────────────────────────────────────────────────────
+  08_Locals.txt                        │ Local values for DRY code; naming
+                                       │ prefixes; tag reuse; expression-based
+                                       │ computed values; locals vs variables
+  ─────────────────────────────────────────────────────────────
+  09_State.txt                         │ terraform.tfstate explained; why it
+                                       │ matters; golden rules; local vs remote
+                                       │ state; locking; state commands; import
+  ─────────────────────────────────────────────────────────────
+  10_Modules.txt                       │ Reusable code blocks; module structure;
+                                       │ calling modules; source types; public
+                                       │ registry modules; version pinning
+  ─────────────────────────────────────────────────────────────
+  11_Data_Sources.txt                  │ Reading existing infra (read-only);
+                                       │ latest AMI; existing VPC; secrets;
+                                       │ filtering; data vs resource difference
+  ─────────────────────────────────────────────────────────────
+  12_Functions.txt                     │ All built-in functions: string, numeric,
+                                       │ collection, type conversion, filesystem,
+                                       │ encoding, hash, date, IP network;
+                                       │ terraform console for testing
+  ─────────────────────────────────────────────────────────────
+  13_Loops_and_Conditionals.txt        │ count, for_each, for expressions,
+                                       │ ternary operator, dynamic blocks;
+                                       │ when to use count vs for_each
+  ─────────────────────────────────────────────────────────────
+  14_Backends.txt                      │ Where state is stored; S3+DynamoDB;
+                                       │ Azure Blob; GCS; Terraform Cloud;
+                                       │ partial config; state migration
+  ─────────────────────────────────────────────────────────────
+  15_Workspaces.txt                    │ Isolated state environments; workspace
+                                       │ commands; terraform.workspace reference;
+                                       │ workspaces vs separate directories
+  ─────────────────────────────────────────────────────────────
+  16_Provisioners.txt                  │ file, remote-exec, local-exec;
+                                       │ connection block; when = destroy;
+                                       │ null_resource; why they're last resort;
+                                       │ user_data as alternative
+  ─────────────────────────────────────────────────────────────
+  17_CLI_Commands.txt                  │ Complete reference: init, validate, fmt,
+                                       │ plan, apply, destroy, output, state,
+                                       │ import, taint, console, graph, workspace
+  ─────────────────────────────────────────────────────────────
+  18_Docker_and_Kubernetes.txt         │ Terraform Docker provider; images,
+                                       │ containers, networks, volumes;
+                                       │ Terraform Kubernetes provider;
+                                       │ Deployments, Services, ConfigMaps,
+                                       │ Secrets; HSBC log-generator example
+  ─────────────────────────────────────────────────────────────
+  19_Best_Practices.txt                │ Project structure; .gitignore; no
+                                       │ hardcoded secrets; version pinning;
+                                       │ remote state; naming conventions;
+                                       │ tagging; plan review; security scanning
+  ─────────────────────────────────────────────────────────────
+  20_Complete_Project_Example.txt      │ Full end-to-end project: VPC, EC2,
+                                       │ Docker, log-generator (HSBC style);
+                                       │ uses every concept from all 19 files
+  ─────────────────────────────────────────────────────────────
+
+----------------------------------------------------------------
+ RECOMMENDED READING ORDER
+----------------------------------------------------------------
+
+  Day 1:  Files 01, 02, 03         → What is Terraform + how it works
+  Day 2:  Files 04, 05, 06, 07, 08 → Core building blocks
+  Day 3:  Files 09, 10, 11         → State, Modules, Data Sources
+  Day 4:  Files 12, 13             → Functions, Loops, Conditionals
+  Day 5:  Files 14, 15, 16         → Backends, Workspaces, Provisioners
+  Day 6:  File  17                 → Full CLI reference
+  Day 7:  Files 18, 19, 20         → Docker/K8s, Best Practices, Full Project
+
+----------------------------------------------------------------
+ QUICK REFERENCE: MOST USED COMMANDS
+----------------------------------------------------------------
+
+  terraform init              # Download providers + initialize
+  terraform validate          # Check for syntax errors
+  terraform fmt               # Format code
+  terraform plan              # Preview changes (ALWAYS do this first)
+  terraform apply             # Create/update infrastructure
+  terraform destroy           # Delete everything
+  terraform output            # Show outputs
+  terraform state list        # List tracked resources
+  terraform workspace select  # Switch environment
+
+----------------------------------------------------------------
+ QUICK REFERENCE: KEY FILES
+----------------------------------------------------------------
+
+  main.tf              → Resources and module calls
+  variables.tf         → Variable declarations
+  outputs.tf           → Output declarations
+  providers.tf         → Provider + Terraform settings
+  locals.tf            → Local computed values
+  terraform.tfvars     → Default variable values
+  .gitignore           → Must exclude terraform.tfstate
+  .terraform.lock.hcl  → Commit this! Locks provider versions
+
+----------------------------------------------------------------
+ REMEMBER: THE GOLDEN RULES
+----------------------------------------------------------------
+
+  1. NEVER manually edit terraform.tfstate
+  2. NEVER commit terraform.tfstate to Git
+  3. NEVER hardcode secrets in .tf files
+  4. ALWAYS run terraform plan before terraform apply
+  5. ALWAYS use remote state in team environments
+  6. ALWAYS pin provider and module versions
+  7. ALWAYS tag all resources
+
+================================================================
+ Good luck with your Terraform week, Chandu!
+ — From your learning companion
+================================================================

@@ -1,0 +1,120 @@
+================================================================
+ TERRAFORM LEARNING DOCUMENT
+ Topic 01: What is Terraform?
+================================================================
+
+----------------------------------------------------------------
+ WHAT IS TERRAFORM?
+----------------------------------------------------------------
+
+Terraform is an open-source tool created by a company called HashiCorp.
+It is used to CREATE, MANAGE, and DESTROY infrastructure using CODE.
+
+When we say "infrastructure", we mean things like:
+  - Servers (Virtual Machines)
+  - Networks
+  - Databases
+  - Storage buckets
+  - Load balancers
+  - DNS records
+  - Kubernetes clusters
+  ... and many more.
+
+Before Terraform, if you wanted a server on AWS or Azure, you had to:
+  1. Log in to the cloud provider's website
+  2. Click through menus manually
+  3. Fill forms
+  4. Wait for it to be ready
+
+This is called "ClickOps" (doing things by clicking manually).
+
+With Terraform, you write a simple text file describing what you want,
+and Terraform will automatically create it for you.
+
+----------------------------------------------------------------
+ WHAT DOES "INFRASTRUCTURE AS CODE" (IaC) MEAN?
+----------------------------------------------------------------
+
+"Infrastructure as Code" (IaC) means writing your infrastructure
+(servers, networks, etc.) in a code/text file instead of doing it manually.
+
+Think of it like this:
+  - Without IaC: You go to a restaurant and describe verbally what you want each time.
+  - With IaC:    You hand a printed recipe card. The chef always makes it exactly the same.
+
+Benefits:
+  1. REPRODUCIBLE   - Same code = same infrastructure, every time.
+  2. VERSION CONTROL - You can store it in Git, track changes.
+  3. AUTOMATION     - No manual clicking; everything is automated.
+  4. TEAM WORK      - Everyone uses the same code, no "works on my machine" issues.
+  5. SPEED          - Spin up 100 servers in seconds, not hours.
+
+----------------------------------------------------------------
+ WHO MADE TERRAFORM AND WHEN?
+----------------------------------------------------------------
+
+  - Created by: HashiCorp
+  - First release: July 2014
+  - Language used to write Terraform: Go (Golang)
+  - The config files you write: HCL (HashiCorp Configuration Language)
+  - Current major version: Terraform v1.x
+
+In 2023, HashiCorp changed Terraform's license from open-source (MPL)
+to a Business Source License (BSL). Because of this, an open-source fork
+called "OpenTofu" was created by the community. But for your learning,
+Terraform and OpenTofu are nearly identical in concepts.
+
+----------------------------------------------------------------
+ WHAT CAN TERRAFORM MANAGE?
+----------------------------------------------------------------
+
+Terraform can manage infrastructure on:
+  - AWS (Amazon Web Services)
+  - Azure (Microsoft)
+  - GCP (Google Cloud Platform)
+  - On-premises (your own servers using VMware, etc.)
+  - Kubernetes
+  - GitHub (yes, even GitHub repos!)
+  - Databases (MySQL, PostgreSQL)
+  - DNS providers (Cloudflare, Route53)
+  ... over 3000+ providers available!
+
+----------------------------------------------------------------
+ REAL-WORLD ANALOGY
+----------------------------------------------------------------
+
+Think of Terraform like a BLUEPRINT for a house:
+
+  - Architect writes blueprint (You write Terraform code)
+  - Blueprint describes exactly what the house looks like (Code describes infrastructure)
+  - Builder follows blueprint to construct the house (Terraform applies the code)
+  - If you need 10 identical houses, use the same blueprint (Reuse code for multiple environments)
+  - If you change the blueprint, only the changed parts are rebuilt (Terraform plans changes)
+
+----------------------------------------------------------------
+ KEY TERMS (introduced here, explained in detail in later files)
+----------------------------------------------------------------
+
+  Provider    - Plugin that talks to a cloud (e.g., AWS, Azure)
+  Resource    - A piece of infrastructure (e.g., a server, a database)
+  State       - Terraform's memory of what it has already created
+  Plan        - Preview of what changes Terraform will make
+  Apply       - Actually making those changes happen
+  Destroy     - Deleting all infrastructure managed by Terraform
+  Module      - Reusable group of Terraform code
+  Variable    - Input values so your code isn't hardcoded
+  Output      - Values printed after Terraform applies (e.g., IP address)
+
+----------------------------------------------------------------
+ SUMMARY
+----------------------------------------------------------------
+
+  - Terraform = Tool to manage infrastructure using code files
+  - IaC = Writing infrastructure in code instead of doing it manually
+  - Created by HashiCorp, first released in 2014
+  - Works with AWS, Azure, GCP, Kubernetes, and 3000+ providers
+  - You write HCL config files, Terraform does the rest
+
+================================================================
+ END OF FILE: 01_What_is_Terraform.txt
+================================================================

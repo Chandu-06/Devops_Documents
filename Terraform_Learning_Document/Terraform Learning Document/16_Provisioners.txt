@@ -1,0 +1,287 @@
+================================================================
+ TERRAFORM LEARNING DOCUMENT
+ Topic 16: Provisioners
+================================================================
+
+----------------------------------------------------------------
+ WHAT ARE PROVISIONERS?
+----------------------------------------------------------------
+
+Provisioners are a way to execute SCRIPTS or COMMANDS on a resource
+AFTER it has been created by Terraform.
+
+For example:
+  1. Create an EC2 server (Terraform does this)
+  2. Install Nginx on it (Provisioner does this)
+  3. Copy a config file to it (Provisioner does this)
+  4. Run a startup script (Provisioner does this)
+
+IMPORTANT WARNING from HashiCorp:
+  Provisioners are a LAST RESORT. They make Terraform less predictable
+  and harder to maintain. Prefer:
+    - Cloud-init / user_data (for initial server setup)
+    - Configuration management tools: Ansible, Chef, Puppet
+    - Custom AMIs (pre-baked images with software already installed)
+
+  Use provisioners only when no better option exists.
+
+----------------------------------------------------------------
+ TYPES OF PROVISIONERS
+----------------------------------------------------------------
+
+  1. file          → Copy a file or folder TO the remote machine
+  2. remote-exec   → Run commands ON the remote machine (via SSH/WinRM)
+  3. local-exec    → Run commands on YOUR LOCAL machine (not the remote server)
+
+----------------------------------------------------------------
+ 1. FILE PROVISIONER
+----------------------------------------------------------------
+
+Copies a file or directory from your local machine to the remote resource.
+
+  resource "aws_instance" "web" {
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.micro"
+    key_name      = "my-key-pair"
+
+    connection {
+      type        = "ssh"
+      user        = "ubuntu"
+      private_key = file("~/.ssh/my-key.pem")
+      host        = self.public_ip
+    }
+
+    provisioner "file" {
+      source      = "scripts/setup.sh"          # File on YOUR machine
+      destination = "/home/ubuntu/setup.sh"     # Where to put it on the server
+    }
+  }
+
+  Copy a whole directory:
+    provisioner "file" {
+      source      = "configs/"                  # Local directory
+      destination = "/etc/myapp/"               # Remote directory
+    }
+
+----------------------------------------------------------------
+ 2. REMOTE-EXEC PROVISIONER
+----------------------------------------------------------------
+
+Runs commands on the REMOTE machine after it's created.
+Requires SSH (Linux) or WinRM (Windows) access.
+
+  resource "aws_instance" "web" {
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.micro"
+    key_name      = "my-key-pair"
+
+    connection {
+      type        = "ssh"
+      user        = "ubuntu"
+      private_key = file("~/.ssh/my-key.pem")
+      host        = self.public_ip
+    }
+
+    provisioner "remote-exec" {
+      inline = [
+        "sudo apt-get update -y",
+        "sudo apt-get install -y nginx",
+        "sudo systemctl start nginx",
+        "sudo systemctl enable nginx"
+      ]
+    }
+  }
+
+  Inline vs Script:
+    # Option 1: Inline commands (list of strings)
+    provisioner "remote-exec" {
+      inline = [
+        "sudo apt update",
+        "sudo apt install -y docker.io"
+      ]
+    }
+
+    # Option 2: Run a script file (must already be on the remote machine)
+    provisioner "remote-exec" {
+      script = "/home/ubuntu/setup.sh"    # Already copied there by file provisioner
+    }
+
+    # Option 3: Multiple script files
+    provisioner "remote-exec" {
+      scripts = [
+        "/home/ubuntu/install.sh",
+        "/home/ubuntu/configure.sh"
+      ]
+    }
+
+----------------------------------------------------------------
+ 3. LOCAL-EXEC PROVISIONER
+----------------------------------------------------------------
+
+Runs commands on YOUR LOCAL machine (or wherever Terraform is running),
+NOT on the remote resource.
+
+  resource "aws_instance" "web" {
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.micro"
+
+    provisioner "local-exec" {
+      command = "echo ${self.public_ip} >> inventory.txt"
+      # Writes the server's IP to a local file
+    }
+  }
+
+  Common use cases:
+    1. Update Ansible inventory after creating a server
+    2. Call an external API or webhook
+    3. Run local scripts after infrastructure is created
+
+  Example: Run Ansible after creating EC2:
+    provisioner "local-exec" {
+      command = <<EOT
+        sleep 30   # Wait for SSH to be ready
+        ansible-playbook \
+          -i '${self.public_ip},' \
+          -u ubuntu \
+          --private-key ~/.ssh/my-key.pem \
+          playbooks/configure-server.yml
+      EOT
+    }
+
+  Example: Trigger a Jenkins build:
+    provisioner "local-exec" {
+      command = "curl -X POST http://jenkins.hsbc.internal/job/deploy/build"
+    }
+
+----------------------------------------------------------------
+ THE CONNECTION BLOCK
+----------------------------------------------------------------
+
+For file and remote-exec provisioners, Terraform needs to connect
+to the remote machine. You define this with a "connection" block.
+
+  connection {
+    type        = "ssh"               # "ssh" for Linux, "winrm" for Windows
+    user        = "ubuntu"            # SSH username
+    private_key = file("~/.ssh/my-key.pem")  # Private key for authentication
+    host        = self.public_ip      # The IP/hostname to connect to
+    port        = 22                  # SSH port (default 22)
+    timeout     = "5m"                # How long to wait for connection
+  }
+
+  For Windows:
+    connection {
+      type     = "winrm"
+      user     = "Administrator"
+      password = "SuperSecret123!"
+      host     = self.public_ip
+    }
+
+  "self" refers to the resource the provisioner is inside.
+  self.public_ip = the public IP of that specific EC2 instance.
+
+----------------------------------------------------------------
+ WHEN DO PROVISIONERS RUN?
+----------------------------------------------------------------
+
+  By default: "on creation" — runs ONCE when resource is first created.
+
+  on_failure: what to do if the provisioner command fails:
+    provisioner "remote-exec" {
+      on_failure = continue    # Ignore errors and continue (default: fail)
+      inline = ["sudo apt update"]
+    }
+
+  "when = destroy" — runs BEFORE the resource is destroyed:
+    provisioner "local-exec" {
+      when    = destroy
+      command = "echo 'Server ${self.id} is being destroyed' >> destroy.log"
+    }
+
+----------------------------------------------------------------
+ NULL RESOURCE (Run Provisioners Without a Real Resource)
+----------------------------------------------------------------
+
+Sometimes you want to run a provisioner without tying it to a specific
+cloud resource. Use "null_resource":
+
+  resource "null_resource" "run_ansible" {
+    triggers = {
+      # Re-run the provisioner if this changes
+      server_ip = aws_instance.web.public_ip
+    }
+
+    provisioner "local-exec" {
+      command = "ansible-playbook -i '${aws_instance.web.public_ip},' site.yml"
+    }
+  }
+
+  "triggers" = a map of values. If any value changes, Terraform
+  re-creates the null_resource and re-runs the provisioner.
+
+----------------------------------------------------------------
+ WHY PROVISIONERS ARE A LAST RESORT
+----------------------------------------------------------------
+
+Problems with provisioners:
+  1. Not idempotent — running the same script twice may fail or cause issues
+  2. Network dependency — SSH must be available; firewalls can block this
+  3. Not in plan — Terraform can't show provisioner outcomes in terraform plan
+  4. State issues — if provisioner fails, resource is marked "tainted" in state
+  5. Hard to debug — errors are harder to diagnose than normal resources
+
+Better alternatives:
+  - user_data (cloud-init): Run scripts at boot time without SSH needed
+  - Pre-baked AMIs: Install software when building the image (Packer)
+  - Ansible: Proper configuration management tool
+  - AWS Systems Manager (SSM): Run commands without SSH
+
+  user_data example (PREFERRED over remote-exec):
+    resource "aws_instance" "web" {
+      ami           = "ami-0c55b159cbfafe1f0"
+      instance_type = "t2.micro"
+
+      user_data = <<-EOF
+        #!/bin/bash
+        apt-get update -y
+        apt-get install -y nginx
+        systemctl start nginx
+        systemctl enable nginx
+      EOF
+    }
+
+  No SSH needed! AWS runs this script on first boot automatically.
+
+----------------------------------------------------------------
+ TAINTED RESOURCES
+----------------------------------------------------------------
+
+If a provisioner FAILS during apply, Terraform marks the resource
+as "tainted" in state. This means on the NEXT apply, Terraform will
+destroy and recreate that resource.
+
+To manually taint a resource (force recreation on next apply):
+  $ terraform taint aws_instance.web_server
+
+To untaint (remove the taint marker):
+  $ terraform untaint aws_instance.web_server
+
+Note: In Terraform v0.15.2+, use "terraform apply -replace" instead:
+  $ terraform apply -replace="aws_instance.web_server"
+
+----------------------------------------------------------------
+ SUMMARY
+----------------------------------------------------------------
+
+  - Provisioners run scripts AFTER a resource is created
+  - Types: file (copy files), remote-exec (run on server), local-exec (run locally)
+  - Requires a connection block for file and remote-exec
+  - "when = destroy" runs before resource deletion
+  - on_failure = continue/fail controls error behavior
+  - Use null_resource to run provisioners standalone
+  - LAST RESORT: prefer user_data, Ansible, or pre-baked AMIs instead
+  - Failed provisioners = tainted resource (destroyed on next apply)
+
+================================================================
+ END OF FILE: 16_Provisioners.txt
+================================================================

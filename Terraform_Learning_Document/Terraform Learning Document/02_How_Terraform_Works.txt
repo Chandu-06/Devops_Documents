@@ -1,0 +1,196 @@
+================================================================
+ TERRAFORM LEARNING DOCUMENT
+ Topic 02: How Terraform Works (The Core Workflow)
+================================================================
+
+----------------------------------------------------------------
+ THE BIG PICTURE
+----------------------------------------------------------------
+
+When you use Terraform, you always follow a simple 4-step workflow:
+
+  STEP 1: Write    --> Write .tf config files (describe what you want)
+  STEP 2: Init     --> terraform init     (download required plugins)
+  STEP 3: Plan     --> terraform plan     (preview what will change)
+  STEP 4: Apply    --> terraform apply    (actually create/change infra)
+
+And when you want to delete everything:
+  STEP 5: Destroy  --> terraform destroy  (remove all infra)
+
+Let's go through each step in detail.
+
+----------------------------------------------------------------
+ STEP 1: WRITE (.tf files)
+----------------------------------------------------------------
+
+You write your infrastructure in files with the ".tf" extension.
+These files use HCL (HashiCorp Configuration Language).
+
+Example: Create a simple AWS EC2 instance (a virtual server)
+
+  File name: main.tf
+
+  provider "aws" {
+    region = "us-east-1"
+  }
+
+  resource "aws_instance" "my_server" {
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.micro"
+  }
+
+That's it! Two blocks of code to create a server on AWS.
+
+Real-life analogy:
+  Writing a .tf file is like writing a shopping list.
+  You write what you want; Terraform goes and gets it.
+
+----------------------------------------------------------------
+ STEP 2: INIT (terraform init)
+----------------------------------------------------------------
+
+Before Terraform can do anything, it needs to download the correct
+"provider plugins" for your cloud (e.g., AWS, Azure).
+
+Command:
+  $ terraform init
+
+What happens behind the scenes:
+  - Terraform reads your .tf files
+  - Finds the "provider" block (e.g., provider "aws")
+  - Downloads the AWS provider plugin from the Terraform Registry
+  - Creates a hidden folder: .terraform/
+  - Creates a lock file: .terraform.lock.hcl (records plugin versions)
+
+You only need to run "terraform init" ONCE per project,
+or whenever you add a new provider.
+
+Real-life analogy:
+  terraform init = Installing apps on your phone before using them.
+  You can't use WhatsApp without installing it first.
+
+----------------------------------------------------------------
+ STEP 3: PLAN (terraform plan)
+----------------------------------------------------------------
+
+Before making any changes, Terraform shows you a PREVIEW of
+what it is about to do.
+
+Command:
+  $ terraform plan
+
+Sample output:
+
+  Terraform will perform the following actions:
+
+    # aws_instance.my_server will be created
+    + resource "aws_instance" "my_server" {
+        + ami           = "ami-0c55b159cbfafe1f0"
+        + instance_type = "t2.micro"
+      }
+
+  Plan: 1 to add, 0 to change, 0 to destroy.
+
+Symbols in the plan output:
+  + green  = will be CREATED (new resource)
+  ~ yellow = will be UPDATED (existing resource, some attributes change)
+  - red    = will be DESTROYED (resource will be deleted)
+
+This step does NOT make any actual changes. It is 100% safe to run.
+
+Real-life analogy:
+  terraform plan = Checking the preview order before clicking "Place Order"
+  on an e-commerce site. You review before you pay.
+
+----------------------------------------------------------------
+ STEP 4: APPLY (terraform apply)
+----------------------------------------------------------------
+
+This is where Terraform actually CREATES the infrastructure.
+
+Command:
+  $ terraform apply
+
+Terraform will:
+  1. Show you the plan again
+  2. Ask: "Do you want to perform these actions? Enter 'yes' to confirm"
+  3. You type: yes
+  4. It creates/modifies/destroys resources
+
+To skip the confirmation prompt (useful in automation/CI-CD):
+  $ terraform apply -auto-approve
+
+What Terraform does after applying:
+  - Creates a STATE FILE called "terraform.tfstate"
+  - This file tracks everything Terraform has created
+  - Very important! (covered in detail in the State file topic)
+
+Real-life analogy:
+  terraform apply = Actually clicking "Confirm Purchase" after reviewing.
+
+----------------------------------------------------------------
+ STEP 5: DESTROY (terraform destroy)
+----------------------------------------------------------------
+
+When you want to DELETE all the infrastructure Terraform created:
+
+Command:
+  $ terraform destroy
+
+Terraform will:
+  1. Show you what it will delete
+  2. Ask for confirmation
+  3. Delete everything in the state file
+
+WARNING: This deletes REAL resources! Data could be lost.
+Always double-check before running destroy in production.
+
+Real-life analogy:
+  terraform destroy = Cancelling a service and returning all the equipment.
+
+----------------------------------------------------------------
+ FULL WORKFLOW DIAGRAM
+----------------------------------------------------------------
+
+  You write code          Terraform reads it
+  (main.tf)    ------->   (terraform init)
+                                |
+                                v
+                         Downloads plugins
+                         (.terraform/ folder)
+                                |
+                                v
+                    terraform plan (preview changes)
+                                |
+                                v
+                    terraform apply (make it real)
+                                |
+                                v
+                    Infrastructure is LIVE!
+                    State saved in terraform.tfstate
+                                |
+                                v
+                    terraform destroy (when done)
+
+----------------------------------------------------------------
+ IMPORTANT FILES TERRAFORM CREATES
+----------------------------------------------------------------
+
+  .terraform/            - Hidden folder; stores downloaded provider plugins
+  .terraform.lock.hcl   - Locks provider versions (commit this to Git!)
+  terraform.tfstate      - State file (DO NOT manually edit this!)
+  terraform.tfstate.backup - Backup of previous state
+
+----------------------------------------------------------------
+ SUMMARY
+----------------------------------------------------------------
+
+  1. Write .tf files describing what infrastructure you want
+  2. terraform init    - Downloads required plugins
+  3. terraform plan    - Preview changes (safe, no real changes)
+  4. terraform apply   - Create/update infrastructure
+  5. terraform destroy - Delete all infrastructure
+
+================================================================
+ END OF FILE: 02_How_Terraform_Works.txt
+================================================================

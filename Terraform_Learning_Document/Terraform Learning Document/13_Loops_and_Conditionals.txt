@@ -1,0 +1,341 @@
+================================================================
+ TERRAFORM LEARNING DOCUMENT
+ Topic 13: Loops and Conditionals
+================================================================
+
+----------------------------------------------------------------
+ WHY DO WE NEED LOOPS AND CONDITIONALS?
+----------------------------------------------------------------
+
+Imagine you need to create 5 S3 buckets or 10 EC2 servers.
+Without loops, you would copy-paste the resource block 10 times.
+That's unmanageable and violates the DRY principle (Don't Repeat Yourself).
+
+Conditionals let you make decisions in code:
+  "If env is prod, use t2.large. Otherwise use t2.micro."
+
+Terraform supports:
+  1. count          → Simple loop (create N copies of something)
+  2. for_each       → Loop over a map or set
+  3. for expression → Transform a list/map
+  4. Conditional    → If-else logic (ternary operator)
+  5. dynamic blocks → Loop inside a resource block
+
+----------------------------------------------------------------
+ 1. COUNT (Simple Loop)
+----------------------------------------------------------------
+
+The "count" meta-argument creates multiple copies of a resource.
+
+  resource "aws_instance" "servers" {
+    count         = 3
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.micro"
+
+    tags = {
+      Name = "server-${count.index}"
+    }
+  }
+
+  count.index = 0, 1, 2 for each copy
+
+  This creates:
+    server-0, server-1, server-2
+
+Accessing individual instances:
+  aws_instance.servers[0].public_ip   # First server's IP
+  aws_instance.servers[1].public_ip   # Second server's IP
+  aws_instance.servers[*].public_ip   # All servers' IPs (splat expression)
+
+Count with a variable:
+  resource "aws_instance" "servers" {
+    count         = var.server_count
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.micro"
+  }
+
+Count with a condition (0 or 1 = create or skip):
+  resource "aws_instance" "monitoring" {
+    count         = var.enable_monitoring ? 1 : 0
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.micro"
+  }
+  # If enable_monitoring = true  → creates 1 instance
+  # If enable_monitoring = false → creates 0 instances (resource skipped)
+
+PROBLEM with count:
+  If you remove item at index 1 from a list, Terraform sees indices 0 and 2
+  but now index 1 is missing — it destroys and recreates resources unexpectedly.
+  Use for_each for map/set-based loops to avoid this.
+
+----------------------------------------------------------------
+ 2. FOR_EACH (Loop over Map or Set)
+----------------------------------------------------------------
+
+for_each is better than count when creating resources from a
+collection of unique identifiers (names, keys).
+
+  SYNTAX:
+    for_each = map_or_set
+
+  Inside the block, use:
+    each.key   → the current key (or value if set)
+    each.value → the current value (from map)
+
+  EXAMPLE with a MAP:
+    resource "aws_instance" "env_servers" {
+      for_each = {
+        dev  = "t2.micro"
+        uat  = "t2.small"
+        prod = "t2.large"
+      }
+
+      ami           = "ami-0c55b159cbfafe1f0"
+      instance_type = each.value    # t2.micro / t2.small / t2.large
+
+      tags = {
+        Name        = "server-${each.key}"    # server-dev / server-uat / server-prod
+        Environment = each.key
+      }
+    }
+
+  Accessing individual instances:
+    aws_instance.env_servers["dev"].public_ip
+    aws_instance.env_servers["prod"].id
+
+  EXAMPLE with a SET of strings:
+    resource "aws_s3_bucket" "buckets" {
+      for_each = toset(["logs", "backups", "uploads"])
+      bucket   = "hsbc-payments-${each.value}"
+    }
+
+  Creates:
+    hsbc-payments-logs
+    hsbc-payments-backups
+    hsbc-payments-uploads
+
+  FOR_EACH with variable:
+    variable "users" {
+      type = map(string)
+      default = {
+        alice = "admin"
+        bob   = "developer"
+        carol = "viewer"
+      }
+    }
+
+    resource "aws_iam_user" "team" {
+      for_each = var.users
+      name     = each.key      # alice, bob, carol
+      # each.value = "admin", "developer", "viewer"
+    }
+
+  Advantage over count:
+    Resources are identified by KEY ("dev", "prod") not INDEX (0, 1, 2).
+    Adding or removing a key only affects that specific resource.
+
+----------------------------------------------------------------
+ 3. FOR EXPRESSION (Transforming Collections)
+----------------------------------------------------------------
+
+A "for expression" transforms a list/map into a new list/map.
+Think of it like Python's list comprehensions.
+
+  BASIC SYNTAX for producing a LIST:
+    [for ITEM in COLLECTION : EXPRESSION]
+
+  BASIC SYNTAX for producing a MAP:
+    {for KEY, VALUE in COLLECTION : NEW_KEY => NEW_VALUE}
+
+  EXAMPLES:
+
+  # Transform a list: make all names uppercase
+    variable "names" {
+      default = ["alice", "bob", "carol"]
+    }
+    locals {
+      upper_names = [for name in var.names : upper(name)]
+      # Result: ["ALICE", "BOB", "CAROL"]
+    }
+
+  # Filter a list: keep only items starting with "a"
+    locals {
+      a_names = [for name in var.names : name if startswith(name, "a")]
+      # Result: ["alice"]
+    }
+
+  # Transform a map: swap keys and values
+    locals {
+      roles = { alice = "admin", bob = "viewer" }
+      swapped = {for k, v in local.roles : v => k}
+      # Result: { admin = "alice", viewer = "bob" }
+    }
+
+  # Build a map from a list
+    locals {
+      server_names = ["web", "app", "db"]
+      server_map = {for name in local.server_names : name => "t2.micro"}
+      # Result: { web = "t2.micro", app = "t2.micro", db = "t2.micro" }
+    }
+
+  # Get IPs of all for_each instances
+    output "all_ips" {
+      value = {for k, v in aws_instance.env_servers : k => v.public_ip}
+      # Result: { dev = "1.2.3.4", uat = "5.6.7.8", prod = "9.10.11.12" }
+    }
+
+  # Get all IPs as a list (from count-based resource)
+    output "all_server_ips" {
+      value = [for server in aws_instance.servers : server.public_ip]
+    }
+
+  # Splat expression (shorthand for above with count)
+    output "all_server_ips" {
+      value = aws_instance.servers[*].public_ip
+    }
+
+----------------------------------------------------------------
+ 4. CONDITIONAL EXPRESSION (If-Else / Ternary)
+----------------------------------------------------------------
+
+Terraform uses the ternary operator for if-else logic:
+
+  SYNTAX:
+    condition ? value_if_true : value_if_false
+
+  EXAMPLES:
+
+  # Choose instance type based on environment
+    instance_type = var.env == "prod" ? "t2.large" : "t2.micro"
+
+  # Enable or disable deletion protection
+    deletion_protection = var.env == "prod" ? true : false
+
+  # Use different AMIs for different OS preferences
+    ami = var.use_ubuntu ? var.ubuntu_ami : var.amazon_linux_ami
+
+  # Create a resource only if a flag is true (count trick)
+    resource "aws_cloudwatch_alarm" "cpu_alarm" {
+      count = var.enable_monitoring ? 1 : 0
+      # ... alarm config ...
+    }
+
+  # Nested ternary (be careful - can get complex)
+    instance_type = var.env == "prod" ? "t2.large" :
+                    var.env == "uat"  ? "t2.small" :
+                    "t2.micro"
+
+  # Use a local for complex conditionals
+    locals {
+      instance_type = var.env == "prod" ? "t2.large"  :
+                      var.env == "uat"  ? "t2.small"  :
+                      "t2.micro"
+    }
+
+----------------------------------------------------------------
+ 5. DYNAMIC BLOCKS (Loop Inside a Resource)
+----------------------------------------------------------------
+
+Sometimes you need to repeat a BLOCK (not a whole resource) multiple times.
+For example, a security group has multiple "ingress" rules.
+
+Without dynamic:
+  resource "aws_security_group" "web_sg" {
+    ingress {
+      from_port   = 80
+      to_port     = 80
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+
+    ingress {
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+
+    ingress {
+      from_port   = 22
+      to_port     = 22
+      protocol    = "tcp"
+      cidr_blocks = ["10.0.0.0/8"]
+    }
+  }
+
+With dynamic block (cleaner and reusable):
+  variable "ingress_rules" {
+    default = [
+      { port = 80,  cidr = "0.0.0.0/0" },
+      { port = 443, cidr = "0.0.0.0/0" },
+      { port = 22,  cidr = "10.0.0.0/8" }
+    ]
+  }
+
+  resource "aws_security_group" "web_sg" {
+    dynamic "ingress" {
+      for_each = var.ingress_rules
+      content {
+        from_port   = ingress.value.port
+        to_port     = ingress.value.port
+        protocol    = "tcp"
+        cidr_blocks = [ingress.value.cidr]
+      }
+    }
+  }
+
+  Syntax breakdown:
+    dynamic "BLOCK_NAME" {        ← Name of the block to repeat ("ingress")
+      for_each = COLLECTION       ← What to loop over
+      content {                   ← What to put inside each repeated block
+        ...
+        BLOCK_NAME.value.KEY      ← Access current item's values
+      }
+    }
+
+  Dynamic blocks work with: ingress, egress, rule, setting, tag, etc.
+
+----------------------------------------------------------------
+ PRACTICAL COMBINED EXAMPLE
+----------------------------------------------------------------
+
+  variable "environments" {
+    default = {
+      dev  = { instance_type = "t2.micro",  count = 1 }
+      uat  = { instance_type = "t2.small",  count = 2 }
+      prod = { instance_type = "t2.large",  count = 3 }
+    }
+  }
+
+  # Create servers for each environment
+  resource "aws_instance" "servers" {
+    for_each      = var.environments
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = each.value.instance_type
+
+    tags = {
+      Name = "server-${each.key}"
+      Env  = each.key
+    }
+  }
+
+  # Output all server IPs
+  output "server_ips" {
+    value = {for k, v in aws_instance.servers : k => v.public_ip}
+  }
+
+----------------------------------------------------------------
+ SUMMARY
+----------------------------------------------------------------
+
+  count      → Create N copies of a resource; access via [index]
+  for_each   → Create resources from a map/set; access via ["key"]
+  for expr   → Transform lists/maps: [for x in list : expression]
+  Ternary    → If-else: condition ? true_value : false_value
+  dynamic    → Repeat blocks within a resource using for_each
+  count=0    → Effectively disables/skips a resource
+  for_each is preferred over count for named resources (more stable)
+
+================================================================
+ END OF FILE: 13_Loops_and_Conditionals.txt
+================================================================

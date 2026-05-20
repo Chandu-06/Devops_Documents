@@ -1,0 +1,282 @@
+================================================================
+ TERRAFORM LEARNING DOCUMENT
+ Topic 05: Resources
+================================================================
+
+----------------------------------------------------------------
+ WHAT IS A RESOURCE?
+----------------------------------------------------------------
+
+A RESOURCE is the most important concept in Terraform.
+
+A resource represents a piece of infrastructure that Terraform
+will CREATE, MANAGE, or DESTROY.
+
+Examples of resources:
+  - An EC2 virtual machine on AWS
+  - An S3 storage bucket on AWS
+  - A virtual network in Azure
+  - A database in GCP
+  - A Docker container
+  - A Kubernetes Deployment
+  - A GitHub repository
+
+Everything you create in Terraform is a resource.
+
+----------------------------------------------------------------
+ RESOURCE BLOCK SYNTAX
+----------------------------------------------------------------
+
+  resource "RESOURCE_TYPE" "LOCAL_NAME" {
+    argument1 = value1
+    argument2 = value2
+    ...
+  }
+
+Breaking it down:
+
+  resource         - Keyword; tells Terraform this is a resource block
+  "RESOURCE_TYPE"  - Type of resource from the provider
+                     (e.g., "aws_instance", "aws_s3_bucket", "azurerm_virtual_machine")
+                     Format: providerprefix_resourcekind
+  "LOCAL_NAME"     - A name YOU choose to identify this resource in your code
+                     (e.g., "web_server", "my_bucket")
+                     This is only used INSIDE your Terraform code, not visible in AWS/Azure.
+
+----------------------------------------------------------------
+ REAL EXAMPLE 1: AWS EC2 Instance
+----------------------------------------------------------------
+
+  resource "aws_instance" "web_server" {
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.micro"
+
+    tags = {
+      Name = "MyWebServer"
+    }
+  }
+
+  - "aws_instance"  = Resource type (EC2 virtual machine)
+  - "web_server"    = Local name (you made this up)
+  - ami             = The OS image ID (like choosing Ubuntu/Windows template)
+  - instance_type   = The size of the machine (t2.micro = small, free tier)
+  - tags            = Labels/metadata you attach (helps identify in AWS console)
+
+----------------------------------------------------------------
+ REAL EXAMPLE 2: AWS S3 Bucket
+----------------------------------------------------------------
+
+  resource "aws_s3_bucket" "my_bucket" {
+    bucket = "chandu-devops-test-bucket-2024"
+
+    tags = {
+      Environment = "dev"
+    }
+  }
+
+  - "aws_s3_bucket" = Resource type (S3 = Simple Storage Service)
+  - "my_bucket"     = Local name
+  - bucket          = The globally unique name for the S3 bucket
+
+NOTE: S3 bucket names must be globally unique across ALL AWS users worldwide!
+
+----------------------------------------------------------------
+ REAL EXAMPLE 3: Azure Resource Group
+----------------------------------------------------------------
+
+  resource "azurerm_resource_group" "hsbc_rg" {
+    name     = "hsbc-payment-dev-rg"
+    location = "UK South"
+  }
+
+  - "azurerm_resource_group" = Resource type in Azure
+  - "hsbc_rg"                = Local name
+  - name                     = The resource group name in Azure
+  - location                 = Azure region
+
+----------------------------------------------------------------
+ RESOURCE TYPE NAMING CONVENTION
+----------------------------------------------------------------
+
+Resource types follow a pattern:
+  <provider_prefix>_<resource_kind>
+
+Examples:
+  aws_instance         → AWS provider, EC2 instance
+  aws_s3_bucket        → AWS provider, S3 bucket
+  aws_vpc              → AWS provider, Virtual Private Cloud
+  azurerm_linux_vm     → Azure provider, Linux Virtual Machine
+  google_compute_instance → Google provider, Compute instance
+  kubernetes_deployment   → Kubernetes provider, Deployment
+  docker_container        → Docker provider, Container
+
+----------------------------------------------------------------
+ REFERENCING RESOURCE ATTRIBUTES
+----------------------------------------------------------------
+
+After Terraform creates a resource, it has ATTRIBUTES (properties).
+You can reference these in other resources.
+
+Syntax:
+  resource_type.local_name.attribute_name
+
+Example:
+  resource "aws_instance" "web_server" {
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.micro"
+  }
+
+  output "web_server_ip" {
+    value = aws_instance.web_server.public_ip
+    #       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    #  Reads the public_ip attribute after the server is created
+  }
+
+Common attributes to reference:
+  aws_instance.my_server.id           - The instance ID (e.g., i-0abcd1234)
+  aws_instance.my_server.public_ip    - Public IP address
+  aws_instance.my_server.private_ip   - Private IP address
+  aws_s3_bucket.my_bucket.arn         - Amazon Resource Name
+  aws_s3_bucket.my_bucket.bucket_name - The bucket's name
+
+You find what attributes are available in the provider documentation.
+
+----------------------------------------------------------------
+ RESOURCE DEPENDENCIES
+----------------------------------------------------------------
+
+Resources can depend on each other. There are two types:
+
+  TYPE 1: IMPLICIT DEPENDENCY (Automatic)
+  ----------------------------------------
+  When you reference one resource inside another, Terraform
+  automatically knows to create the dependency first.
+
+  resource "aws_vpc" "my_vpc" {
+    cidr_block = "10.0.0.0/16"
+  }
+
+  resource "aws_subnet" "my_subnet" {
+    vpc_id     = aws_vpc.my_vpc.id    # References the VPC above
+    cidr_block = "10.0.1.0/24"
+  }
+
+  Terraform will create the VPC FIRST, then the Subnet.
+  This is an IMPLICIT dependency.
+
+  TYPE 2: EXPLICIT DEPENDENCY (depends_on)
+  -----------------------------------------
+  Sometimes Terraform can't automatically detect the dependency.
+  You can manually declare it:
+
+  resource "aws_s3_bucket" "my_bucket" {
+    bucket = "my-logs-bucket"
+  }
+
+  resource "aws_instance" "my_server" {
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.micro"
+
+    depends_on = [aws_s3_bucket.my_bucket]
+    # Even though the server doesn't reference the bucket,
+    # we tell Terraform to create the bucket first.
+  }
+
+----------------------------------------------------------------
+ RESOURCE META-ARGUMENTS
+----------------------------------------------------------------
+
+Meta-arguments are special arguments available to ALL resource types
+(regardless of provider). They control HOW Terraform manages the resource.
+
+  1. depends_on  - Explicit dependency (see above)
+  2. count       - Create multiple copies of a resource
+  3. for_each    - Create multiple resources from a map or set
+  4. provider    - Use a specific provider alias
+  5. lifecycle   - Control creation, update, deletion behavior
+
+----- COUNT example -----
+  Create 3 identical EC2 instances:
+
+  resource "aws_instance" "servers" {
+    count         = 3
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.micro"
+
+    tags = {
+      Name = "Server-${count.index}"
+      # count.index = 0, 1, 2 for each instance
+    }
+  }
+
+  This creates:
+    Server-0, Server-1, Server-2
+
+----- FOR_EACH example -----
+  Create servers for different environments:
+
+  resource "aws_instance" "envs" {
+    for_each = {
+      dev  = "t2.micro"
+      uat  = "t2.small"
+      prod = "t2.large"
+    }
+
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = each.value    # t2.micro, t2.small, or t2.large
+
+    tags = {
+      Name = "Server-${each.key}"    # Server-dev, Server-uat, Server-prod
+    }
+  }
+
+----- LIFECYCLE example -----
+  Prevent accidental deletion of a critical resource:
+
+  resource "aws_db_instance" "production_db" {
+    # ... database config ...
+
+    lifecycle {
+      prevent_destroy = true          # Terraform will ERROR if you try to destroy this
+      create_before_destroy = true    # Create replacement before deleting old one
+      ignore_changes = [tags]         # Ignore tag changes (don't update just for tags)
+    }
+  }
+
+----------------------------------------------------------------
+ HOW TERRAFORM HANDLES RESOURCE CHANGES
+----------------------------------------------------------------
+
+When you CHANGE something in a resource and run terraform apply:
+
+  SCENARIO 1: Safe change (can update in-place)
+    e.g., Changing a tag on an EC2 instance
+    → Terraform updates the resource without destroying it
+
+  SCENARIO 2: Replacement required (must destroy and recreate)
+    e.g., Changing the AMI of an EC2 instance
+    → Terraform destroys the old instance and creates a new one
+    → Plan output shows: "-/+" (destroy then create)
+    → WARNING: Data on the old instance is LOST!
+
+  SCENARIO 3: Destruction
+    e.g., You remove the resource block from your .tf file
+    → Terraform destroys that resource
+
+Always review the plan carefully before applying!
+
+----------------------------------------------------------------
+ SUMMARY
+----------------------------------------------------------------
+
+  - Resources = pieces of infrastructure Terraform manages
+  - Syntax: resource "type" "local_name" { ... }
+  - Resource type format: providerprefix_resourcekind
+  - Reference attributes: resource_type.local_name.attribute
+  - Implicit dependency: auto-detected by references
+  - Explicit dependency: use depends_on
+  - Meta-arguments: count, for_each, depends_on, lifecycle, provider
+
+================================================================
+ END OF FILE: 05_Resources.txt
+================================================================

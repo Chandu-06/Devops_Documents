@@ -1,0 +1,234 @@
+================================================================
+ TERRAFORM LEARNING DOCUMENT
+ Topic 03: HCL Syntax (HashiCorp Configuration Language)
+================================================================
+
+----------------------------------------------------------------
+ WHAT IS HCL?
+----------------------------------------------------------------
+
+HCL stands for HashiCorp Configuration Language.
+It is the language you use to write Terraform configuration files.
+
+HCL is designed to be:
+  - Human-readable (easy to read and write)
+  - Machine-friendly (easy for Terraform to parse)
+  - Not a full programming language (no loops like Python, but Terraform
+    adds some programming-like features on top)
+
+All Terraform files end with the extension: .tf
+
+----------------------------------------------------------------
+ THE BUILDING BLOCKS OF HCL
+----------------------------------------------------------------
+
+HCL is made up of BLOCKS. A block looks like this:
+
+  block_type "label_one" "label_two" {
+    argument_name = argument_value
+  }
+
+Breaking it down:
+  - block_type   : What kind of block it is (e.g., resource, provider, variable)
+  - label_one    : First label (e.g., "aws_instance")
+  - label_two    : Second label - a name YOU give it (e.g., "my_server")
+  - { ... }      : The body of the block, containing key = value pairs
+  - argument_name: A setting name (e.g., instance_type)
+  - argument_value: The value for that setting (e.g., "t2.micro")
+
+----------------------------------------------------------------
+ BLOCK TYPES IN TERRAFORM
+----------------------------------------------------------------
+
+There are several types of blocks. Here are the main ones:
+
+  1. terraform {}    - Terraform settings (version, backend, etc.)
+  2. provider {}     - Which cloud to use (AWS, Azure, GCP)
+  3. resource {}     - The infrastructure to create
+  4. variable {}     - Input values (like function parameters)
+  5. output {}       - Values to display after apply
+  6. locals {}       - Local variables (computed values)
+  7. data {}         - Read existing infrastructure (not create new)
+  8. module {}       - Use a group of reusable Terraform code
+
+Each of these is explained in their own files.
+
+----------------------------------------------------------------
+ DATA TYPES IN HCL
+----------------------------------------------------------------
+
+HCL supports these basic value types:
+
+  1. String  - Text in double quotes
+             Example: "hello"   "t2.micro"   "us-east-1"
+
+  2. Number  - Numeric values (integer or decimal)
+             Example: 3   1.5   100
+
+  3. Bool    - True or false
+             Example: true   false
+
+  4. List    - Ordered collection of values (same type)
+             Example: ["us-east-1a", "us-east-1b", "us-east-1c"]
+
+  5. Map     - Key-value pairs (like a dictionary)
+             Example: { Name = "MyServer", Env = "dev" }
+
+  6. Set     - Like a list but NO duplicates and NO order
+             Example: toset(["a", "b", "c"])
+
+  7. Object  - Complex structure with mixed types
+             Example: { name = "Chandu", age = 25, active = true }
+
+  8. Tuple   - Like a list but values can be different types
+             Example: ["hello", 42, true]
+
+  9. null    - Represents absence of a value
+             Example: value = null
+
+----------------------------------------------------------------
+ STRING EXAMPLES
+----------------------------------------------------------------
+
+  # Simple string
+  name = "Chandu"
+
+  # String with interpolation (embedding a variable inside a string)
+  name = "Hello, ${var.username}!"
+
+  # Multi-line string (heredoc syntax)
+  description = <<EOT
+    This is line 1.
+    This is line 2.
+    This is line 3.
+  EOT
+
+  # String with special characters
+  path = "C:\\Users\\Chandu"   (escape backslash with \\)
+
+----------------------------------------------------------------
+ COMMENTS IN HCL
+----------------------------------------------------------------
+
+  # This is a single-line comment (most common)
+
+  // This is also a single-line comment
+
+  /* This is
+     a multi-line
+     comment */
+
+----------------------------------------------------------------
+ A COMPLETE EXAMPLE WITH ANNOTATIONS
+----------------------------------------------------------------
+
+  # This block sets the required Terraform version
+  terraform {
+    required_version = ">= 1.0"           # Must be Terraform 1.0 or higher
+  }
+
+  # This block tells Terraform to use the AWS provider
+  provider "aws" {
+    region = "us-east-1"                  # Deploy in US East (N. Virginia)
+  }
+
+  # This block creates an AWS EC2 instance (a virtual server)
+  resource "aws_instance" "web_server" {
+    ami           = "ami-0c55b159cbfafe1f0"  # Amazon Machine Image (OS template)
+    instance_type = "t2.micro"               # Server size (free tier eligible)
+
+    tags = {                                  # A map of labels
+      Name        = "MyWebServer"
+      Environment = "dev"
+      Owner       = "Chandu"
+    }
+  }
+
+  # This block prints the server's public IP after creation
+  output "server_ip" {
+    value = aws_instance.web_server.public_ip
+  }
+
+----------------------------------------------------------------
+ REFERENCING OTHER RESOURCES
+----------------------------------------------------------------
+
+You can reference attributes of one resource inside another.
+The syntax is:
+
+  resource_type.resource_name.attribute
+
+Example:
+  You create a server and a security group, and attach the security group
+  to the server:
+
+  resource "aws_security_group" "my_sg" {
+    name = "my-security-group"
+  }
+
+  resource "aws_instance" "my_server" {
+    ami              = "ami-0c55b159cbfafe1f0"
+    instance_type    = "t2.micro"
+    security_groups  = [aws_security_group.my_sg.name]
+    #                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    #   This references the "name" attribute of the security group above
+  }
+
+Terraform automatically knows to CREATE the security group FIRST,
+because the server depends on it. This is called IMPLICIT DEPENDENCY.
+
+----------------------------------------------------------------
+ EXPRESSIONS IN HCL
+----------------------------------------------------------------
+
+Expressions are used to compute or construct values:
+
+  1. Arithmetic:
+       total = 2 + 2         # = 4
+       price = 10 * 1.2      # = 12.0
+
+  2. Comparisons:
+       is_prod = var.env == "production"    # true or false
+
+  3. Conditional (ternary):
+       instance_type = var.env == "prod" ? "t2.large" : "t2.micro"
+       # If env is "prod", use t2.large; otherwise use t2.micro
+
+  4. String interpolation:
+       bucket_name = "my-bucket-${var.env}-${var.region}"
+
+  5. Function calls:
+       upper_name = upper("chandu")     # Result: "CHANDU"
+       file_content = file("script.sh") # Read a file's contents
+
+----------------------------------------------------------------
+ FILE NAMING CONVENTIONS
+----------------------------------------------------------------
+
+Terraform loads ALL .tf files in the current directory automatically.
+Common convention:
+
+  main.tf        - Main resources (EC2, S3, etc.)
+  variables.tf   - All variable definitions
+  outputs.tf     - All output definitions
+  providers.tf   - Provider configuration
+  terraform.tf   - Terraform version and backend settings
+  locals.tf      - Local value definitions
+
+These names are just CONVENTIONS; Terraform treats all .tf files equally.
+
+----------------------------------------------------------------
+ SUMMARY
+----------------------------------------------------------------
+
+  - HCL is the language used to write Terraform files (.tf)
+  - Code is organized in BLOCKS: resource, provider, variable, output, etc.
+  - Supports strings, numbers, booleans, lists, maps, and objects
+  - Use ${} syntax to embed variables/expressions inside strings
+  - # for comments
+  - Reference other resources with: resource_type.resource_name.attribute
+  - All .tf files in a folder are loaded together automatically
+
+================================================================
+ END OF FILE: 03_HCL_Syntax.txt
+================================================================

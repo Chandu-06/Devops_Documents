@@ -1,0 +1,228 @@
+================================================================
+ TERRAFORM LEARNING DOCUMENT
+ Topic 04: Providers
+================================================================
+
+----------------------------------------------------------------
+ WHAT IS A PROVIDER?
+----------------------------------------------------------------
+
+A PROVIDER is a plugin that allows Terraform to talk to a specific
+platform or service.
+
+Think of it like this:
+  Terraform is the remote control.
+  The Provider is the adapter/receiver for a specific TV brand.
+  Without the right adapter, the remote can't control the TV.
+
+Examples:
+  - "aws" provider     → talks to Amazon Web Services
+  - "azurerm" provider → talks to Microsoft Azure
+  - "google" provider  → talks to Google Cloud Platform
+  - "kubernetes"       → talks to Kubernetes clusters
+  - "github"           → manages GitHub repositories
+  - "docker"           → manages Docker containers
+
+There are 3000+ providers available on the Terraform Registry:
+  https://registry.terraform.io/browse/providers
+
+----------------------------------------------------------------
+ HOW TO CONFIGURE A PROVIDER
+----------------------------------------------------------------
+
+You configure a provider using a "provider" block:
+
+  provider "aws" {
+    region = "us-east-1"
+  }
+
+  provider "azurerm" {
+    features {}
+  }
+
+  provider "google" {
+    project = "my-gcp-project"
+    region  = "us-central1"
+  }
+
+The name in quotes (e.g., "aws") must match the official provider name
+from the Terraform Registry.
+
+----------------------------------------------------------------
+ THE required_providers BLOCK
+----------------------------------------------------------------
+
+It is best practice to declare exactly which providers you need
+and what versions are acceptable. You do this inside the terraform block:
+
+  terraform {
+    required_providers {
+      aws = {
+        source  = "hashicorp/aws"
+        version = "~> 5.0"
+      }
+    }
+  }
+
+Breaking down the fields:
+  source  : Where to download the provider from.
+            Format: "namespace/provider-name"
+            "hashicorp/aws" means the AWS provider published by HashiCorp.
+
+  version : Which version(s) are acceptable.
+            "5.0"      = Exactly version 5.0
+            "~> 5.0"   = Any version 5.x (5.1, 5.2, etc. but NOT 6.0)
+            ">= 5.0"   = Version 5.0 or higher (including 6.0, 7.0, etc.)
+            ">= 4.0, < 6.0" = Between 4.0 and 6.0 (exclusive)
+
+Why specify versions?
+  - Without version pinning, Terraform might download a newer version
+    that has breaking changes, and your code could stop working.
+  - In professional environments (like HSBC), always pin versions!
+
+----------------------------------------------------------------
+ PROVIDER AUTHENTICATION
+----------------------------------------------------------------
+
+To use a provider (e.g., AWS), you need to authenticate.
+There are multiple ways:
+
+  METHOD 1: Environment Variables (Recommended for CI/CD)
+  -------------------------------------------------------
+    $ export AWS_ACCESS_KEY_ID="AKIAIOSFODNN7EXAMPLE"
+    $ export AWS_SECRET_ACCESS_KEY="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+    $ export AWS_DEFAULT_REGION="us-east-1"
+
+  METHOD 2: In the provider block (NOT recommended - secrets in code!)
+  --------------------------------------------------------------------
+    provider "aws" {
+      region     = "us-east-1"
+      access_key = "AKIAIOSFODNN7EXAMPLE"        # NEVER do this!
+      secret_key = "wJalrXUtnFEMI/..."            # NEVER do this!
+    }
+
+  METHOD 3: AWS CLI profile (~/.aws/credentials)
+  -----------------------------------------------
+    provider "aws" {
+      region  = "us-east-1"
+      profile = "default"
+    }
+
+  METHOD 4: IAM Role (when running on EC2 or in CI/CD with role)
+  ---------------------------------------------------------------
+    No credentials needed in the provider block if the EC2 instance
+    or Jenkins agent has an IAM Role attached with the right permissions.
+
+IMPORTANT RULE: NEVER put real credentials (passwords, secret keys)
+inside .tf files that you commit to Git!
+
+----------------------------------------------------------------
+ MULTIPLE PROVIDERS IN ONE PROJECT
+----------------------------------------------------------------
+
+You can use multiple providers in the same Terraform project:
+
+  # Using both AWS and Azure in the same project
+  provider "aws" {
+    region = "us-east-1"
+  }
+
+  provider "azurerm" {
+    features {}
+  }
+
+  resource "aws_s3_bucket" "my_bucket" {
+    bucket = "my-aws-bucket"
+  }
+
+  resource "azurerm_resource_group" "my_rg" {
+    name     = "my-azure-rg"
+    location = "East US"
+  }
+
+----------------------------------------------------------------
+ MULTIPLE CONFIGURATIONS OF THE SAME PROVIDER (Aliases)
+----------------------------------------------------------------
+
+Sometimes you need the SAME provider but in DIFFERENT configurations.
+For example: deploying to both us-east-1 and eu-west-1 in AWS.
+
+You use an ALIAS to differentiate them:
+
+  provider "aws" {
+    region = "us-east-1"
+    alias  = "us_east"     # Give it a name
+  }
+
+  provider "aws" {
+    region = "eu-west-1"
+    alias  = "eu_west"     # Give it a different name
+  }
+
+  resource "aws_instance" "server_us" {
+    provider      = aws.us_east    # Use the US East provider
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.micro"
+  }
+
+  resource "aws_instance" "server_eu" {
+    provider      = aws.eu_west    # Use the EU West provider
+    ami           = "ami-0fc841be1f929d7d1"
+    instance_type = "t2.micro"
+  }
+
+----------------------------------------------------------------
+ HOW TERRAFORM DOWNLOADS PROVIDERS
+----------------------------------------------------------------
+
+When you run "terraform init":
+
+  1. Terraform reads your .tf files
+  2. Finds all provider blocks
+  3. Checks the Terraform Registry (registry.terraform.io)
+  4. Downloads the provider binary into .terraform/ folder
+  5. Records the exact version in .terraform.lock.hcl
+
+After init, you can run plan and apply without an internet connection
+because the provider is already downloaded.
+
+  .terraform/
+  └── providers/
+      └── registry.terraform.io/
+          └── hashicorp/
+              └── aws/
+                  └── 5.0.0/
+                      └── terraform-provider-aws_v5.0.0  (the binary)
+
+----------------------------------------------------------------
+ PROVIDER DOCUMENTATION
+----------------------------------------------------------------
+
+Every provider has detailed documentation on the Terraform Registry.
+For AWS:
+  https://registry.terraform.io/providers/hashicorp/aws/latest/docs
+
+The docs tell you:
+  - What resources are available (e.g., aws_instance, aws_s3_bucket)
+  - What arguments each resource takes
+  - What values each resource exports (attributes)
+  - Examples
+
+In your daily work at HSBC, you will spend a LOT of time reading
+provider docs. Bookmark them!
+
+----------------------------------------------------------------
+ SUMMARY
+----------------------------------------------------------------
+
+  - A Provider is a plugin that connects Terraform to a platform (AWS, Azure, etc.)
+  - Declare providers using the provider {} block
+  - Use required_providers to pin specific versions
+  - Authenticate via environment variables (best practice) not hardcoded in code
+  - Multiple providers can be used in one project
+  - Use aliases when you need the same provider with different configs
+  - Run terraform init to download providers
+
+================================================================
+ END OF FILE: 04_Providers.txt
+================================================================

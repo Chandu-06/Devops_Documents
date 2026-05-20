@@ -1,0 +1,278 @@
+================================================================
+ TERRAFORM LEARNING DOCUMENT
+ Topic 14: Backends (Remote State Storage)
+================================================================
+
+----------------------------------------------------------------
+ WHAT IS A BACKEND?
+----------------------------------------------------------------
+
+A BACKEND defines WHERE and HOW Terraform stores its state file.
+
+By default (local backend), the state file is stored on your laptop:
+  terraform.tfstate   ← created in your project folder
+
+In teams and production environments, this is a problem:
+  - Only YOU have the state; teammates can't run Terraform
+  - If your laptop crashes, state is LOST
+  - Two people running apply simultaneously = state corruption
+
+The solution: REMOTE BACKEND (store state in a shared, secure location)
+
+----------------------------------------------------------------
+ TYPES OF BACKENDS
+----------------------------------------------------------------
+
+  LOCAL (default):
+    State stored on local disk.
+    Good for: learning, solo projects, quick tests.
+    Bad for: teams, production.
+
+  REMOTE BACKENDS (for teams):
+    ┌────────────────────┬─────────────────────────────────────┐
+    │ Backend            │ Storage Location                    │
+    ├────────────────────┼─────────────────────────────────────┤
+    │ s3                 │ AWS S3 bucket + DynamoDB lock       │
+    │ azurerm            │ Azure Blob Storage                  │
+    │ gcs                │ Google Cloud Storage                │
+    │ http               │ Generic HTTP endpoint               │
+    │ terraform cloud    │ HashiCorp's managed service         │
+    │ consul             │ HashiCorp Consul                    │
+    │ kubernetes         │ Kubernetes Secret                   │
+    └────────────────────┴─────────────────────────────────────┘
+
+  At HSBC, AWS S3 + DynamoDB is the most common pattern.
+
+----------------------------------------------------------------
+ CONFIGURING A BACKEND
+----------------------------------------------------------------
+
+Backends are configured in the terraform {} block:
+
+  terraform {
+    backend "BACKEND_TYPE" {
+      # backend-specific arguments
+    }
+  }
+
+After changing the backend, always run:
+  $ terraform init
+  Terraform will ask if you want to migrate existing state.
+
+----------------------------------------------------------------
+ AWS S3 BACKEND (Most Common)
+----------------------------------------------------------------
+
+  terraform {
+    backend "s3" {
+      bucket         = "hsbc-terraform-state"       # S3 bucket name
+      key            = "payments/dev/terraform.tfstate"  # Path inside bucket
+      region         = "us-east-1"                  # Bucket's region
+      encrypt        = true                          # Encrypt state at rest
+      dynamodb_table = "terraform-state-lock"       # DynamoDB table for locking
+    }
+  }
+
+  What each argument does:
+    bucket         → S3 bucket where state is stored
+    key            → The file path inside the bucket (like a folder structure)
+                     Use logical paths: project/environment/terraform.tfstate
+    region         → AWS region of the S3 bucket
+    encrypt        → Server-side encryption (always set to true!)
+    dynamodb_table → Table name for state locking (prevents simultaneous apply)
+
+  Setting up the S3 bucket and DynamoDB table (do this once, manually or with Terraform):
+
+    # Create S3 bucket (one-time setup)
+    resource "aws_s3_bucket" "terraform_state" {
+      bucket = "hsbc-terraform-state"
+
+      lifecycle {
+        prevent_destroy = true    # NEVER accidentally delete state bucket!
+      }
+    }
+
+    resource "aws_s3_bucket_versioning" "state_versioning" {
+      bucket = aws_s3_bucket.terraform_state.id
+      versioning_configuration {
+        status = "Enabled"    # Keep history of all state versions!
+      }
+    }
+
+    resource "aws_s3_bucket_server_side_encryption_configuration" "state_encrypt" {
+      bucket = aws_s3_bucket.terraform_state.id
+      rule {
+        apply_server_side_encryption_by_default {
+          sse_algorithm = "AES256"
+        }
+      }
+    }
+
+    # Create DynamoDB table for locking
+    resource "aws_dynamodb_table" "terraform_lock" {
+      name         = "terraform-state-lock"
+      billing_mode = "PAY_PER_REQUEST"
+      hash_key     = "LockID"
+
+      attribute {
+        name = "LockID"
+        type = "S"
+      }
+    }
+
+----------------------------------------------------------------
+ AZURE BACKEND
+----------------------------------------------------------------
+
+  terraform {
+    backend "azurerm" {
+      resource_group_name  = "tfstate-rg"
+      storage_account_name = "hsbctfstate"
+      container_name       = "tfstate"
+      key                  = "payments/dev/terraform.tfstate"
+    }
+  }
+
+----------------------------------------------------------------
+ GOOGLE CLOUD STORAGE BACKEND
+----------------------------------------------------------------
+
+  terraform {
+    backend "gcs" {
+      bucket = "hsbc-terraform-state"
+      prefix = "payments/dev"
+    }
+  }
+
+----------------------------------------------------------------
+ TERRAFORM CLOUD BACKEND
+----------------------------------------------------------------
+
+  terraform {
+    cloud {
+      organization = "hsbc-devops"
+      workspaces {
+        name = "payments-dev"
+      }
+    }
+  }
+
+  Terraform Cloud provides:
+    - Remote state storage
+    - State locking
+    - Remote plan and apply (runs in the cloud, not your laptop)
+    - UI to view runs and state
+    - Policy enforcement (Sentinel)
+    - Team collaboration
+
+----------------------------------------------------------------
+ STATE LOCKING IN DETAIL
+----------------------------------------------------------------
+
+When you run terraform apply, Terraform:
+  1. Acquires a LOCK on the state (writes to DynamoDB)
+  2. Makes changes
+  3. Updates the state file in S3
+  4. Releases the lock
+
+If another person tries to run apply while the lock is held:
+  Error: Error acquiring the state lock
+  Error message: ConditionalCheckFailedException
+
+To see who holds the lock (check DynamoDB table for a "LockID" item).
+
+If a lock is stuck (apply was killed mid-run):
+  $ terraform force-unlock LOCK_ID
+
+  WARNING: Only do this if you're sure no one else is running Terraform!
+
+----------------------------------------------------------------
+ PARTIAL BACKEND CONFIGURATION
+----------------------------------------------------------------
+
+You might not want to hardcode the bucket name in your code
+(different environments use different buckets).
+
+Use PARTIAL CONFIGURATION:
+
+  # In main.tf — leave some values empty
+  terraform {
+    backend "s3" {
+      region = "us-east-1"
+      # bucket and key are NOT specified here
+    }
+  }
+
+  # Then provide them at init time:
+  $ terraform init \
+    -backend-config="bucket=hsbc-terraform-state-dev" \
+    -backend-config="key=payments/dev/terraform.tfstate" \
+    -backend-config="dynamodb_table=terraform-state-lock"
+
+  Or use a backend config file:
+  # backend-dev.hcl
+  bucket         = "hsbc-terraform-state-dev"
+  key            = "payments/dev/terraform.tfstate"
+  dynamodb_table = "terraform-state-lock"
+
+  $ terraform init -backend-config="backend-dev.hcl"
+
+  This is a best practice for multi-environment setups.
+
+----------------------------------------------------------------
+ MIGRATING STATE (Local to Remote)
+----------------------------------------------------------------
+
+If you started with local state and want to move to S3:
+
+  1. Add the backend configuration to your terraform block
+  2. Run: terraform init
+  3. Terraform detects the existing local state
+  4. It asks: "Do you want to copy existing state to the new backend? yes"
+  5. State is uploaded to S3
+  6. Local terraform.tfstate is no longer used
+
+----------------------------------------------------------------
+ BEST PRACTICES FOR BACKENDS
+----------------------------------------------------------------
+
+  1. ALWAYS use remote state in team projects
+  2. ALWAYS enable encryption (encrypt = true)
+  3. ALWAYS enable versioning on the S3 bucket
+     (lets you roll back to a previous state if something goes wrong)
+  4. ALWAYS enable state locking (DynamoDB)
+  5. Use a SEPARATE S3 bucket just for Terraform state
+  6. Restrict access to the state bucket (IAM policies)
+  7. Use partial configuration for multi-environment setups
+  8. NEVER store sensitive data in state if possible; use secrets managers
+
+----------------------------------------------------------------
+ CHECKING BACKEND STATUS
+----------------------------------------------------------------
+
+  # See where state is stored
+  $ terraform state pull
+
+  # List what's in state
+  $ terraform state list
+
+  # See details of the backend
+  $ cat .terraform/terraform.tfstate
+  (This file records which backend is configured, not the infrastructure state)
+
+----------------------------------------------------------------
+ SUMMARY
+----------------------------------------------------------------
+
+  - Backend = where Terraform state is stored
+  - Default: local file (terraform.tfstate)
+  - Remote: S3, Azure Blob, GCS, Terraform Cloud
+  - S3 + DynamoDB = most common AWS setup
+  - DynamoDB provides state locking (prevents conflicts)
+  - Run terraform init after changing backend config
+  - Enable encryption and versioning on state storage
+  - Use partial config for multi-environment flexibility
+
+================================================================
+ END OF FILE: 14_Backends.txt
+================================================================

@@ -1,0 +1,247 @@
+================================================================
+ TERRAFORM LEARNING DOCUMENT
+ Topic 15: Workspaces
+================================================================
+
+----------------------------------------------------------------
+ WHAT IS A WORKSPACE?
+----------------------------------------------------------------
+
+A WORKSPACE is an isolated instance of Terraform state within the
+same backend (same code, different state).
+
+By default, every Terraform project starts with one workspace called "default".
+
+Think of workspaces like BRANCHES in Git:
+  - Same codebase (same .tf files)
+  - Different state per workspace
+  - Different infrastructure per workspace
+
+Real-life analogy:
+  You have one set of IKEA furniture instructions (Terraform code).
+  Workspaces let you build that furniture in:
+    - Your bedroom (dev workspace)
+    - Your living room (uat workspace)
+    - Your office (prod workspace)
+  Each room has its own furniture — same design, different instances.
+
+----------------------------------------------------------------
+ WORKSPACE COMMANDS
+----------------------------------------------------------------
+
+  # See all workspaces
+  $ terraform workspace list
+    * default
+      dev
+      uat
+      prod
+  (The * indicates the currently active workspace)
+
+  # Create a new workspace
+  $ terraform workspace new dev
+  $ terraform workspace new uat
+  $ terraform workspace new prod
+
+  # Switch to a workspace
+  $ terraform workspace select dev
+  $ terraform workspace select prod
+
+  # See current workspace
+  $ terraform workspace show
+    dev
+
+  # Delete a workspace (must not be active; must be empty/destroyed)
+  $ terraform workspace delete dev
+
+----------------------------------------------------------------
+ HOW STATE IS ORGANISED WITH WORKSPACES
+----------------------------------------------------------------
+
+With LOCAL backend:
+  Without workspaces:
+    terraform.tfstate
+
+  With workspaces:
+    terraform.tfstate.d/
+    ├── dev/
+    │   └── terraform.tfstate
+    ├── uat/
+    │   └── terraform.tfstate
+    └── prod/
+        └── terraform.tfstate
+
+With S3 backend, the key path changes:
+  env:/dev/payments/terraform.tfstate
+  env:/uat/payments/terraform.tfstate
+  env:/prod/payments/terraform.tfstate
+
+Each workspace = its own completely separate state!
+
+----------------------------------------------------------------
+ USING THE CURRENT WORKSPACE IN CODE
+----------------------------------------------------------------
+
+Inside your .tf files, you can reference the current workspace name:
+
+  terraform.workspace
+
+Example: Automatically name resources based on workspace:
+
+  resource "aws_instance" "web" {
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.micro"
+
+    tags = {
+      Name        = "server-${terraform.workspace}"    # server-dev, server-prod
+      Environment = terraform.workspace
+    }
+  }
+
+Example: Different sizes per workspace:
+
+  locals {
+    instance_sizes = {
+      default = "t2.nano"
+      dev     = "t2.micro"
+      uat     = "t2.small"
+      prod    = "t2.large"
+    }
+
+    instance_type = lookup(local.instance_sizes, terraform.workspace, "t2.micro")
+    # Looks up the size for current workspace; defaults to t2.micro if not found
+  }
+
+  resource "aws_instance" "app" {
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = local.instance_type
+  }
+
+Example: Different server counts per workspace:
+
+  locals {
+    server_count = {
+      dev  = 1
+      uat  = 2
+      prod = 5
+    }
+  }
+
+  resource "aws_instance" "app" {
+    count         = local.server_count[terraform.workspace]
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.micro"
+  }
+
+----------------------------------------------------------------
+ TYPICAL WORKFLOW WITH WORKSPACES
+----------------------------------------------------------------
+
+  # 1. Create workspaces once
+  $ terraform workspace new dev
+  $ terraform workspace new uat
+  $ terraform workspace new prod
+
+  # 2. Deploy to dev
+  $ terraform workspace select dev
+  $ terraform plan
+  $ terraform apply
+
+  # 3. Deploy to uat (same code, different state)
+  $ terraform workspace select uat
+  $ terraform plan
+  $ terraform apply
+
+  # 4. Deploy to prod
+  $ terraform workspace select prod
+  $ terraform plan
+  $ terraform apply
+
+  # 5. Destroy dev when done testing
+  $ terraform workspace select dev
+  $ terraform destroy
+
+----------------------------------------------------------------
+ WORKSPACES vs SEPARATE DIRECTORIES
+----------------------------------------------------------------
+
+There are TWO common approaches to manage multiple environments:
+
+  APPROACH 1: Workspaces (One directory, multiple states)
+  -------------------------------------------------------
+    Pros:
+      - Simple to get started
+      - Same code for all environments
+      - Easy to switch between environments
+
+    Cons:
+      - Easy to accidentally apply to prod when you meant dev
+      - All environments use the same code (hard to have different configs)
+      - Limited isolation
+
+  APPROACH 2: Separate Directories (One directory per environment)
+  ---------------------------------------------------------------
+    Structure:
+      project/
+      ├── environments/
+      │   ├── dev/
+      │   │   ├── main.tf
+      │   │   ├── variables.tf
+      │   │   └── terraform.tfvars
+      │   ├── uat/
+      │   │   └── ...
+      │   └── prod/
+      │       └── ...
+      └── modules/
+          └── app_stack/
+              └── ...
+
+    Pros:
+      - Maximum isolation between environments
+      - Can have completely different configs per environment
+      - Accidental prod apply is very unlikely (you need to cd into prod/)
+      - Industry best practice for large teams
+
+    Cons:
+      - More files to maintain
+      - Code duplication unless modules are used well
+
+  AT HSBC: Separate directories (or workspaces + modules) are the norm.
+  Workspaces alone are generally NOT recommended for production
+  because of the risk of applying to the wrong environment.
+
+----------------------------------------------------------------
+ WORKSPACE BEST PRACTICES
+----------------------------------------------------------------
+
+  1. Always check your current workspace before running plan/apply:
+       $ terraform workspace show
+
+  2. Use workspace name in resource names/tags to avoid confusion:
+       Name = "${terraform.workspace}-server"
+
+  3. For critical environments (prod), consider separate directories
+     instead of workspaces for extra safety
+
+  4. In CI/CD (Jenkins), set the workspace as part of the pipeline:
+       stage('Set Workspace') {
+         sh 'terraform workspace select ${ENVIRONMENT} || terraform workspace new ${ENVIRONMENT}'
+       }
+
+  5. Document which workspace to use in your README
+
+----------------------------------------------------------------
+ SUMMARY
+----------------------------------------------------------------
+
+  - Workspace = isolated state within the same backend
+  - Default workspace is always "default"
+  - Commands: list, new, select, show, delete
+  - Reference current workspace: terraform.workspace
+  - Great for: dev/uat/prod isolation with same codebase
+  - State is stored separately per workspace
+  - For large teams, separate directories + modules is safer
+  - Always verify which workspace you're in before applying!
+
+================================================================
+ END OF FILE: 15_Workspaces.txt
+================================================================

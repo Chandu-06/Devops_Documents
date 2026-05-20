@@ -1,0 +1,372 @@
+================================================================
+ TERRAFORM LEARNING DOCUMENT
+ Topic 17: Terraform CLI Commands (Complete Reference)
+================================================================
+
+----------------------------------------------------------------
+ ALL TERRAFORM COMMANDS AT A GLANCE
+----------------------------------------------------------------
+
+  terraform init        → Initialize project, download providers/modules
+  terraform validate    → Check for syntax errors in .tf files
+  terraform fmt         → Auto-format .tf files to standard style
+  terraform plan        → Preview changes (no real changes made)
+  terraform apply       → Create/update infrastructure
+  terraform destroy     → Delete all infrastructure
+  terraform output      → Show output values
+  terraform show        → Show current state or a plan
+  terraform state       → Manage state file (list, show, mv, rm)
+  terraform import      → Import existing infra into state
+  terraform taint       → Mark a resource for recreation
+  terraform untaint     → Remove the taint marker
+  terraform workspace   → Manage workspaces
+  terraform console     → Interactive expression testing
+  terraform graph       → Generate dependency graph (DOT format)
+  terraform login       → Log in to Terraform Cloud
+  terraform version     → Show Terraform version
+
+----------------------------------------------------------------
+ INITIALISATION
+----------------------------------------------------------------
+
+  terraform init
+  --------------
+    Downloads provider plugins and modules.
+    Must run before any other command in a new project.
+    Safe to run multiple times.
+
+    Flags:
+      -upgrade              → Upgrade providers to latest allowed version
+      -reconfigure          → Reconfigure backend (ignore saved config)
+      -backend-config=FILE  → Provide backend config from a file
+      -migrate-state        → Migrate state to new backend
+
+    Examples:
+      $ terraform init
+      $ terraform init -upgrade
+      $ terraform init -backend-config="backend-dev.hcl"
+
+----------------------------------------------------------------
+ VALIDATION & FORMATTING
+----------------------------------------------------------------
+
+  terraform validate
+  ------------------
+    Checks your .tf files for syntax and configuration errors.
+    Does NOT connect to the cloud; purely static analysis.
+    Fast — run this before every plan.
+
+    $ terraform validate
+    Success! The configuration is valid.
+
+    Or if there's an error:
+      Error: Missing required argument
+        The argument "ami" is required
+
+  terraform fmt
+  -------------
+    Reformats your .tf files to canonical HCL style.
+    Run this before committing to Git.
+
+    $ terraform fmt              # Format files in current directory
+    $ terraform fmt -recursive  # Format all subdirectories too
+    $ terraform fmt -check      # Check if files need formatting (exit 1 if yes)
+    $ terraform fmt -diff       # Show what would change without changing it
+
+    Example: Before fmt:
+      resource "aws_instance" "web" {
+      ami="ami-0c55b159cbfafe1f0"
+      instance_type    =    "t2.micro"
+      }
+
+    After fmt:
+      resource "aws_instance" "web" {
+        ami           = "ami-0c55b159cbfafe1f0"
+        instance_type = "t2.micro"
+      }
+
+----------------------------------------------------------------
+ PLANNING
+----------------------------------------------------------------
+
+  terraform plan
+  --------------
+    Compares your .tf files against the current state and shows
+    what changes Terraform would make. NO real changes happen.
+
+    Output symbols:
+      +  green  = will be CREATED
+      ~  yellow = will be UPDATED in-place
+      -  red    = will be DESTROYED
+      -/+ red   = will be DESTROYED then CREATED (replacement)
+
+    Flags:
+      -out=FILE         → Save the plan to a file (use with apply)
+      -var="key=value"  → Pass a variable value
+      -var-file=FILE    → Load variables from a file
+      -target=RESOURCE  → Only plan for a specific resource
+      -refresh=false    → Skip refreshing state (faster, but risky)
+      -destroy          → Show what terraform destroy would do
+
+    Examples:
+      $ terraform plan
+      $ terraform plan -out=my.plan
+      $ terraform plan -var="env=prod"
+      $ terraform plan -target=aws_instance.web_server
+
+  Saving a Plan:
+    $ terraform plan -out=plan.tfplan
+    $ terraform apply plan.tfplan    # Apply exactly this plan (no confirmation needed)
+    This is the RECOMMENDED pattern for production!
+
+----------------------------------------------------------------
+ APPLYING CHANGES
+----------------------------------------------------------------
+
+  terraform apply
+  ---------------
+    Creates, updates, or destroys infrastructure based on your .tf files.
+    Shows the plan, asks for confirmation (type "yes"), then executes.
+
+    Flags:
+      -auto-approve     → Skip the yes/no confirmation (useful in CI/CD)
+      -var="key=value"  → Pass variable value
+      -var-file=FILE    → Load variables from a file
+      -target=RESOURCE  → Only apply for a specific resource
+      -replace=RESOURCE → Force replacement of a specific resource
+      -parallelism=N    → Number of concurrent operations (default: 10)
+
+    Examples:
+      $ terraform apply
+      $ terraform apply -auto-approve
+      $ terraform apply -var="env=prod" -var-file="prod.tfvars"
+      $ terraform apply plan.tfplan               # Apply a saved plan
+      $ terraform apply -target=aws_instance.web  # Only this resource
+      $ terraform apply -replace=aws_instance.web # Force recreate this resource
+
+    The -target flag:
+      Useful in emergencies when you want to only apply/destroy one thing.
+      NOT recommended for normal use — can leave state inconsistent.
+
+----------------------------------------------------------------
+ DESTROYING INFRASTRUCTURE
+----------------------------------------------------------------
+
+  terraform destroy
+  -----------------
+    Destroys ALL resources managed by Terraform in the current state.
+    Shows a plan of what will be destroyed, asks for confirmation.
+
+    Flags:
+      -auto-approve     → Skip confirmation (DANGEROUS! Use with care)
+      -target=RESOURCE  → Only destroy a specific resource
+      -var-file=FILE    → Load variables (needed for some providers)
+
+    Examples:
+      $ terraform destroy
+      $ terraform destroy -target=aws_instance.web_server
+      $ terraform destroy -auto-approve    # ← Very dangerous in prod!
+
+    Preferred approach for selective destroy:
+      Comment out the resource block in your .tf file, then:
+      $ terraform apply
+      Terraform will see the resource is gone from code and will destroy it.
+
+----------------------------------------------------------------
+ OUTPUTS
+----------------------------------------------------------------
+
+  terraform output
+  ----------------
+    Shows output values after apply.
+
+    $ terraform output                   # Show all outputs
+    $ terraform output server_ip         # Show specific output
+    $ terraform output -raw server_ip    # Raw value (no quotes; for scripts)
+    $ terraform output -json             # All outputs in JSON format
+
+    Use in scripts:
+      IP=$(terraform output -raw server_public_ip)
+      ssh ubuntu@$IP
+
+----------------------------------------------------------------
+ STATE MANAGEMENT
+----------------------------------------------------------------
+
+  terraform show
+  --------------
+    Shows the current state in a human-readable format.
+    $ terraform show
+    $ terraform show plan.tfplan    # Show a saved plan file
+
+  terraform state list
+  --------------------
+    Lists all resources in state.
+    $ terraform state list
+    aws_instance.web_server
+    aws_s3_bucket.logs
+
+  terraform state show RESOURCE
+  ------------------------------
+    Shows all attributes of a specific resource in state.
+    $ terraform state show aws_instance.web_server
+
+  terraform state mv SOURCE DEST
+  --------------------------------
+    Renames/moves a resource in state. Use when you rename a resource
+    in your .tf file without wanting Terraform to destroy and recreate it.
+    $ terraform state mv aws_instance.old_name aws_instance.new_name
+
+  terraform state rm RESOURCE
+  ----------------------------
+    Removes a resource from state (Terraform forgets it; doesn't delete it).
+    $ terraform state rm aws_instance.web_server
+
+  terraform state pull
+  --------------------
+    Download current remote state as JSON.
+    $ terraform state pull > current_state.json
+
+  terraform state push
+  --------------------
+    Upload a local state file to remote backend. Use with extreme care!
+    $ terraform state push terraform.tfstate
+
+  terraform refresh
+  -----------------
+    Update state file to match real-world infrastructure.
+    (plan/apply do this automatically in modern Terraform)
+    $ terraform refresh
+
+----------------------------------------------------------------
+ IMPORTING EXISTING RESOURCES
+----------------------------------------------------------------
+
+  terraform import RESOURCE_TYPE.LOCAL_NAME REAL_ID
+  --------------------------------------------------
+    Brings an existing resource (created outside Terraform) into state.
+
+    $ terraform import aws_instance.legacy_server i-0abc12345678
+    $ terraform import aws_s3_bucket.existing_bucket my-bucket-name
+    $ terraform import aws_vpc.main_vpc vpc-0a12345678b9cdef0
+
+    Steps:
+      1. Write an empty resource block in your .tf file
+      2. Run terraform import
+      3. Run terraform state show to see all attributes
+      4. Fill in your resource block to match
+      5. Run terraform plan — should show "no changes"
+
+----------------------------------------------------------------
+ TAINT / REPLACE
+----------------------------------------------------------------
+
+  # Old way (before Terraform v0.15.2):
+  terraform taint aws_instance.web_server      # Mark for recreation
+  terraform untaint aws_instance.web_server    # Remove taint
+
+  # New way (recommended):
+  terraform apply -replace="aws_instance.web_server"
+
+  Use case: When a server is corrupted and you want Terraform to
+  destroy and recreate it on the next apply.
+
+----------------------------------------------------------------
+ INTERACTIVE CONSOLE
+----------------------------------------------------------------
+
+  terraform console
+  -----------------
+    Opens an interactive REPL to test expressions and functions.
+
+    $ terraform console
+    > 2 + 2
+    4
+    > upper("hsbc")
+    "HSBC"
+    > join("-", ["dev", "payments", "uk"])
+    "dev-payments-uk"
+    > cidrsubnet("10.0.0.0/16", 8, 3)
+    "10.0.3.0/24"
+    > var.environment          # Access variables from your config
+    "dev"
+    > exit
+
+    Great for learning functions without running a full plan!
+
+----------------------------------------------------------------
+ GRAPH
+----------------------------------------------------------------
+
+  terraform graph
+  ---------------
+    Generates a visual dependency graph in DOT format.
+
+    $ terraform graph | dot -Tsvg > graph.svg    # Requires graphviz installed
+
+    Useful for understanding complex resource dependencies.
+
+----------------------------------------------------------------
+ WORKSPACE COMMANDS
+----------------------------------------------------------------
+
+  $ terraform workspace list      # List all workspaces
+  $ terraform workspace new dev   # Create new workspace
+  $ terraform workspace select dev  # Switch to workspace
+  $ terraform workspace show      # Show current workspace
+  $ terraform workspace delete dev  # Delete workspace
+
+----------------------------------------------------------------
+ VERSION
+----------------------------------------------------------------
+
+  $ terraform version
+    Terraform v1.6.0
+    on linux_amd64
+
+  $ terraform -help              # Help for all commands
+  $ terraform plan -help         # Help for specific command
+
+----------------------------------------------------------------
+ CI/CD USAGE PATTERNS (Jenkins/GitHub Actions)
+----------------------------------------------------------------
+
+  # Standard pipeline steps:
+  terraform init -backend-config="backend-${ENVIRONMENT}.hcl"
+  terraform validate
+  terraform fmt -check
+  terraform plan -out=plan.tfplan -var-file="${ENVIRONMENT}.tfvars"
+  terraform apply -auto-approve plan.tfplan
+
+  # Why save plan then apply?
+  # - plan runs in one stage (e.g., with approval gate)
+  # - apply in another stage uses exactly the reviewed plan
+  # - Prevents "drift" between plan review and actual apply
+
+----------------------------------------------------------------
+ SUMMARY TABLE
+----------------------------------------------------------------
+
+  Command              | Purpose
+  ---------------------|------------------------------------------
+  init                 | Download providers and modules
+  validate             | Check syntax (no cloud connection)
+  fmt                  | Auto-format .tf files
+  plan                 | Preview changes (safe, no real changes)
+  apply                | Create/update infrastructure
+  destroy              | Delete all infrastructure
+  output               | Show output values
+  show                 | Show state or plan in readable format
+  state list           | List all tracked resources
+  state show           | Show one resource's attributes
+  state mv             | Rename resource in state
+  state rm             | Remove resource from state
+  import               | Import existing resource into state
+  console              | Test expressions interactively
+  workspace            | Manage environment workspaces
+  version              | Show Terraform version
+  graph                | Generate dependency graph
+
+================================================================
+ END OF FILE: 17_CLI_Commands.txt
+================================================================

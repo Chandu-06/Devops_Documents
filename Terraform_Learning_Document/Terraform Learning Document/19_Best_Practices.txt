@@ -1,0 +1,392 @@
+================================================================
+ TERRAFORM LEARNING DOCUMENT
+ Topic 19: Terraform Best Practices
+================================================================
+
+----------------------------------------------------------------
+ WHY BEST PRACTICES MATTER
+----------------------------------------------------------------
+
+At HSBC, you're working on payment infrastructure. Mistakes can:
+  - Take down production payment systems
+  - Lose customer data
+  - Cause regulatory/compliance issues
+  - Create security vulnerabilities
+
+Best practices are not optional — they are your shield.
+
+----------------------------------------------------------------
+ 1. PROJECT STRUCTURE
+----------------------------------------------------------------
+
+  RECOMMENDED LAYOUT:
+
+  project/
+  ├── main.tf              ← Resources
+  ├── variables.tf         ← Variable declarations
+  ├── outputs.tf           ← Output declarations
+  ├── providers.tf         ← Provider + Terraform version block
+  ├── locals.tf            ← Local values
+  ├── terraform.tfvars     ← Default variable values (gitignored if secrets)
+  ├── dev.tfvars           ← Dev environment values
+  ├── prod.tfvars          ← Prod environment values
+  ├── .gitignore           ← Must exclude state files
+  ├── README.md            ← How to use this config
+  └── modules/
+      ├── networking/
+      │   ├── main.tf
+      │   ├── variables.tf
+      │   └── outputs.tf
+      └── compute/
+          ├── main.tf
+          ├── variables.tf
+          └── outputs.tf
+
+  RULE: Keep root config thin — mostly module calls.
+  Put all complex logic inside modules for reusability.
+
+----------------------------------------------------------------
+ 2. ALWAYS USE .gitignore
+----------------------------------------------------------------
+
+  Create a .gitignore in your Terraform project:
+
+  # .gitignore for Terraform
+  .terraform/
+  .terraform.lock.hcl  # This one you CAN commit; it's safe
+  terraform.tfstate
+  terraform.tfstate.backup
+  terraform.tfstate.d/
+  *.tfvars             # If they contain secrets
+  *.plan               # Plan files (contain state snapshots)
+  .env
+  override.tf
+  crash.log
+
+  NEVER commit to Git:
+    - terraform.tfstate         (contains passwords, IPs, sensitive data)
+    - terraform.tfstate.backup  (same reason)
+    - *.tfvars containing secrets
+
+  Always commit to Git:
+    - .terraform.lock.hcl       (locks provider versions for team consistency)
+    - All .tf files
+    - README.md
+
+----------------------------------------------------------------
+ 3. NEVER HARDCODE SECRETS
+----------------------------------------------------------------
+
+  BAD (NEVER do this):
+    provider "aws" {
+      access_key = "AKIAIOSFODNN7EXAMPLE"        # EXPOSED!
+      secret_key = "wJalrXUtnFEMI/K7MDENG..."   # EXPOSED!
+    }
+
+    resource "aws_db_instance" "db" {
+      password = "SuperSecret123!"               # EXPOSED!
+    }
+
+  GOOD alternatives:
+    # Option 1: Environment variables
+    export AWS_ACCESS_KEY_ID="..."
+    export AWS_SECRET_ACCESS_KEY="..."
+    export TF_VAR_db_password="..."
+
+    # Option 2: AWS Secrets Manager (fetch at runtime)
+    data "aws_secretsmanager_secret_version" "db_pass" {
+      secret_id = "hsbc/payments/db-password"
+    }
+    resource "aws_db_instance" "db" {
+      password = data.aws_secretsmanager_secret_version.db_pass.secret_string
+    }
+
+    # Option 3: Variable marked sensitive (value provided outside code)
+    variable "db_password" {
+      type      = string
+      sensitive = true
+    }
+    # Value provided via TF_VAR_db_password or -var flag
+
+----------------------------------------------------------------
+ 4. PIN VERSIONS (Providers, Modules, Terraform itself)
+----------------------------------------------------------------
+
+  # Always specify Terraform version
+  terraform {
+    required_version = ">= 1.5, < 2.0"
+
+    required_providers {
+      aws = {
+        source  = "hashicorp/aws"
+        version = "~> 5.0"    # Any 5.x but NOT 6.x
+      }
+      kubernetes = {
+        source  = "hashicorp/kubernetes"
+        version = "~> 2.23"
+      }
+    }
+  }
+
+  # Pin module versions
+  module "vpc" {
+    source  = "terraform-aws-modules/vpc/aws"
+    version = "5.1.2"    # Exact version for maximum stability
+  }
+
+  Why?
+    - Prevents unexpected breaking changes
+    - Ensures all team members use the same versions
+    - Reproducible builds in CI/CD
+
+----------------------------------------------------------------
+ 5. USE REMOTE STATE WITH LOCKING
+----------------------------------------------------------------
+
+  - ALWAYS use remote state (S3/Azure Blob) for team projects
+  - ALWAYS enable state locking (DynamoDB)
+  - ALWAYS enable state encryption
+
+  terraform {
+    backend "s3" {
+      bucket         = "hsbc-terraform-state"
+      key            = "payments/dev/terraform.tfstate"
+      region         = "us-east-1"
+      encrypt        = true
+      dynamodb_table = "terraform-state-lock"
+    }
+  }
+
+  - Enable versioning on the S3 bucket (rollback capability)
+  - Restrict bucket access to only Terraform service accounts
+  - Create the state bucket BEFORE using it (bootstrap problem)
+
+----------------------------------------------------------------
+ 6. USE CONSISTENT NAMING CONVENTIONS
+----------------------------------------------------------------
+
+  Define a naming standard and stick to it EVERYWHERE:
+
+  Pattern: {company}-{project}-{environment}-{resource}
+
+  Examples:
+    hsbc-payments-dev-ec2
+    hsbc-payments-prod-rds
+    hsbc-payments-uat-vpc
+    hsbc-payments-dev-sg-web
+
+  Use locals for consistent naming:
+    locals {
+      prefix = "${var.company}-${var.project}-${var.env}"
+      # = "hsbc-payments-dev"
+
+      common_tags = {
+        Company     = var.company
+        Project     = var.project
+        Environment = var.env
+        ManagedBy   = "Terraform"
+        Owner       = var.owner
+        CostCenter  = var.cost_center
+      }
+    }
+
+    resource "aws_instance" "app" {
+      tags = merge(local.common_tags, {
+        Name = "${local.prefix}-app-server"
+      })
+    }
+
+----------------------------------------------------------------
+ 7. ALWAYS REVIEW THE PLAN BEFORE APPLYING
+----------------------------------------------------------------
+
+  NEVER run terraform apply without first running terraform plan!
+
+  In CI/CD:
+    1. terraform plan -out=plan.tfplan    (review in pipeline, need approval)
+    2. terraform apply plan.tfplan        (apply exactly what was reviewed)
+
+  Things to look for in the plan:
+    - Any UNEXPECTED destroys (-/+) are RED FLAGS
+    - Production resources should almost never be destroyed
+    - Watch out for -/+ on databases, storage, networks
+    - Look for drift (changes made outside Terraform)
+
+  If you see something unexpected: STOP. Investigate. Don't blindly apply.
+
+----------------------------------------------------------------
+ 8. USE MODULES FOR REUSABILITY
+----------------------------------------------------------------
+
+  - Avoid copy-pasting resource blocks across environments
+  - Write modules for repeated patterns
+  - Use for all resources that appear in multiple environments
+
+  # Bad: copy-paste for dev and prod
+  resource "aws_instance" "dev_server" { ... }   # dev/main.tf
+  resource "aws_instance" "prod_server" { ... }  # prod/main.tf (same code)
+
+  # Good: one module, called twice
+  module "dev_server" {
+    source = "./modules/compute"
+    env    = "dev"
+  }
+  module "prod_server" {
+    source = "./modules/compute"
+    env    = "prod"
+  }
+
+----------------------------------------------------------------
+ 9. SEPARATE ENVIRONMENTS PROPERLY
+----------------------------------------------------------------
+
+  Option A: Separate directories (RECOMMENDED for production)
+    environments/
+    ├── dev/
+    ├── uat/
+    └── prod/
+
+  Option B: Workspaces (simpler but riskier)
+    $ terraform workspace select prod
+    $ terraform apply    # easy to accidentally apply to wrong env!
+
+  At HSBC: Separate directories + modules is the safest approach.
+  Add environment gates: require manual approval before prod apply.
+
+----------------------------------------------------------------
+ 10. USE terraform fmt AND terraform validate IN CI/CD
+----------------------------------------------------------------
+
+  Add these steps to every CI/CD pipeline:
+
+  stage('Validate') {
+    steps {
+      sh 'terraform fmt -check -recursive'    # Fail if not formatted
+      sh 'terraform validate'                 # Fail if syntax errors
+    }
+  }
+
+  This catches problems before they reach apply.
+
+----------------------------------------------------------------
+ 11. TAG ALL RESOURCES
+----------------------------------------------------------------
+
+  At HSBC (and any enterprise), tagging is MANDATORY for:
+    - Cost allocation (which team/project pays for this?)
+    - Compliance (who owns this resource?)
+    - Incident response (who do we call if this breaks?)
+    - Automation (policies targeting specific tags)
+
+  Required tags (example):
+    tags = {
+      Name        = "${local.prefix}-server"
+      Environment = var.env
+      Project     = var.project
+      Owner       = var.owner_email
+      CostCenter  = var.cost_center
+      ManagedBy   = "Terraform"
+      Version     = var.app_version
+    }
+
+----------------------------------------------------------------
+ 12. USE DATA SOURCES OVER HARDCODED IDs
+----------------------------------------------------------------
+
+  BAD:
+    vpc_id = "vpc-0a12345678abcdef0"     # Hardcoded, breaks in different accounts
+
+  GOOD:
+    data "aws_vpc" "main" {
+      tags = { Name = "hsbc-payments-vpc" }
+    }
+    vpc_id = data.aws_vpc.main.id         # Dynamically fetched, portable
+
+----------------------------------------------------------------
+ 13. DOCUMENT YOUR CODE
+----------------------------------------------------------------
+
+  # Every variable should have a description
+  variable "instance_type" {
+    description = "EC2 instance type. Use t2.micro for dev, t2.large for prod."
+    type        = string
+    default     = "t2.micro"
+  }
+
+  # Every output should have a description
+  output "server_ip" {
+    description = "Public IP address of the web server for SSH access"
+    value       = aws_instance.web.public_ip
+  }
+
+  # Add comments for complex logic
+  locals {
+    # Calculate the number of AZs to use based on environment
+    # Dev uses 1 AZ (cheaper), Prod uses 3 AZs (high availability)
+    az_count = var.env == "prod" ? 3 : 1
+  }
+
+  # Write a README.md for every module
+  # Include: What it does, inputs, outputs, usage example
+
+----------------------------------------------------------------
+ 14. PROTECT PRODUCTION WITH LIFECYCLE RULES
+----------------------------------------------------------------
+
+  resource "aws_db_instance" "payments_db" {
+    # ... config ...
+
+    lifecycle {
+      prevent_destroy       = true     # Error if someone tries terraform destroy
+      create_before_destroy = true     # Create new DB before deleting old one
+      ignore_changes        = [        # Don't manage these (managed by DB team)
+        maintenance_window,
+        backup_window,
+      ]
+    }
+  }
+
+----------------------------------------------------------------
+ 15. USE AUTOMATED SECURITY SCANNING
+----------------------------------------------------------------
+
+  Tools to scan Terraform code for security issues:
+    - tfsec: github.com/aquasecurity/tfsec
+    - checkov: github.com/bridgecrewio/checkov
+    - terrascan: github.com/tenable/terrascan
+
+  Example (tfsec):
+    $ tfsec .
+    > CRITICAL: Security group allows unrestricted ingress on port 22 (SSH)
+
+  Add to your CI/CD pipeline for automated security checks.
+
+----------------------------------------------------------------
+ SUMMARY CHECKLIST
+----------------------------------------------------------------
+
+  Before committing code:
+  [ ] terraform fmt -recursive
+  [ ] terraform validate
+  [ ] Reviewed for hardcoded secrets
+  [ ] All resources have proper tags
+  [ ] Variables have descriptions
+  [ ] Provider and module versions pinned
+
+  Before running apply:
+  [ ] Correct workspace/environment selected
+  [ ] Run terraform plan and reviewed output
+  [ ] No unexpected destroys in plan
+  [ ] Another team member reviewed (in prod)
+  [ ] Backup of state exists (versioning enabled on S3)
+
+  Project setup checklist:
+  [ ] Remote state configured
+  [ ] State locking enabled
+  [ ] .gitignore set up
+  [ ] README.md written
+  [ ] Modules created for repeated patterns
+
+================================================================
+ END OF FILE: 19_Best_Practices.txt
+================================================================

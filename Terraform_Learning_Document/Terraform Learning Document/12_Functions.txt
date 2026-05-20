@@ -1,0 +1,357 @@
+================================================================
+ TERRAFORM LEARNING DOCUMENT
+ Topic 12: Built-in Functions
+================================================================
+
+----------------------------------------------------------------
+ WHAT ARE TERRAFORM FUNCTIONS?
+----------------------------------------------------------------
+
+Terraform has many built-in functions that let you TRANSFORM and
+COMPUTE values in your expressions. You call them like:
+
+  function_name(argument1, argument2, ...)
+
+They are available anywhere you can write an expression — in
+resource arguments, locals, variables, and outputs.
+
+NOTE: Terraform does NOT allow you to define custom functions.
+Only built-in functions are available.
+
+You can test any function using the "terraform console" command:
+  $ terraform console
+  > upper("hello")
+  "HELLO"
+  > max(1, 5, 3)
+  5
+
+----------------------------------------------------------------
+ CATEGORY 1: STRING FUNCTIONS
+----------------------------------------------------------------
+
+  upper(string)           → Converts to uppercase
+    upper("chandu")       = "CHANDU"
+
+  lower(string)           → Converts to lowercase
+    lower("HSBC")         = "hsbc"
+
+  title(string)           → Title cases the string
+    title("hello world")  = "Hello World"
+
+  trimspace(string)       → Removes leading/trailing whitespace
+    trimspace("  hello ") = "hello"
+
+  trim(string, chars)     → Removes specific characters from both ends
+    trim("--hello--", "-") = "hello"
+
+  replace(string, search, replace)   → Replaces substring
+    replace("hello world", "world", "terraform") = "hello terraform"
+
+  substr(string, offset, length)     → Extracts substring
+    substr("hello world", 0, 5)      = "hello"
+
+  split(separator, string)           → Splits string into a list
+    split(",", "dev,uat,prod")       = ["dev", "uat", "prod"]
+
+  join(separator, list)              → Joins a list into a string
+    join("-", ["hsbc", "dev", "uk"]) = "hsbc-dev-uk"
+
+  contains(list, value)              → Checks if list has a value
+    contains(["dev", "prod"], "dev") = true
+
+  startswith(string, prefix)         → Checks if string starts with prefix
+    startswith("hsbc-server", "hsbc") = true
+
+  endswith(string, suffix)           → Checks if string ends with suffix
+    endswith("server-dev", "dev")    = true
+
+  format(format_string, args...)     → Printf-style formatting
+    format("Hello, %s! You are %d years old.", "Chandu", 25)
+    = "Hello, Chandu! You are 25 years old."
+
+  formatlist(format, list)           → Apply format to each list element
+    formatlist("server-%s", ["a","b","c"]) = ["server-a", "server-b", "server-c"]
+
+  length(string_or_list_or_map)      → Count characters or elements
+    length("hello")       = 5
+    length(["a","b","c"]) = 3
+
+----------------------------------------------------------------
+ CATEGORY 2: NUMERIC FUNCTIONS
+----------------------------------------------------------------
+
+  min(numbers...)         → Returns the smallest value
+    min(3, 1, 7, 2)       = 1
+
+  max(numbers...)         → Returns the largest value
+    max(3, 1, 7, 2)       = 7
+
+  abs(number)             → Absolute value
+    abs(-5)               = 5
+
+  ceil(number)            → Round up to nearest integer
+    ceil(1.2)             = 2
+
+  floor(number)           → Round down to nearest integer
+    floor(1.9)            = 1
+
+  parseint(string, base)  → Parse string as integer with given base
+    parseint("10", 10)    = 10
+    parseint("FF", 16)    = 255
+
+  pow(base, exponent)     → Raise to power
+    pow(2, 10)            = 1024
+
+----------------------------------------------------------------
+ CATEGORY 3: COLLECTION FUNCTIONS (List/Map)
+----------------------------------------------------------------
+
+  length(collection)       → Number of elements
+    length(["a","b","c"])  = 3
+    length({a=1, b=2})     = 2
+
+  tolist(set_or_tuple)     → Convert to list
+  toset(list)              → Convert to set (removes duplicates)
+  tomap(object)            → Convert to map
+
+  flatten(list_of_lists)   → Merge nested lists into one
+    flatten([["a","b"], ["c"]]) = ["a", "b", "c"]
+
+  distinct(list)           → Remove duplicates
+    distinct(["a","b","a","c"]) = ["a", "b", "c"]
+
+  sort(list)               → Sort a list alphabetically/numerically
+    sort(["banana", "apple", "cherry"]) = ["apple", "banana", "cherry"]
+
+  reverse(list)            → Reverses the list
+    reverse([1,2,3])       = [3, 2, 1]
+
+  element(list, index)     → Get element at index (wraps around!)
+    element(["a","b","c"], 0) = "a"
+    element(["a","b","c"], 4) = "b"    # Wraps: 4 % 3 = 1
+
+  slice(list, start, end)  → Extract a sub-list
+    slice(["a","b","c","d"], 1, 3) = ["b", "c"]
+
+  concat(list1, list2...)  → Merge multiple lists
+    concat(["a","b"], ["c","d"]) = ["a","b","c","d"]
+
+  merge(map1, map2...)     → Merge multiple maps (later maps override earlier)
+    merge({a=1, b=2}, {b=3, c=4}) = {a=1, b=3, c=4}
+
+  lookup(map, key, default) → Get map value, with fallback if key not found
+    lookup({dev="t2.micro", prod="t2.large"}, "dev", "t2.micro") = "t2.micro"
+    lookup({dev="t2.micro", prod="t2.large"}, "qa", "t2.micro")  = "t2.micro"
+
+  keys(map)                → Get all keys as a list
+    keys({a=1, b=2, c=3}) = ["a", "b", "c"]
+
+  values(map)              → Get all values as a list
+    values({a=1, b=2})     = [1, 2]
+
+  contains(list, value)    → Check if value exists in list
+    contains(["dev","prod"], "dev") = true
+
+  index(list, value)       → Find index of a value
+    index(["a","b","c"], "b") = 1
+
+  zipmap(keys, values)     → Create a map from two lists
+    zipmap(["a","b","c"], [1,2,3]) = {a=1, b=2, c=3}
+
+----------------------------------------------------------------
+ CATEGORY 4: TYPE CONVERSION FUNCTIONS
+----------------------------------------------------------------
+
+  tostring(value)          → Convert to string
+    tostring(42)           = "42"
+    tostring(true)         = "true"
+
+  tonumber(string)         → Convert to number
+    tonumber("42")         = 42
+
+  tobool(string)           → Convert to boolean
+    tobool("true")         = true
+
+  tolist(set)              → Convert set to list
+  toset(list)              → Convert list to set (removes duplicates)
+  tomap(object)            → Convert object to map
+
+----------------------------------------------------------------
+ CATEGORY 5: FILESYSTEM FUNCTIONS
+----------------------------------------------------------------
+
+  file(path)               → Read file content as string
+    user_data = file("scripts/startup.sh")
+
+  filebase64(path)         → Read file and encode as base64
+    content = filebase64("certificate.crt")
+
+  templatefile(path, vars) → Read a file and substitute variables
+    user_data = templatefile("scripts/startup.sh.tpl", {
+      db_host = aws_db_instance.main.address
+      app_env = var.env
+    })
+
+  The template file (startup.sh.tpl) can contain:
+    #!/bin/bash
+    DB_HOST="${db_host}"
+    APP_ENV="${app_env}"
+    echo "Connecting to $DB_HOST in $APP_ENV environment"
+
+----------------------------------------------------------------
+ CATEGORY 6: ENCODING FUNCTIONS
+----------------------------------------------------------------
+
+  base64encode(string)     → Encode string to Base64
+    base64encode("hello")  = "aGVsbG8="
+
+  base64decode(string)     → Decode Base64 to string
+    base64decode("aGVsbG8=") = "hello"
+
+  jsonencode(value)        → Convert to JSON string
+    jsonencode({name="Chandu", age=25}) = "{\"age\":25,\"name\":\"Chandu\"}"
+
+  jsondecode(string)       → Parse JSON string to object
+    jsondecode("{\"a\":1}") = {a=1}
+
+  yamlencode(value)        → Convert to YAML string
+  yamldecode(string)       → Parse YAML string
+
+  urlencode(string)        → URL-encode a string
+  base64gzip(string)       → Compress with gzip then base64
+
+----------------------------------------------------------------
+ CATEGORY 7: HASH & CRYPTO FUNCTIONS
+----------------------------------------------------------------
+
+  md5(string)              → MD5 hash of string
+    md5("hello")           = "5d41402abc4b2a76b9719d911017c592"
+
+  sha1(string)             → SHA-1 hash
+  sha256(string)           → SHA-256 hash
+  sha512(string)           → SHA-512 hash
+
+  bcrypt(string)           → BCrypt hash (for passwords)
+  uuid()                   → Generate a random UUID (changes every apply!)
+
+  Common use: force resource recreation when a file changes:
+    resource "aws_instance" "web" {
+      user_data = file("startup.sh")
+      # Force replace if script changes:
+      user_data_replace_on_change = true
+    }
+
+    Or use md5 in the resource name:
+    resource "null_resource" "script_runner" {
+      triggers = {
+        script_hash = md5(file("startup.sh"))
+      }
+    }
+
+----------------------------------------------------------------
+ CATEGORY 8: DATE/TIME FUNCTIONS
+----------------------------------------------------------------
+
+  timestamp()              → Current date/time in RFC 3339 format
+    timestamp()            = "2024-01-15T10:30:00Z"
+
+  formatdate(format, time) → Format a date/time string
+    formatdate("YYYY-MM-DD", timestamp()) = "2024-01-15"
+
+  timeadd(time, duration)  → Add duration to a time
+    timeadd("2024-01-01T00:00:00Z", "24h") = "2024-01-02T00:00:00Z"
+
+----------------------------------------------------------------
+ CATEGORY 9: IP NETWORK FUNCTIONS
+----------------------------------------------------------------
+
+  cidrsubnet(cidr, newbits, netnum)  → Calculate a subnet CIDR
+    cidrsubnet("10.0.0.0/16", 8, 0) = "10.0.0.0/24"
+    cidrsubnet("10.0.0.0/16", 8, 1) = "10.0.1.0/24"
+    cidrsubnet("10.0.0.0/16", 8, 2) = "10.0.2.0/24"
+
+  cidrhost(cidr, hostnum)            → Get a specific host IP in a CIDR
+    cidrhost("10.0.0.0/24", 1)      = "10.0.0.1"
+    cidrhost("10.0.0.0/24", 10)     = "10.0.0.10"
+
+  cidrnetmask(cidr)                  → Get netmask from CIDR
+    cidrnetmask("10.0.0.0/24")      = "255.255.255.0"
+
+  Practical use: Automatically generate subnets:
+    locals {
+      subnet_cidrs = [for i in range(3) : cidrsubnet("10.0.0.0/16", 8, i)]
+      # = ["10.0.0.0/24", "10.0.1.0/24", "10.0.2.0/24"]
+    }
+
+----------------------------------------------------------------
+ PRACTICAL COMBINED EXAMPLE
+----------------------------------------------------------------
+
+  locals {
+    env      = var.environment
+    project  = var.project_name
+    region   = var.region
+
+    # Build a consistent naming prefix
+    prefix = lower(join("-", [var.company, var.project_name, var.environment]))
+    # = "hsbc-payments-dev"
+
+    # Common tags using merge
+    tags = merge(var.common_tags, {
+      Environment = title(local.env)
+      Project     = local.project
+      ManagedBy   = "Terraform"
+      CreatedAt   = formatdate("YYYY-MM-DD", timestamp())
+    })
+
+    # Environment-based lookup
+    instance_type = lookup({
+      dev  = "t2.micro"
+      uat  = "t2.small"
+      prod = "t2.large"
+    }, local.env, "t2.micro")
+  }
+
+  resource "aws_instance" "app" {
+    ami           = data.aws_ami.ubuntu.id
+    instance_type = local.instance_type
+
+    tags = merge(local.tags, {
+      Name = format("%s-app-server", local.prefix)
+    })
+  }
+
+----------------------------------------------------------------
+ TESTING FUNCTIONS (terraform console)
+----------------------------------------------------------------
+
+  You can test any function interactively:
+
+  $ terraform console
+  > upper("hsbc")
+  "HSBC"
+  > join("-", ["dev", "us", "east"])
+  "dev-us-east"
+  > cidrsubnet("10.0.0.0/16", 8, 3)
+  "10.0.3.0/24"
+  > format("%-10s | %d", "server", 42)
+  "server     | 42"
+  > exit
+
+----------------------------------------------------------------
+ SUMMARY
+----------------------------------------------------------------
+
+  - Terraform has many built-in functions (no custom functions)
+  - String:     upper, lower, replace, split, join, format, length
+  - Numeric:    min, max, abs, ceil, floor
+  - Collection: flatten, merge, lookup, keys, values, concat, sort
+  - Type:       tostring, tonumber, tobool, tolist, toset
+  - File:       file(), filebase64(), templatefile()
+  - Encoding:   jsonencode, jsondecode, base64encode, base64decode
+  - Network:    cidrsubnet, cidrhost, cidrnetmask
+  - Test with:  terraform console
+
+================================================================
+ END OF FILE: 12_Functions.txt
+================================================================

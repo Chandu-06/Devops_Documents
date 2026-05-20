@@ -1,0 +1,285 @@
+================================================================
+ TERRAFORM LEARNING DOCUMENT
+ Topic 10: Modules
+================================================================
+
+----------------------------------------------------------------
+ WHAT IS A MODULE?
+----------------------------------------------------------------
+
+A MODULE is a container for multiple Terraform resources that are
+used together. It is simply a FOLDER containing .tf files.
+
+Think of a module like a FUNCTION in programming:
+  - You write the function ONCE
+  - You call it multiple times with different inputs
+  - It produces consistent, predictable results
+
+Real-life analogy:
+  A module is like a LEGO block set with instructions.
+  The instructions (module code) define what the block does.
+  You can use the same block set to build the same thing multiple times.
+
+Without modules: Copy-paste same 50 lines of code for dev, uat, prod.
+With modules:    Write once, call 3 times with different variables.
+
+----------------------------------------------------------------
+ TYPES OF MODULES
+----------------------------------------------------------------
+
+  1. ROOT MODULE
+     The directory where you run terraform commands.
+     Every Terraform project has at least one module: the root module.
+     Your main.tf, variables.tf, etc. ARE the root module.
+
+  2. CHILD MODULE
+     A module called FROM the root module (or another module).
+     Located in a sub-folder or remote source.
+
+  3. PUBLIC MODULES
+     Modules published on the Terraform Registry (registry.terraform.io/modules)
+     by HashiCorp or the community. You can use them directly!
+
+----------------------------------------------------------------
+ MODULE STRUCTURE (Standard Layout)
+----------------------------------------------------------------
+
+A typical project with modules looks like this:
+
+  project/
+  ├── main.tf              ← Root module; calls child modules
+  ├── variables.tf         ← Root variables
+  ├── outputs.tf           ← Root outputs
+  ├── terraform.tfvars     ← Variable values
+  └── modules/
+      ├── ec2/             ← EC2 server module
+      │   ├── main.tf
+      │   ├── variables.tf
+      │   └── outputs.tf
+      ├── s3/              ← S3 bucket module
+      │   ├── main.tf
+      │   ├── variables.tf
+      │   └── outputs.tf
+      └── vpc/             ← VPC network module
+          ├── main.tf
+          ├── variables.tf
+          └── outputs.tf
+
+----------------------------------------------------------------
+ CREATING A MODULE (Example: EC2 module)
+----------------------------------------------------------------
+
+  STEP 1: Create the module files
+
+  # modules/ec2/variables.tf
+  variable "instance_type" {
+    description = "EC2 instance type"
+    type        = string
+    default     = "t2.micro"
+  }
+
+  variable "ami" {
+    description = "Amazon Machine Image ID"
+    type        = string
+  }
+
+  variable "name" {
+    description = "Name tag for the instance"
+    type        = string
+  }
+
+  ---
+
+  # modules/ec2/main.tf
+  resource "aws_instance" "this" {
+    ami           = var.ami
+    instance_type = var.instance_type
+
+    tags = {
+      Name = var.name
+    }
+  }
+
+  ---
+
+  # modules/ec2/outputs.tf
+  output "instance_id" {
+    description = "The EC2 instance ID"
+    value       = aws_instance.this.id
+  }
+
+  output "public_ip" {
+    description = "The public IP of the EC2 instance"
+    value       = aws_instance.this.public_ip
+  }
+
+----------------------------------------------------------------
+ CALLING A MODULE (Using it in root module)
+----------------------------------------------------------------
+
+  # root main.tf
+  module "web_server" {
+    source        = "./modules/ec2"      # Path to the module folder
+    name          = "web-server-dev"
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.micro"
+  }
+
+  module "app_server" {
+    source        = "./modules/ec2"      # Same module, different inputs!
+    name          = "app-server-dev"
+    ami           = "ami-0c55b159cbfafe1f0"
+    instance_type = "t2.small"
+  }
+
+  # Use the outputs from the module
+  output "web_server_ip" {
+    value = module.web_server.public_ip    # module.MODULE_NAME.OUTPUT_NAME
+  }
+
+  output "app_server_ip" {
+    value = module.app_server.public_ip
+  }
+
+----------------------------------------------------------------
+ MODULE SOURCE TYPES
+----------------------------------------------------------------
+
+The "source" argument tells Terraform WHERE to get the module from:
+
+  1. Local path (folder on your machine):
+     source = "./modules/ec2"
+     source = "../shared/modules/networking"
+
+  2. Terraform Registry (community modules):
+     source  = "terraform-aws-modules/ec2-instance/aws"
+     version = "~> 5.0"
+
+  3. GitHub:
+     source = "github.com/myorg/terraform-modules//ec2"
+
+  4. Generic Git:
+     source = "git::https://github.com/myorg/modules.git//ec2?ref=v1.0"
+
+  5. Terraform Cloud / Enterprise private registry:
+     source  = "app.terraform.io/my-org/ec2/aws"
+
+  After adding a new module source, run:
+    $ terraform init
+  (To download it if it's remote, or validate the path if local)
+
+----------------------------------------------------------------
+ USING PUBLIC MODULES FROM TERRAFORM REGISTRY
+----------------------------------------------------------------
+
+The Terraform community has published thousands of ready-to-use modules.
+Why build from scratch when someone already wrote and tested it?
+
+Example: Use the official AWS VPC module
+
+  module "vpc" {
+    source  = "terraform-aws-modules/vpc/aws"
+    version = "~> 5.0"
+
+    name = "my-vpc"
+    cidr = "10.0.0.0/16"
+
+    azs             = ["us-east-1a", "us-east-1b"]
+    private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
+    public_subnets  = ["10.0.101.0/24", "10.0.102.0/24"]
+
+    enable_nat_gateway = true
+  }
+
+  output "vpc_id" {
+    value = module.vpc.vpc_id
+  }
+
+  This creates an entire VPC with subnets, internet gateway, NAT gateway,
+  route tables — all from ONE module call!
+
+----------------------------------------------------------------
+ MODULE VERSIONING (Best Practice)
+----------------------------------------------------------------
+
+Always pin the version of external modules:
+
+  module "ec2" {
+    source  = "terraform-aws-modules/ec2-instance/aws"
+    version = "~> 5.0"    # Use any 5.x version (5.1, 5.2, etc.)
+  }
+
+Without version pinning, terraform init might download a newer,
+breaking version and your code stops working.
+
+----------------------------------------------------------------
+ PASSING VARIABLES INTO MODULES vs GETTING OUTPUTS
+----------------------------------------------------------------
+
+  INPUTS (going INTO the module):
+    module "my_module" {
+      source     = "./modules/ec2"
+      name       = "my-server"         # These match variable "name" in module
+      ami        = "ami-xxxx"          # These match variable "ami" in module
+      instance_type = "t2.micro"
+    }
+
+  OUTPUTS (coming OUT of the module):
+    output "server_ip" {
+      value = module.my_module.public_ip   # References output "public_ip" in module
+    }
+
+  Syntax to access module outputs:
+    module.MODULE_NAME.OUTPUT_NAME
+
+----------------------------------------------------------------
+ REAL WORLD EXAMPLE: Multi-Environment with Modules
+----------------------------------------------------------------
+
+  Structure:
+    project/
+    ├── modules/
+    │   └── app_stack/
+    │       ├── main.tf      (creates EC2 + S3)
+    │       ├── variables.tf
+    │       └── outputs.tf
+    ├── dev.tf               (calls module for dev)
+    ├── prod.tf              (calls module for prod)
+    └── providers.tf
+
+  ---
+
+  # dev.tf
+  module "dev_stack" {
+    source        = "./modules/app_stack"
+    env           = "dev"
+    instance_type = "t2.micro"
+    bucket_prefix = "hsbc-dev"
+  }
+
+  # prod.tf
+  module "prod_stack" {
+    source        = "./modules/app_stack"
+    env           = "prod"
+    instance_type = "t2.large"
+    bucket_prefix = "hsbc-prod"
+  }
+
+  Same module, completely different environments!
+
+----------------------------------------------------------------
+ SUMMARY
+----------------------------------------------------------------
+
+  - Modules = reusable Terraform code in a folder
+  - Every project has a root module; child modules are sub-folders
+  - Call modules with: module "name" { source = "..." }
+  - Pass inputs via arguments matching the module's variables
+  - Get outputs via: module.module_name.output_name
+  - Use public modules from registry.terraform.io
+  - Always pin module versions for stability
+  - Run terraform init after adding new modules
+
+================================================================
+ END OF FILE: 10_Modules.txt
+================================================================
