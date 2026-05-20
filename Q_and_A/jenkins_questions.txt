@@ -1,0 +1,421 @@
+================================================================
+        JENKINS PRACTICE QUESTIONS (Basic to Intermediate)
+================================================================
+Instructions:
+- Read each project scenario carefully
+- Write your answers in jenkins_answers.txt
+- Answers should contain actual Jenkinsfile content or configurations
+- Use Declarative Pipeline syntax unless stated otherwise
+================================================================
+
+----------------------------------------------------------------
+QUESTION 1 — Basic Declarative Pipeline
+----------------------------------------------------------------
+Your team wants to set up a simple Jenkins pipeline for a
+Node.js application.
+
+Requirements:
+- Agent: any
+- 3 Stages:
+    Stage 1 - Checkout: Pull code from Git
+    Stage 2 - Install: Run npm install
+    Stage 3 - Build: Run npm run build
+- Post section:
+    - On success: print "Build Successful"
+    - On failure: print "Build Failed"
+
+Task: Write the complete Declarative Jenkinsfile.
+
+----------------------------------------------------------------
+QUESTION 2 — Environment Variables
+----------------------------------------------------------------
+Your pipeline needs several environment variables configured
+at the pipeline level to avoid hardcoding values in stages.
+
+Requirements:
+- Define these environment variables at pipeline level:
+    APP_NAME = "my-node-app"
+    DEPLOY_ENV = "staging"
+    PORT = "3000"
+- Add a stage called "Print Config" that echoes all three values
+- Add a stage called "Build" that runs npm install and npm run build
+- Use the variables inside the echo statements
+
+Task: Write the Declarative Jenkinsfile with environment block.
+
+----------------------------------------------------------------
+QUESTION 3 — Parameters
+----------------------------------------------------------------
+Your team wants to manually trigger a deployment pipeline and
+choose the target environment each time.
+
+Requirements:
+- Add a parameters block with:
+    - A choice parameter: ENVIRONMENT (options: dev, staging, production)
+    - A string parameter: IMAGE_TAG (default: "latest")
+    - A boolean parameter: RUN_TESTS (default: true)
+- Stages:
+    Stage 1 - Print Parameters: Echo all three parameter values
+    Stage 2 - Run Tests: Only execute if RUN_TESTS is true
+    Stage 3 - Deploy: Echo "Deploying ${APP} to ${ENVIRONMENT} with tag ${IMAGE_TAG}"
+
+Task: Write the Declarative Jenkinsfile with parameters block.
+
+----------------------------------------------------------------
+QUESTION 4 — When Conditions (Conditional Stages)
+----------------------------------------------------------------
+Your team runs the same pipeline for both feature branches and
+the main branch, but certain stages should only run on main.
+
+Requirements:
+- Stages:
+    Stage 1 - Checkout: Always runs
+    Stage 2 - Build: Always runs (npm run build)
+    Stage 3 - Test: Always runs (npm test)
+    Stage 4 - Push to Registry: Only runs when branch is "main"
+    Stage 5 - Deploy to Production: Only runs when branch is "main"
+      AND the build parameter DEPLOY is true (boolean param)
+- Add the DEPLOY boolean parameter
+
+Task: Write the Declarative Jenkinsfile using when conditions.
+
+----------------------------------------------------------------
+QUESTION 5 — Credentials and Secret Handling
+----------------------------------------------------------------
+Your pipeline needs to connect to:
+- Docker Hub (username + password) — credentialsId: 'dockerhub-creds'
+- A remote server via SSH key — credentialsId: 'prod-server-ssh'
+- A secret API token — credentialsId: 'api-token'
+
+Requirements:
+- Stage 1 - Docker Login: Use withCredentials to login to Docker Hub
+- Stage 2 - SSH Command: Use sshagent to SSH into prod-server
+  and run: echo "Connected successfully"
+- Stage 3 - API Call: Use the api-token secret text to make a curl call:
+  curl -H "Authorization: Bearer $API_TOKEN" https://api.mycompany.com/health
+
+Task: Write the Declarative Jenkinsfile showing all 3 credential types.
+
+----------------------------------------------------------------
+QUESTION 6 — Parallel Stages
+----------------------------------------------------------------
+Your pipeline takes too long because tests run sequentially.
+The team wants to run Unit Tests, Integration Tests, and
+Security Scan simultaneously to save time.
+
+Requirements:
+- Stage 1 - Checkout: Sequential
+- Stage 2 - Build: Sequential (npm run build)
+- Stage 3 - Test Suite: Run these in PARALLEL:
+    - Unit Tests: npm run test:unit
+    - Integration Tests: npm run test:integration
+    - Security Scan: npm audit
+- Stage 4 - Deploy: Sequential (runs only after all parallel stages pass)
+- If any parallel stage fails, the others should still complete (failFast: false)
+
+Task: Write the Declarative Jenkinsfile with parallel execution.
+
+----------------------------------------------------------------
+QUESTION 7 — Tools Block (Maven Build)
+----------------------------------------------------------------
+Your Java team uses Maven and wants Jenkins to automatically
+use the correct Maven and JDK version configured in Global Tools.
+
+Requirements:
+- Tools block:
+    - maven: 'Maven-3.9' (name configured in Jenkins Global Tools)
+    - jdk: 'JDK-17'
+- Stages:
+    Stage 1 - Checkout
+    Stage 2 - Build: mvn clean compile
+    Stage 3 - Test: mvn test
+    Stage 4 - Package: mvn clean package -DskipTests
+- Archive the JAR artifact from target/*.jar after package stage
+- Publish JUnit test results from target/surefire-reports/*.xml
+
+Task: Write the Declarative Jenkinsfile with tools block.
+
+----------------------------------------------------------------
+QUESTION 8 — Shared Library Usage
+----------------------------------------------------------------
+Your organization has a Jenkins Shared Library called "company-pipeline-lib"
+already registered in Jenkins. It has a utility function called
+notifySlack(status, channel) and a step called dockerBuild(imageName).
+
+Requirements:
+- Import the shared library at the top: @Library('company-pipeline-lib')
+- Stages:
+    Stage 1 - Checkout
+    Stage 2 - Docker Build: use the dockerBuild('myorg/myapp') shared step
+    Stage 3 - Deploy: echo "Deploying..."
+- Post section:
+    - On success: call notifySlack('SUCCESS', '#deployments')
+    - On failure: call notifySlack('FAILURE', '#deployments')
+
+Task: Write the Declarative Jenkinsfile using the shared library.
+
+----------------------------------------------------------------
+QUESTION 9 — Multibranch Pipeline (Jenkinsfile)
+----------------------------------------------------------------
+Your team uses a Multibranch Pipeline. The behavior should
+change depending on which branch triggers the build.
+
+Requirements:
+- On feature/* branches:
+    - Run: Checkout, Build, Unit Test only
+- On develop branch:
+    - Run: Checkout, Build, Unit Test, Integration Test, Deploy to Dev
+- On main branch:
+    - Run: All stages including Deploy to Production
+- Use BRANCH_NAME environment variable for conditions
+
+Task: Write the Jenkinsfile designed for Multibranch Pipeline behavior.
+
+----------------------------------------------------------------
+QUESTION 10 — Input Step (Manual Approval Gate)
+----------------------------------------------------------------
+Your team wants a human approval step before deploying to production.
+After the build and test stages pass, a team lead must approve
+the deployment manually in Jenkins UI.
+
+Requirements:
+- Stage 1 - Build: npm run build
+- Stage 2 - Test: npm test
+- Stage 3 - Approval Gate:
+    - Use input step
+    - Message: "Deploy to Production?"
+    - Submitter: "team-lead" (only this user can approve)
+    - Timeout: 24 hours — if no approval, abort
+- Stage 4 - Deploy to Production: echo "Deploying to production..."
+
+Task: Write the Declarative Jenkinsfile with input approval step.
+
+----------------------------------------------------------------
+QUESTION 11 — Retry and Timeout
+----------------------------------------------------------------
+Your pipeline calls an external API that is sometimes slow or
+flaky. The team wants resilience built into the pipeline.
+
+Requirements:
+- Stage 1 - Checkout
+- Stage 2 - Flaky API Call:
+    - Retry this stage up to 3 times if it fails
+    - Each attempt should timeout after 2 minutes
+    - Command: curl https://api.external-service.com/trigger
+- Stage 3 - Build: npm run build
+    - This entire stage should timeout after 10 minutes
+- Overall pipeline timeout: 30 minutes
+
+Task: Write the Declarative Jenkinsfile with retry and timeout.
+
+----------------------------------------------------------------
+QUESTION 12 — Stash and Unstash
+----------------------------------------------------------------
+Your pipeline builds artifacts in one stage and needs to use
+them in a later stage that might run on a different agent.
+
+Requirements:
+- Stage 1 - Build (agent: any):
+    - Run: npm run build
+    - Stash the build output folder 'dist/' with name: 'build-artifacts'
+- Stage 2 - Test (agent: any):
+    - Unstash 'build-artifacts'
+    - Run: npm test
+- Stage 3 - Deploy (agent: any):
+    - Unstash 'build-artifacts'
+    - Echo: "Deploying dist/ contents..."
+
+Task: Write the Declarative Jenkinsfile using stash and unstash.
+
+----------------------------------------------------------------
+QUESTION 13 — Pipeline with Docker Agent
+----------------------------------------------------------------
+Your team doesn't want to install Node.js on the Jenkins server.
+Instead, each stage should run inside a Docker container.
+
+Requirements:
+- Pipeline level agent: none (no global agent)
+- Stage 1 - Build:
+    - Agent: docker image node:18-alpine
+    - Run: npm install && npm run build
+- Stage 2 - Test:
+    - Agent: docker image node:18-alpine
+    - Run: npm test
+- Stage 3 - Code Quality:
+    - Agent: docker image sonarsource/sonar-scanner-cli
+    - Run: sonar-scanner (with sonar project key myapp)
+- Each stage should use the docker agent independently
+
+Task: Write the Declarative Jenkinsfile using Docker agents per stage.
+
+----------------------------------------------------------------
+QUESTION 14 — Post Actions (Notifications)
+----------------------------------------------------------------
+Your team wants detailed post-build notifications depending
+on the result of the pipeline.
+
+Requirements:
+- 3 stages: Checkout, Build (npm run build), Test (npm test)
+- Post block with ALL conditions:
+    - always: Archive logs from logs/*.log, print "Pipeline finished"
+    - success: Print "Pipeline passed! Notifying team..."
+    - failure: Print "Pipeline failed! Alerting on-call team..."
+    - unstable: Print "Tests are unstable. Review required."
+    - changed: Print "Pipeline status changed from last run."
+    - aborted: Print "Pipeline was manually aborted."
+- Also publish JUnit results from test-results/*.xml in the post block
+
+Task: Write the Declarative Jenkinsfile with full post section.
+
+----------------------------------------------------------------
+QUESTION 15 — SonarQube Integration
+----------------------------------------------------------------
+Your team uses SonarQube for code quality. Jenkins has SonarQube
+configured under the name 'SonarQube-Server' in Jenkins settings.
+
+Requirements:
+- Tools: maven 'Maven-3.9', jdk 'JDK-17'
+- Stage 1 - Checkout
+- Stage 2 - Build: mvn clean package -DskipTests
+- Stage 3 - SonarQube Analysis:
+    - Use withSonarQubeEnv('SonarQube-Server')
+    - Run: mvn sonar:sonar -Dsonar.projectKey=my-java-app
+- Stage 4 - Quality Gate:
+    - Wait for SonarQube Quality Gate result
+    - Abort pipeline if quality gate fails
+    - Timeout: 5 minutes
+- Stage 5 - Deploy: echo "Deploying after quality gate passed..."
+
+Task: Write the Declarative Jenkinsfile with SonarQube integration.
+
+----------------------------------------------------------------
+QUESTION 16 — Matrix Strategy (Multi-Platform Testing)
+----------------------------------------------------------------
+Your Node.js library needs to be tested across multiple
+Node.js versions and operating systems.
+
+Requirements:
+- Use matrix in a stage called "Cross Platform Tests"
+- Axes:
+    - NODE_VERSION: ['16', '18', '20']
+    - PLATFORM: ['linux', 'windows']
+- Exclude combination: NODE_VERSION=16 with PLATFORM=windows
+- Each matrix cell should:
+    - Print: "Testing on Node ${NODE_VERSION} / ${PLATFORM}"
+    - Run: npm install && npm test
+- Before matrix: a Checkout stage
+- After matrix: a stage that prints "All matrix tests passed"
+
+Task: Write the Declarative Jenkinsfile using matrix strategy.
+
+----------------------------------------------------------------
+QUESTION 17 — Scripted Block Inside Declarative Pipeline
+----------------------------------------------------------------
+Your pipeline needs some dynamic logic that Declarative syntax
+alone cannot handle — deciding the deploy target based on
+the current time (deploy to staging in business hours,
+dev outside business hours).
+
+Requirements:
+- Stage 1 - Checkout
+- Stage 2 - Build: npm run build
+- Stage 3 - Dynamic Deploy:
+    - Use a script {} block inside the stage
+    - Get current hour using: Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    - If hour is between 9 and 17 (business hours): deploy to staging
+    - Otherwise: deploy to dev
+    - Echo the chosen target
+
+Task: Write the Declarative Jenkinsfile with a script {} block.
+
+----------------------------------------------------------------
+QUESTION 18 — Jenkins Pipeline for Kubernetes Deployment
+----------------------------------------------------------------
+Your team wants Jenkins to build a Docker image and deploy it
+to a Kubernetes cluster after every push to main.
+
+Requirements:
+- Environment:
+    IMAGE_NAME = "mycompany/webapp"
+    IMAGE_TAG = "${BUILD_NUMBER}"
+    K8S_NAMESPACE = "production"
+- Stage 1 - Checkout
+- Stage 2 - Build Docker Image: docker build -t ${IMAGE_NAME}:${IMAGE_TAG}
+- Stage 3 - Push to Registry:
+    Use credentials 'dockerhub-creds'
+    Push the image
+- Stage 4 - Update Manifest:
+    Use sed to replace image tag in k8s/deployment.yaml
+- Stage 5 - Deploy to K8s:
+    kubectl apply -f k8s/deployment.yaml -n ${K8S_NAMESPACE}
+    kubectl rollout status deployment/webapp -n ${K8S_NAMESPACE}
+- Stage 6 - Cleanup: Remove local image
+- Post: On failure, run: kubectl rollout undo deployment/webapp
+
+Task: Write the complete Declarative Jenkinsfile.
+
+----------------------------------------------------------------
+QUESTION 19 — Reusable Pipeline with Functions (Scripted Pipeline)
+----------------------------------------------------------------
+Your team wants a reusable Scripted Pipeline (not Declarative)
+where common steps are wrapped in Groovy functions.
+
+Requirements:
+- Write a Scripted Pipeline (node {} block, not pipeline {})
+- Define these functions inside the Jenkinsfile:
+    def buildApp() — runs npm install && npm run build
+    def runTests() — runs npm test, catches failures, marks build unstable
+    def deployApp(env) — echoes "Deploying to ${env}..."
+- Main flow:
+    - Call buildApp()
+    - Call runTests()
+    - If branch is main, call deployApp('production')
+    - Else call deployApp('staging')
+- Wrap everything in try-catch-finally:
+    - catch: mark build as FAILURE and print error
+    - finally: print "Pipeline execution completed"
+
+Task: Write the Scripted Pipeline Jenkinsfile with Groovy functions.
+
+----------------------------------------------------------------
+QUESTION 20 — Full Enterprise CI/CD Pipeline (Capstone)
+----------------------------------------------------------------
+You are the DevOps engineer at a company. Design a complete
+enterprise-grade Jenkins pipeline for a Java Spring Boot app.
+
+Project details:
+- Build: Maven, Java 17
+- Code Quality: SonarQube (server: 'SonarQube-Server')
+- Registry: Docker Hub (creds: 'dockerhub-creds')
+- Image: mycompany/springapp
+- Kubernetes: kubectl configured, namespace: production
+- Notifications: Slack (use echo to simulate)
+
+Pipeline Requirements:
+  Stage 1  - Checkout: Pull from Git
+  Stage 2  - Build JAR: mvn clean package -DskipTests
+  Stage 3  - Unit Tests: mvn test, publish JUnit results
+  Stage 4  - Code Analysis: SonarQube scan
+  Stage 5  - Quality Gate: Wait and abort if gate fails (timeout 5m)
+  Stage 6  - Build Docker Image: tag with BUILD_NUMBER
+  Stage 7  - Push Image: Push to Docker Hub
+  Stage 8  - Approval Gate: Manual approval before production deploy
+             (submitter: 'devops-lead', timeout: 1 hour)
+  Stage 9  - Update K8s Manifest: sed replace image tag
+  Stage 10 - Deploy to K8s: kubectl apply + rollout status
+  Stage 11 - Smoke Test: curl http://springapp-service/actuator/health
+  Stage 12 - Cleanup: Remove local Docker image
+
+Post:
+  - always: archive target/*.jar, print "Pipeline Done"
+  - success: echo "SUCCESS — Notifying Slack #deployments"
+  - failure: echo "FAILURE — Alerting #incidents" + kubectl rollout undo
+
+Environment block should define:
+  IMAGE_NAME, IMAGE_TAG, K8S_NAMESPACE, APP_NAME
+
+Task: Write the complete enterprise Jenkinsfile.
+
+================================================================
+                        END OF QUESTIONS
+================================================================

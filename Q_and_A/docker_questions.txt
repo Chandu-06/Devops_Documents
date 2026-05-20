@@ -1,0 +1,393 @@
+================================================================
+         DOCKER PRACTICE QUESTIONS (Basic to Intermediate)
+================================================================
+Instructions:
+- Read each project scenario carefully
+- Write your answers in docker_answers.txt
+- Each answer should contain the actual file content (Dockerfile, Jenkinsfile, etc.)
+================================================================
+
+----------------------------------------------------------------
+QUESTION 1 — Multi-Stage Node.js App
+----------------------------------------------------------------
+You work at a company that has a Node.js REST API application.
+The app runs on Node 18, lives in a folder with package.json
+and src/index.js, and listens on port 3000.
+
+Requirements:
+- Use multi-stage build to keep the final image small
+- In the build stage: install all dependencies and build the app
+- In the final/production stage: only copy what's needed to run
+- The app must run as a non-root user (security requirement)
+- Container should start with: node src/index.js
+
+Task: Write the Dockerfile for this project.
+
+----------------------------------------------------------------
+QUESTION 2 — Python Flask App
+----------------------------------------------------------------
+Your team has a Python Flask application.
+- Python version: 3.11
+- Dependencies are listed in requirements.txt
+- Main app file: app.py
+- App listens on port 5000
+- The team wants the image to be based on a slim base image
+
+Requirements:
+- Use python:3.11-slim as base image
+- Set a working directory /app
+- Install dependencies from requirements.txt
+- Copy the application code
+- Expose the correct port
+- Run using: python app.py
+
+Task: Write the Dockerfile for this project.
+
+----------------------------------------------------------------
+QUESTION 3 — Dockerfile for Java Spring Boot App
+----------------------------------------------------------------
+You have a Java Spring Boot application that uses Maven to build.
+- Java version: 17
+- The build produces a JAR file at: target/app.jar
+- App listens on port 8080
+
+Requirements:
+- Stage 1 (build): Use maven:3.9-eclipse-temurin-17, run mvn clean package
+- Stage 2 (run): Use eclipse-temurin:17-jre-alpine (smaller image)
+- Copy only the JAR from stage 1 to stage 2
+- Run as non-root user
+- Start command: java -jar app.jar
+
+Task: Write the Dockerfile for this project.
+
+----------------------------------------------------------------
+QUESTION 4 — Nginx Static Website
+----------------------------------------------------------------
+Your frontend team has a React application.
+- They run: npm run build — which produces a /build folder
+- The final output needs to be served via Nginx
+- Node version: 18
+- Final image should only contain Nginx + the built files
+
+Requirements:
+- Stage 1: Build the React app using node:18-alpine
+- Stage 2: Use nginx:alpine, copy the build folder to Nginx html directory
+- Expose port 80
+- No non-root user required here
+
+Task: Write the Dockerfile for this project.
+
+----------------------------------------------------------------
+QUESTION 5 — Docker Ignore File
+----------------------------------------------------------------
+You are dockerizing a Node.js application. Your project folder has:
+- node_modules/
+- .git/
+- .env
+- logs/
+- Dockerfile
+- src/
+- package.json
+
+The team is facing a problem — the Docker build context is too large
+and sensitive files like .env are being copied into the image.
+
+Task:
+1. Write a proper .dockerignore file to fix this
+2. Briefly explain (as a comment in the answer) why each entry is added
+
+----------------------------------------------------------------
+QUESTION 6 — Environment Variables and ARG vs ENV
+----------------------------------------------------------------
+You are building a Dockerfile for a Node.js app where:
+- The app needs a BUILD_ENV argument at build time (dev or prod)
+- The app needs a NODE_ENV environment variable at runtime
+- Based on BUILD_ENV, NODE_ENV should be set accordingly
+- App listens on port 3000
+- Start command: node index.js
+
+Requirements:
+- Use ARG for the build-time variable
+- Use ENV to set runtime variable from the ARG
+- Add a LABEL with maintainer name as "devops-team"
+
+Task: Write the Dockerfile demonstrating ARG, ENV, and LABEL usage.
+
+----------------------------------------------------------------
+QUESTION 7 — Docker Compose for a Full Stack App
+----------------------------------------------------------------
+Your team has a full stack application:
+- Frontend: React app running on port 3000 (image: frontend:latest)
+- Backend: Node.js API running on port 5000 (image: backend:latest)
+- Database: PostgreSQL (image: postgres:15)
+  - DB Name: appdb
+  - User: admin
+  - Password: secret123
+
+Requirements:
+- All services in one docker-compose.yml
+- Backend depends on the database
+- Frontend depends on the backend
+- PostgreSQL data must be persisted using a named volume
+- All services should be on a custom network called: app-network
+
+Task: Write the docker-compose.yml for this project.
+
+----------------------------------------------------------------
+QUESTION 8 — Docker Compose with Build Context
+----------------------------------------------------------------
+You have a microservices project with this folder structure:
+
+  project/
+  ├── frontend/
+  │   └── Dockerfile
+  ├── backend/
+  │   └── Dockerfile
+  └── docker-compose.yml
+
+Requirements:
+- frontend runs on port 3000, mapped to host port 80
+- backend runs on port 8000, mapped to host port 8000
+- Instead of using pre-built images, docker-compose should BUILD
+  from the respective Dockerfiles
+- Backend has an environment variable: DATABASE_URL=postgres://localhost/db
+- Both services on a shared network: internal-net
+
+Task: Write the docker-compose.yml using build context for both services.
+
+----------------------------------------------------------------
+QUESTION 9 — Healthcheck in Dockerfile
+----------------------------------------------------------------
+You have a Node.js API (port 3000) and the team wants Docker to
+automatically monitor the container health.
+
+Requirements:
+- Add a HEALTHCHECK instruction in the Dockerfile
+- Check every 30 seconds
+- Timeout of 10 seconds
+- If it fails 3 times, mark as unhealthy
+- Use curl to hit: http://localhost:3000/health
+- Use node:18-alpine as base (curl must be installed separately)
+
+Task: Write the Dockerfile with a proper HEALTHCHECK.
+
+----------------------------------------------------------------
+QUESTION 10 — Jenkins Pipeline: Build and Push Docker Image
+----------------------------------------------------------------
+Your team uses Jenkins to automate Docker builds.
+The app is a Node.js app. The Docker image should be pushed
+to Docker Hub under: mycompany/nodeapp
+
+Requirements:
+Write a Jenkinsfile with these stages:
+  Stage 1 - Checkout: Pull code from Git
+  Stage 2 - Build Image: Build docker image with tag = build number
+  Stage 3 - Push Image: Push to Docker Hub (use Jenkins credentials: 'dockerhub-creds')
+  Stage 4 - Cleanup: Remove the local image after push
+
+Task: Write the Jenkinsfile (Declarative Pipeline) for this workflow.
+
+----------------------------------------------------------------
+QUESTION 11 — Jenkins Pipeline: Multi-Stage Docker Build with Test
+----------------------------------------------------------------
+You have a Python Flask app. The team wants a Jenkins pipeline that:
+- Builds the Docker image
+- Runs tests INSIDE the container before pushing
+- Only pushes if tests pass
+- Image name: mycompany/flaskapp, tag: latest and also the build number
+
+Requirements:
+Write a Jenkinsfile with:
+  Stage 1 - Checkout
+  Stage 2 - Build Docker Image
+  Stage 3 - Run Tests (run: docker run mycompany/flaskapp pytest tests/)
+  Stage 4 - Push to Registry (only if tests pass)
+  Stage 5 - Cleanup
+
+Task: Write the Jenkinsfile (Declarative Pipeline) for this.
+
+----------------------------------------------------------------
+QUESTION 12 — Docker Volumes
+----------------------------------------------------------------
+You are running a MySQL container for a development environment.
+The team wants the database data to survive container restarts.
+
+Requirements:
+- Use mysql:8 image
+- Set root password: rootpass
+- Set database name: devdb
+- Mount a named volume: mysql-data → /var/lib/mysql
+- Expose port 3306 to host
+- Write both the docker run command AND the equivalent
+  docker-compose.yml for this setup
+
+Task: Write the docker run command and docker-compose.yml.
+
+----------------------------------------------------------------
+QUESTION 13 — Copying Files and WORKDIR Best Practices
+----------------------------------------------------------------
+You are writing a Dockerfile for a Go application.
+- Base image: golang:1.21-alpine (build stage)
+- Final image: alpine:latest (run stage)
+- Source code is in the current directory
+- Build command: go build -o myapp .
+- The binary should be placed at /usr/local/bin/myapp in final image
+- Working directory in both stages: /app
+
+Requirements:
+- Use proper WORKDIR in both stages
+- Copy source, build, then copy ONLY the binary to final stage
+- Run as non-root user with UID 1001
+- Entrypoint: /usr/local/bin/myapp
+
+Task: Write the Dockerfile for this Go application.
+
+----------------------------------------------------------------
+QUESTION 14 — Docker Networking
+----------------------------------------------------------------
+You have two containers:
+- Container A: A Node.js API (name: api-container, port 3000)
+- Container B: A Redis cache (name: redis-container, port 6379)
+
+The Node.js app connects to Redis using the hostname "redis-container".
+
+Requirements:
+- Create a custom bridge network called: backend-net
+- Run both containers attached to this network
+- The API container should have an env variable:
+  REDIS_HOST=redis-container
+- Write the docker network create command
+- Write both docker run commands
+
+Task: Write all the docker commands needed to set this up.
+
+----------------------------------------------------------------
+QUESTION 15 — Entrypoint vs CMD
+----------------------------------------------------------------
+You are writing a Dockerfile for a utility container that runs
+database backups using a shell script: backup.sh
+
+Scenario A: The container should always run backup.sh but allow
+            users to pass flags like --full or --incremental
+
+Scenario B: The container should default to running backup.sh
+            but users can completely override it to run a shell
+
+Requirements:
+- Write TWO Dockerfiles (A and B) showing the difference
+  between ENTRYPOINT and CMD
+
+Task: Write both Dockerfiles with a brief comment explaining
+the difference in behavior.
+
+----------------------------------------------------------------
+QUESTION 16 — Optimizing Docker Layer Caching
+----------------------------------------------------------------
+A developer wrote this Dockerfile for a Node.js app:
+
+  FROM node:18
+  WORKDIR /app
+  COPY . .
+  RUN npm install
+  CMD ["node", "index.js"]
+
+The team complains that every code change causes npm install
+to run again, making builds very slow.
+
+Task:
+1. Identify the problem in the above Dockerfile
+2. Write the corrected, optimized Dockerfile
+3. Add a comment explaining why the fix works
+
+----------------------------------------------------------------
+QUESTION 17 — Docker Image Tagging Strategy in Jenkins
+----------------------------------------------------------------
+Your team wants a proper image tagging strategy in their
+Jenkins pipeline.
+
+Requirements:
+- Image name: myorg/webapp
+- Tag the image with THREE tags:
+    1. The Git commit SHA (use: git rev-parse --short HEAD)
+    2. The branch name
+    3. "latest" only if branch is "main"
+- Push all applicable tags to Docker Hub
+- Use Jenkins credentials: 'dockerhub-creds'
+
+Task: Write the Jenkinsfile (Declarative Pipeline) implementing
+this tagging strategy.
+
+----------------------------------------------------------------
+QUESTION 18 — Docker Compose Override Files
+----------------------------------------------------------------
+Your team uses Docker Compose for both development and production.
+Base service: a Node.js app
+
+docker-compose.yml (base):
+- service name: web
+- build from current directory
+- port: 3000
+
+For Development (docker-compose.override.yml):
+- Mount the source code as a volume for live reload
+- Add env variable: NODE_ENV=development
+- Add a debug port: 9229
+
+For Production (docker-compose.prod.yml):
+- Use a pre-built image: myorg/web:latest
+- Set env variable: NODE_ENV=production
+- Restart policy: always
+
+Task: Write all three docker-compose files.
+
+----------------------------------------------------------------
+QUESTION 19 — Securing a Dockerfile (Best Practices)
+----------------------------------------------------------------
+You are asked to review and rewrite this insecure Dockerfile:
+
+  FROM ubuntu:latest
+  RUN apt-get update && apt-get install -y curl nodejs npm
+  COPY . /app
+  WORKDIR /app
+  RUN npm install
+  ENV DB_PASSWORD=supersecret123
+  CMD ["node", "server.js"]
+
+The security team found multiple issues.
+
+Task:
+1. List ALL the security issues you can find (as comments)
+2. Write the corrected, secure Dockerfile
+
+----------------------------------------------------------------
+QUESTION 20 — Full CI/CD Pipeline with Docker (Capstone)
+----------------------------------------------------------------
+You are the DevOps engineer for a company. They have a Java
+Spring Boot application and want a full CI/CD pipeline.
+
+Project details:
+- Build tool: Maven
+- Java version: 17
+- Docker Hub repo: mycompany/springapp
+- Kubernetes cluster is available (kubectl configured on Jenkins)
+- K8s deployment file is at: k8s/deployment.yaml
+
+Jenkins Pipeline Requirements:
+  Stage 1 - Checkout: Clone from Git
+  Stage 2 - Build JAR: Run mvn clean package -DskipTests
+  Stage 3 - Build Docker Image: Tag with build number
+  Stage 4 - Push Image: Push to Docker Hub
+  Stage 5 - Update K8s Manifest: Replace image tag in deployment.yaml
+             using sed command
+  Stage 6 - Deploy to Kubernetes: Apply the updated manifest
+  Stage 7 - Cleanup: Remove local Docker image
+
+Post actions:
+- On success: print "Deployment Successful"
+- On failure: print "Deployment Failed"
+
+Task: Write the complete Jenkinsfile for this pipeline.
+
+================================================================
+                        END OF QUESTIONS
+================================================================

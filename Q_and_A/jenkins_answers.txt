@@ -1,0 +1,1027 @@
+================================================================
+         JENKINS PRACTICE — ANSWER SHEET (WITH SOLUTIONS)
+================================================================
+
+----------------------------------------------------------------
+ANSWER 1 — Basic Declarative Pipeline
+----------------------------------------------------------------
+
+pipeline {
+    agent any
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Install') {
+            steps {
+                sh 'npm install'
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'npm run build'
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Build Successful'
+        }
+        failure {
+            echo 'Build Failed'
+        }
+    }
+}
+
+----------------------------------------------------------------
+ANSWER 2 — Environment Variables
+----------------------------------------------------------------
+
+pipeline {
+    agent any
+
+    environment {
+        APP_NAME   = 'my-node-app'
+        DEPLOY_ENV = 'staging'
+        PORT       = '3000'
+    }
+
+    stages {
+        stage('Print Config') {
+            steps {
+                echo "App Name   : ${APP_NAME}"
+                echo "Deploy Env : ${DEPLOY_ENV}"
+                echo "Port       : ${PORT}"
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'npm install'
+                sh 'npm run build'
+            }
+        }
+    }
+}
+
+----------------------------------------------------------------
+ANSWER 3 — Parameters
+----------------------------------------------------------------
+
+pipeline {
+    agent any
+
+    parameters {
+        choice(
+            name: 'ENVIRONMENT',
+            choices: ['dev', 'staging', 'production'],
+            description: 'Select the target deployment environment'
+        )
+        string(
+            name: 'IMAGE_TAG',
+            defaultValue: 'latest',
+            description: 'Docker image tag to deploy'
+        )
+        booleanParam(
+            name: 'RUN_TESTS',
+            defaultValue: true,
+            description: 'Run tests before deploying?'
+        )
+    }
+
+    stages {
+        stage('Print Parameters') {
+            steps {
+                echo "Environment : ${params.ENVIRONMENT}"
+                echo "Image Tag   : ${params.IMAGE_TAG}"
+                echo "Run Tests   : ${params.RUN_TESTS}"
+            }
+        }
+
+        stage('Run Tests') {
+            when {
+                expression { params.RUN_TESTS == true }
+            }
+            steps {
+                sh 'npm test'
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                echo "Deploying myapp to ${params.ENVIRONMENT} with tag ${params.IMAGE_TAG}"
+            }
+        }
+    }
+}
+
+----------------------------------------------------------------
+ANSWER 4 — When Conditions
+----------------------------------------------------------------
+
+pipeline {
+    agent any
+
+    parameters {
+        booleanParam(
+            name: 'DEPLOY',
+            defaultValue: false,
+            description: 'Trigger production deployment?'
+        )
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'npm run build'
+            }
+        }
+
+        stage('Test') {
+            steps {
+                sh 'npm test'
+            }
+        }
+
+        stage('Push to Registry') {
+            when {
+                branch 'main'
+            }
+            steps {
+                echo 'Pushing Docker image to registry...'
+            }
+        }
+
+        stage('Deploy to Production') {
+            when {
+                allOf {
+                    branch 'main'
+                    expression { params.DEPLOY == true }
+                }
+            }
+            steps {
+                echo 'Deploying to Production...'
+            }
+        }
+    }
+}
+
+----------------------------------------------------------------
+ANSWER 5 — Credentials and Secret Handling
+----------------------------------------------------------------
+
+pipeline {
+    agent any
+
+    stages {
+        stage('Docker Login') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                }
+            }
+        }
+
+        stage('SSH Command') {
+            steps {
+                sshagent(credentials: ['prod-server-ssh']) {
+                    sh 'ssh -o StrictHostKeyChecking=no user@prod-server.mycompany.com "echo Connected successfully"'
+                }
+            }
+        }
+
+        stage('API Call') {
+            steps {
+                withCredentials([string(
+                    credentialsId: 'api-token',
+                    variable: 'API_TOKEN'
+                )]) {
+                    sh 'curl -H "Authorization: Bearer $API_TOKEN" https://api.mycompany.com/health'
+                }
+            }
+        }
+    }
+}
+
+----------------------------------------------------------------
+ANSWER 6 — Parallel Stages
+----------------------------------------------------------------
+
+pipeline {
+    agent any
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'npm run build'
+            }
+        }
+
+        stage('Test Suite') {
+            parallel {
+                stage('Unit Tests') {
+                    steps {
+                        sh 'npm run test:unit'
+                    }
+                }
+                stage('Integration Tests') {
+                    steps {
+                        sh 'npm run test:integration'
+                    }
+                }
+                stage('Security Scan') {
+                    steps {
+                        sh 'npm audit'
+                    }
+                }
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                echo 'All tests passed. Deploying...'
+            }
+        }
+    }
+}
+
+// NOTE: failFast is false by default in parallel.
+// To enable it: parallel(failFast: true) { ... }
+
+----------------------------------------------------------------
+ANSWER 7 — Tools Block (Maven Build)
+----------------------------------------------------------------
+
+pipeline {
+    agent any
+
+    tools {
+        maven 'Maven-3.9'
+        jdk   'JDK-17'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'mvn clean compile'
+            }
+        }
+
+        stage('Test') {
+            steps {
+                sh 'mvn test'
+            }
+            post {
+                always {
+                    junit 'target/surefire-reports/*.xml'
+                }
+            }
+        }
+
+        stage('Package') {
+            steps {
+                sh 'mvn clean package -DskipTests'
+                archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+            }
+        }
+    }
+}
+
+----------------------------------------------------------------
+ANSWER 8 — Shared Library Usage
+----------------------------------------------------------------
+
+@Library('company-pipeline-lib') _
+
+pipeline {
+    agent any
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                dockerBuild('myorg/myapp')
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                echo 'Deploying...'
+            }
+        }
+    }
+
+    post {
+        success {
+            notifySlack('SUCCESS', '#deployments')
+        }
+        failure {
+            notifySlack('FAILURE', '#deployments')
+        }
+    }
+}
+
+----------------------------------------------------------------
+ANSWER 9 — Multibranch Pipeline Jenkinsfile
+----------------------------------------------------------------
+
+pipeline {
+    agent any
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'npm run build'
+            }
+        }
+
+        stage('Unit Test') {
+            steps {
+                sh 'npm run test:unit'
+            }
+        }
+
+        stage('Integration Test') {
+            when {
+                anyOf {
+                    branch 'develop'
+                    branch 'main'
+                }
+            }
+            steps {
+                sh 'npm run test:integration'
+            }
+        }
+
+        stage('Deploy to Dev') {
+            when {
+                branch 'develop'
+            }
+            steps {
+                echo 'Deploying to Dev environment...'
+            }
+        }
+
+        stage('Deploy to Production') {
+            when {
+                branch 'main'
+            }
+            steps {
+                echo 'Deploying to Production environment...'
+            }
+        }
+    }
+}
+
+// BRANCH_NAME is automatically set by Multibranch Pipeline plugin
+// feature/* branches will only run: Checkout, Build, Unit Test
+
+----------------------------------------------------------------
+ANSWER 10 — Input Step (Manual Approval Gate)
+----------------------------------------------------------------
+
+pipeline {
+    agent any
+
+    stages {
+        stage('Build') {
+            steps {
+                sh 'npm run build'
+            }
+        }
+
+        stage('Test') {
+            steps {
+                sh 'npm test'
+            }
+        }
+
+        stage('Approval Gate') {
+            steps {
+                timeout(time: 24, unit: 'HOURS') {
+                    input(
+                        message: 'Deploy to Production?',
+                        submitter: 'team-lead',
+                        ok: 'Approve Deployment'
+                    )
+                }
+            }
+        }
+
+        stage('Deploy to Production') {
+            steps {
+                echo 'Deploying to production...'
+            }
+        }
+    }
+}
+
+----------------------------------------------------------------
+ANSWER 11 — Retry and Timeout
+----------------------------------------------------------------
+
+pipeline {
+    agent any
+
+    options {
+        timeout(time: 30, unit: 'MINUTES')  // Overall pipeline timeout
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Flaky API Call') {
+            steps {
+                retry(3) {
+                    timeout(time: 2, unit: 'MINUTES') {
+                        sh 'curl https://api.external-service.com/trigger'
+                    }
+                }
+            }
+        }
+
+        stage('Build') {
+            options {
+                timeout(time: 10, unit: 'MINUTES')
+            }
+            steps {
+                sh 'npm run build'
+            }
+        }
+    }
+}
+
+----------------------------------------------------------------
+ANSWER 12 — Stash and Unstash
+----------------------------------------------------------------
+
+pipeline {
+    agent any
+
+    stages {
+        stage('Build') {
+            steps {
+                sh 'npm run build'
+                stash includes: 'dist/**', name: 'build-artifacts'
+            }
+        }
+
+        stage('Test') {
+            steps {
+                unstash 'build-artifacts'
+                sh 'npm test'
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                unstash 'build-artifacts'
+                echo 'Deploying dist/ contents...'
+            }
+        }
+    }
+}
+
+// WHY STASH?
+// When stages run on different agents/nodes, the workspace is not shared.
+// Stash saves files to the Jenkins master and unstash retrieves them
+// on whichever agent runs the next stage.
+
+----------------------------------------------------------------
+ANSWER 13 — Pipeline with Docker Agent per Stage
+----------------------------------------------------------------
+
+pipeline {
+    agent none     // No global agent — each stage defines its own
+
+    stages {
+        stage('Build') {
+            agent {
+                docker { image 'node:18-alpine' }
+            }
+            steps {
+                sh 'npm install && npm run build'
+            }
+        }
+
+        stage('Test') {
+            agent {
+                docker { image 'node:18-alpine' }
+            }
+            steps {
+                sh 'npm test'
+            }
+        }
+
+        stage('Code Quality') {
+            agent {
+                docker { image 'sonarsource/sonar-scanner-cli' }
+            }
+            steps {
+                sh 'sonar-scanner -Dsonar.projectKey=myapp'
+            }
+        }
+    }
+}
+
+// Each stage spins up its own container, runs the step, then stops.
+// No need to install Node.js or SonarQube scanner on the Jenkins server.
+
+----------------------------------------------------------------
+ANSWER 14 — Post Actions (Notifications)
+----------------------------------------------------------------
+
+pipeline {
+    agent any
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'npm run build'
+            }
+        }
+
+        stage('Test') {
+            steps {
+                sh 'npm test'
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'logs/*.log', allowEmptyArchive: true
+            junit testResults: 'test-results/*.xml', allowEmptyResults: true
+            echo 'Pipeline finished'
+        }
+        success {
+            echo 'Pipeline passed! Notifying team...'
+        }
+        failure {
+            echo 'Pipeline failed! Alerting on-call team...'
+        }
+        unstable {
+            echo 'Tests are unstable. Review required.'
+        }
+        changed {
+            echo 'Pipeline status changed from last run.'
+        }
+        aborted {
+            echo 'Pipeline was manually aborted.'
+        }
+    }
+}
+
+----------------------------------------------------------------
+ANSWER 15 — SonarQube Integration
+----------------------------------------------------------------
+
+pipeline {
+    agent any
+
+    tools {
+        maven 'Maven-3.9'
+        jdk   'JDK-17'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'mvn clean package -DskipTests'
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('SonarQube-Server') {
+                    sh 'mvn sonar:sonar -Dsonar.projectKey=my-java-app'
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                echo 'Deploying after quality gate passed...'
+            }
+        }
+    }
+}
+
+----------------------------------------------------------------
+ANSWER 16 — Matrix Strategy
+----------------------------------------------------------------
+
+pipeline {
+    agent any
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Cross Platform Tests') {
+            matrix {
+                axes {
+                    axis {
+                        name   'NODE_VERSION'
+                        values '16', '18', '20'
+                    }
+                    axis {
+                        name   'PLATFORM'
+                        values 'linux', 'windows'
+                    }
+                }
+                excludes {
+                    exclude {
+                        axis {
+                            name   'NODE_VERSION'
+                            values '16'
+                        }
+                        axis {
+                            name   'PLATFORM'
+                            values 'windows'
+                        }
+                    }
+                }
+                stages {
+                    stage('Test') {
+                        steps {
+                            echo "Testing on Node ${NODE_VERSION} / ${PLATFORM}"
+                            sh 'npm install && npm test'
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('All Tests Passed') {
+            steps {
+                echo 'All matrix tests passed'
+            }
+        }
+    }
+}
+
+----------------------------------------------------------------
+ANSWER 17 — Scripted Block Inside Declarative Pipeline
+----------------------------------------------------------------
+
+pipeline {
+    agent any
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'npm run build'
+            }
+        }
+
+        stage('Dynamic Deploy') {
+            steps {
+                script {
+                    def hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+                    def deployTarget
+
+                    if (hour >= 9 && hour <= 17) {
+                        deployTarget = 'staging'
+                    } else {
+                        deployTarget = 'dev'
+                    }
+
+                    echo "Current hour: ${hour}"
+                    echo "Deploying to: ${deployTarget}"
+                    // sh "deploy.sh --env ${deployTarget}"
+                }
+            }
+        }
+    }
+}
+
+// KEY POINT:
+// script {} block lets you write full Groovy code inside Declarative pipeline.
+// Use it when you need conditionals, loops, or dynamic logic that
+// Declarative syntax cannot express directly.
+
+----------------------------------------------------------------
+ANSWER 18 — Jenkins Pipeline for Kubernetes Deployment
+----------------------------------------------------------------
+
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME    = 'mycompany/webapp'
+        IMAGE_TAG     = "${BUILD_NUMBER}"
+        K8S_NAMESPACE = 'production'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
+            }
+        }
+
+        stage('Push to Registry') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                    sh "docker push ${IMAGE_NAME}:${IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Update Manifest') {
+            steps {
+                sh "sed -i 's|${IMAGE_NAME}:.*|${IMAGE_NAME}:${IMAGE_TAG}|g' k8s/deployment.yaml"
+            }
+        }
+
+        stage('Deploy to K8s') {
+            steps {
+                sh "kubectl apply -f k8s/deployment.yaml -n ${K8S_NAMESPACE}"
+                sh "kubectl rollout status deployment/webapp -n ${K8S_NAMESPACE}"
+            }
+        }
+
+        stage('Cleanup') {
+            steps {
+                sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true"
+            }
+        }
+    }
+
+    post {
+        failure {
+            sh "kubectl rollout undo deployment/webapp -n ${K8S_NAMESPACE}"
+        }
+    }
+}
+
+----------------------------------------------------------------
+ANSWER 19 — Scripted Pipeline with Groovy Functions
+----------------------------------------------------------------
+
+// Scripted Pipeline — uses node {} block, not pipeline {}
+
+def buildApp() {
+    echo 'Running build...'
+    sh 'npm install && npm run build'
+}
+
+def runTests() {
+    try {
+        sh 'npm test'
+    } catch (e) {
+        echo "Tests failed: ${e.message}"
+        currentBuild.result = 'UNSTABLE'
+    }
+}
+
+def deployApp(String env) {
+    echo "Deploying to ${env}..."
+}
+
+node {
+    try {
+        stage('Build') {
+            buildApp()
+        }
+
+        stage('Test') {
+            runTests()
+        }
+
+        stage('Deploy') {
+            if (env.BRANCH_NAME == 'main') {
+                deployApp('production')
+            } else {
+                deployApp('staging')
+            }
+        }
+
+    } catch (e) {
+        currentBuild.result = 'FAILURE'
+        echo "Pipeline error: ${e.message}"
+        throw e
+
+    } finally {
+        echo 'Pipeline execution completed'
+    }
+}
+
+----------------------------------------------------------------
+ANSWER 20 — Full Enterprise CI/CD Pipeline (Capstone)
+----------------------------------------------------------------
+
+pipeline {
+    agent any
+
+    environment {
+        APP_NAME      = 'springapp'
+        IMAGE_NAME    = 'mycompany/springapp'
+        IMAGE_TAG     = "${BUILD_NUMBER}"
+        K8S_NAMESPACE = 'production'
+    }
+
+    tools {
+        maven 'Maven-3.9'
+        jdk   'JDK-17'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build JAR') {
+            steps {
+                sh 'mvn clean package -DskipTests'
+            }
+        }
+
+        stage('Unit Tests') {
+            steps {
+                sh 'mvn test'
+            }
+            post {
+                always {
+                    junit 'target/surefire-reports/*.xml'
+                }
+            }
+        }
+
+        stage('Code Analysis') {
+            steps {
+                withSonarQubeEnv('SonarQube-Server') {
+                    sh 'mvn sonar:sonar -Dsonar.projectKey=springapp'
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
+            }
+        }
+
+        stage('Push Image') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                    sh "docker push ${IMAGE_NAME}:${IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Approval Gate') {
+            steps {
+                timeout(time: 1, unit: 'HOURS') {
+                    input(
+                        message: "Deploy ${IMAGE_NAME}:${IMAGE_TAG} to production?",
+                        submitter: 'devops-lead',
+                        ok: 'Approve'
+                    )
+                }
+            }
+        }
+
+        stage('Update K8s Manifest') {
+            steps {
+                sh "sed -i 's|${IMAGE_NAME}:.*|${IMAGE_NAME}:${IMAGE_TAG}|g' k8s/deployment.yaml"
+            }
+        }
+
+        stage('Deploy to K8s') {
+            steps {
+                sh "kubectl apply -f k8s/deployment.yaml -n ${K8S_NAMESPACE}"
+                sh "kubectl rollout status deployment/${APP_NAME} -n ${K8S_NAMESPACE}"
+            }
+        }
+
+        stage('Smoke Test') {
+            steps {
+                sh 'curl -f http://springapp-service/actuator/health'
+            }
+        }
+
+        stage('Cleanup') {
+            steps {
+                sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true"
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+            echo 'Pipeline Done'
+        }
+        success {
+            echo 'SUCCESS — Notifying Slack #deployments'
+        }
+        failure {
+            echo 'FAILURE — Alerting #incidents'
+            sh "kubectl rollout undo deployment/${APP_NAME} -n ${K8S_NAMESPACE}"
+        }
+    }
+}
+
+================================================================
+                        END OF ANSWERS
+================================================================
