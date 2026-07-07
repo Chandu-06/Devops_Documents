@@ -1,0 +1,111 @@
+DEVSECOPS SCANNING TOOLS - DETAILED COMPARISON
+Cyberflows (SAST, CONT, DAST) vs SonarQube vs Sonatype IQ
+================================================================
+
+
+1. THE THREE TESTING TYPES (SAST / DAST / CONT)
+------------------------------------------------
+These are CATEGORIES of security testing, not specific tools. Different
+vendors implement each category differently. At HSBC, "Cyberflows" is
+most likely the internal branded platform/orchestration layer that
+triggers and reports these scans as part of the CI/CD pipeline - a lot
+of large banks wrap third-party scanners behind an internal name for
+governance/audit reasons. (Confirm HSBC-specific Cyberflows plugin/config
+details with Bhupendra or Sourabh - this note covers what SAST/DAST/CONT
+mean generally.)
+
+SAST - Static Application Security Testing
+  - Scans your SOURCE CODE without running it.
+  - Looks for insecure coding patterns: SQL injection risk, hardcoded
+    secrets, buffer overflows, unsafe deserialization, etc.
+  - Runs early - typically right after code checkout, before build/deploy.
+  - Example: scanning a bash script in devops_poc for hardcoded credentials
+    or unsafe `eval` usage before it even gets built into a Docker image.
+
+DAST - Dynamic Application Security Testing
+  - Tests the RUNNING APPLICATION from the outside, like an attacker would
+    (black-box).
+  - Sends malicious HTTP requests, fuzzes inputs, checks for XSS, broken
+    auth, misconfigured headers, etc.
+  - Runs late - needs a deployed/running instance (e.g., in a test/staging
+    environment such as the "dev" namespace).
+  - Example: once the log-generator pod is running in Kubernetes, a DAST
+    scanner would hit its exposed endpoints to look for runtime
+    vulnerabilities.
+
+CONT - Container Scanning
+  - Scans the DOCKER IMAGE (layers, base OS packages, installed binaries)
+    for known CVEs.
+  - Runs after the image is built, usually before or during push to Nexus3.
+  - Example: scanning the log-generator image before it's pushed to
+    hsbc-242921-pdponprem/dev/log-generator to catch a vulnerable base
+    image (e.g., an outdated alpine or ubuntu base with known CVEs).
+
+
+2. SONARQUBE
+------------------------------------------------
+What it is: A static code analysis platform - primarily a SAST + code
+quality tool.
+
+  - Analyzes source code for: bugs, code smells, security vulnerabilities,
+    security hotspots, code duplication, test coverage.
+  - Gives a Quality Gate - pass/fail criteria (e.g., "no new critical
+    bugs," "coverage > 80%") that can block a Jenkins pipeline from
+    proceeding.
+  - Focuses on CODE YOU WROTE - your own logic, not third-party libraries.
+  - Example: SonarQube might flag that a Jenkins-triggered build script has
+    a shell injection risk because a variable is interpolated unsafely
+    into a command.
+
+
+3. SONATYPE IQ (NEXUS IQ)
+------------------------------------------------
+What it is: A Software Composition Analysis (SCA) tool - a different
+category entirely from SonarQube.
+
+  - Scans DEPENDENCIES / THIRD-PARTY LIBRARIES (npm packages, Maven
+    artifacts, Docker base images, etc.) - not your own code.
+  - Checks them against known vulnerability databases (CVEs) and
+    open-source license compliance (e.g., flags GPL-licensed packages if
+    the org disallows them).
+  - Ties in naturally with a stack that already uses Nexus3 as the
+    registry - Sonatype IQ is made by the same company (Sonatype) and
+    often integrates directly with Nexus Repository.
+  - Example: if the pipeline pulls in a Python package with a known
+    critical CVE, Sonatype IQ flags it - even though the vulnerability
+    isn't in your code, it's in a dependency you're pulling in.
+
+
+4. SIDE-BY-SIDE COMPARISON
+------------------------------------------------
+
+                | SAST          | DAST          | CONT              | SonarQube                        | Sonatype IQ
+----------------|---------------|---------------|-------------------|-----------------------------------|-------------------------------
+Category        | Testing type  | Testing type  | Testing type      | Tool (implements SAST + quality)  | Tool (implements SCA)
+What it scans   | Your source   | Running app   | Docker image       | Your source code                 | Third-party dependencies
+                | code          |               |                    |                                   |
+When it runs    | Pre-build     | Post-deploy   | Post-build,        | Pre-build                         | Any stage (build/dependency
+                |               |               | pre-push           |                                   | resolution)
+Needs running   | No            | Yes           | No (needs built    | No                                | No
+app?            |               |               | image)             |                                   |
+Finds           | Insecure code | Runtime       | Vulnerable OS/base | Bugs, code smells,                | CVEs + license issues in
+                | patterns      | exploits      | image packages     | vulnerabilities, coverage         | open-source libs
+
+
+5. HOW THIS MAPS ONTO A TYPICAL PIPELINE
+------------------------------------------------
+Checkout code
+  --> [SAST / SonarQube]
+  --> Build Docker image
+  --> [CONT / container scan]
+  --> Push to Nexus3
+  --> [Sonatype IQ checks dependencies]
+  --> Deploy to K8s (dev namespace)
+  --> [DAST]
+
+Note: SonarQube and SAST overlap (SonarQube IS a SAST tool), while
+Sonatype IQ answers a completely different question: "are the libraries
+I'm pulling in safe?" rather than "is the code I wrote safe?"
+
+================================================================
+End of document.
