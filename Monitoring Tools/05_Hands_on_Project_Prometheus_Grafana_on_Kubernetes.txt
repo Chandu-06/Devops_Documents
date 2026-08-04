@@ -1,0 +1,247 @@
+=======================================================
+Hands-on Project - Prometheus and Grafana on Kubernetes
+=======================================================
+
+A practical, step-by-step project you can actually run — tied back to your own log-generator
+pipeline — to convert this week's theory into a demonstrable deliverable, the same style as your Log
+Generator Pipeline POC.
+
+
+1. GOAL OF THIS PROJECT
+-----------------------
+
+By the end of this exercise you will have: Prometheus and Grafana running inside a Kubernetes
+cluster (Minikube is fine for practice), Prometheus automatically scraping cluster and pod metrics,
+and a Grafana dashboard showing live CPU/memory graphs for your own pods — ideally including your
+`log-generator` deployment in the `dev` namespace.
+
+
+2. PREREQUISITES
+----------------
+
+- A running Kubernetes cluster you have access to (Minikube locally, or the `dev` namespace you
+already use, if permitted).
+- `kubectl` configured and working (you already have this from the log-generator pipeline).
+- `helm` installed — the Kubernetes package manager. Check with `helm version`; if missing, install
+from the official Helm releases.
+
+NOTE: The easiest real-world way to run Prometheus + Grafana together is the community
+kube-prometheus-stack Helm chart. It bundles Prometheus, Grafana, Alertmanager, node_exporter, and
+kube-state-metrics into one install — this is exactly what most companies use instead of installing
+each piece by hand.
+
+
+3. STEP 1 — ADD THE HELM REPOSITORY
+-----------------------------------
+
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
+
+
+4. STEP 2 — CREATE A NAMESPACE AND INSTALL THE STACK
+----------------------------------------------------
+
+kubectl create namespace monitoring
+
+helm install kube-prom-stack prometheus-community/kube-prometheus-stack \
+  --namespace monitoring
+
+This single command deploys Prometheus server, Alertmanager, Grafana, node_exporter (as a DaemonSet
+on every node), and kube-state-metrics — all pre-wired together with sensible default dashboards
+already provisioned.
+
+kubectl get pods -n monitoring
+# you should see pods like:
+#   kube-prom-stack-grafana-xxxx
+#   kube-prom-stack-kube-prome-operator-xxxx
+#   kube-prom-stack-kube-prome-prometheus-xxxx (or prometheus-...-0)
+#   kube-prom-stack-prometheus-node-exporter-xxxx (one per node)
+#   kube-prom-stack-kube-state-metrics-xxxx
+#   alertmanager-kube-prom-stack-...-0
+
+
+5. STEP 3 — ACCESS THE PROMETHEUS AND GRAFANA UIS
+-------------------------------------------------
+
+Since these services are internal to the cluster (`ClusterIP` by default), use `kubectl
+port-forward` to reach them from your machine:
+
+# Prometheus UI
+kubectl port-forward -n monitoring svc/kube-prom-stack-kube-prome-prometheus 9090:9090
+# then open http://localhost:9090
+
+# Grafana UI
+kubectl port-forward -n monitoring svc/kube-prom-stack-grafana 3000:80
+# then open http://localhost:3000
+
+Default Grafana login is usually `admin` / `prom-operator` for this chart (retrieve/confirm the
+actual generated password from the Kubernetes secret if it differs):
+
+kubectl get secret -n monitoring kube-prom-stack-grafana \
+  -o jsonpath="{.data.admin-password}" | base64 --decode
+
+
+6. STEP 4 — CONFIRM PROMETHEUS IS SCRAPING TARGETS
+--------------------------------------------------
+
+In the Prometheus UI, go to Status → Targets. You should see multiple jobs already 'UP' — this is
+the kube-prometheus-stack's built-in Kubernetes service discovery already working: it
+auto-discovered node_exporter, kube-state-metrics, the API server, kubelets, and so on, without you
+writing a single scrape config by hand.
+
+
+7. STEP 5 — EXPLORE THE PRE-BUILT GRAFANA DASHBOARDS
+----------------------------------------------------
+
+The chart already ships with several dashboards imported automatically (via the Grafana sidecar that
+watches for ConfigMaps). In Grafana, go to Dashboards and look for ones like:
+
+- Kubernetes / Compute Resources / Namespace (Pods) — CPU & memory per pod, filterable by namespace
+variable.
+- Kubernetes / Compute Resources / Node (Pods) — resource usage per node.
+- Node Exporter / Nodes — classic host-level CPU/memory/disk/network dashboard.
+
+Open the Namespace (Pods) dashboard, use the namespace dropdown variable to select `dev` (or
+wherever your log-generator pod runs), and you should see its live CPU and memory usage.
+
+
+8. STEP 6 — BUILD YOUR OWN CUSTOM PANEL
+---------------------------------------
+
+Now build one panel from scratch to prove you understand the underlying mechanics, rather than
+relying only on the pre-built dashboards:
+
+- 1. Create a New Dashboard → Add Visualization, choose the Prometheus data source.
+- 2. Query: `sum(rate(container_cpu_usage_seconds_total{namespace="dev",
+pod=~"log-generator.*"}[5m])) by (pod)`.
+- 3. Visualization type: Time series. Set Unit to a suitable value (e.g. leave as short, or 'percent
+(0.0-1.0)' depending on scale).
+- 4. Add a second panel for memory: `container_memory_usage_bytes{namespace="dev",
+pod=~"log-generator.*"}` — set Unit to bytes (IEC) so Grafana shows MiB/GiB automatically.
+- 5. Save the dashboard as 'Log Generator — Resource Usage'.
+
+
+9. STEP 7 (STRETCH GOAL) — ADD A SIMPLE ALERT
+---------------------------------------------
+
+On the memory panel, add a Grafana alert rule: condition = query result above a threshold (e.g. 200
+MiB) for 5 minutes, contact point = an email or a webhook (a free Slack incoming-webhook works well
+for practice). This closes the loop from 'I can see the metric' to 'I get notified automatically.'
+
+
+10. INSTRUMENTING YOUR OWN APPLICATION (ADVANCED, OPTIONAL THIS WEEK)
+---------------------------------------------------------------------
+
+Everything above monitors infrastructure metrics (CPU, memory) that Kubernetes exposes
+automatically. To go one level deeper, you can instrument the log-generator application code itself
+to expose custom business metrics — e.g. 'number of log lines generated per second', 'number of
+failed writes'. Conceptually: add a Prometheus client library to the app, define a Counter/Gauge in
+code, expose it on a `/metrics` HTTP endpoint inside the container, then add a scrape annotation so
+Prometheus picks it up:
+
+# Example pod annotations so Prometheus auto-scrapes the app's own /metrics endpoint
+metadata:
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+
+NOTE: This is a natural 'phase 2' extension of your log-generator POC — worth mentioning in a KT
+session as a future improvement, even if you don't implement it this week.
+
+
+11. TROUBLESHOOTING — COMMON FRESHER ISSUES (LEARN FROM REAL ERRORS)
+--------------------------------------------------------------------
+
+Symptom                                  | Likely Cause                             | Fix                                      
+-----------------------------------------+------------------------------------------+------------------------------------------
+Prometheus target shows 'DOWN'           | Wrong port, app not exposing `/metrics`, | `kubectl exec` into a debug pod and      
+                                         | or a NetworkPolicy blocking traffic      | `curl` the target's `/metrics` path      
+                                         |                                          | directly to isolate the issue            
+Grafana panel shows 'No data'            | Wrong PromQL label values, or the metric | Test the exact same query first in the   
+                                         | name doesn't exist for that time range   | Prometheus UI 'Graph' tab — if it        
+                                         |                                          | returns nothing there too, the problem   
+                                         |                                          | is the query/labels, not Grafana         
+`helm install` fails with 'already       | A previous partial install left          | `helm uninstall kube-prom-stack -n       
+exists'                                  | resources behind                         | monitoring` then reinstall, or `helm     
+                                         |                                          | upgrade --install` instead of `helm      
+                                         |                                          | install`                                 
+Grafana login password unknown           | Auto-generated secret, chart default not | Re-fetch it from the Kubernetes Secret   
+                                         | used, or password rotated                | as shown in Step 3                       
+Metrics exist but numbers look           | Forgot to set the panel's Unit (e.g.     | Always set Unit + consider a             
+wrong/huge                               | showing raw bytes instead of formatted   | `rate()`/`irate()` wrapper for           
+                                         | GiB)                                     | Counter-type metrics before graphing     
+
+NOTE: This mirrors the troubleshooting-section approach you already used in your Log Generator
+Pipeline Confluence documentation (Nexus3 404, Docker leftovers, OIDC kubeconfig) — capturing real
+errors as you hit them is the fastest way to build documentation useful to the next fresher.
+
+
+12. SUGGESTED WAY TO PRESENT THIS AS A DELIVERABLE
+--------------------------------------------------
+
+- Screenshot the Prometheus Targets page showing everything 'UP'.
+- Screenshot your custom Grafana dashboard with live CPU/memory graphs for the log-generator pod.
+- Write a short README/Confluence page: what you installed, how (`helm install ...` command), how to
+access it (port-forward commands), and 2–3 troubleshooting notes from real issues you hit.
+- If asked in a KT/demo: be ready to explain, in your own words, why Prometheus PULLS (vs push),
+what a label is, the difference between Counter/Gauge/Histogram, and what Grafana does differently
+from Prometheus.
+
+
+13. CLEANING UP / UNINSTALLING
+------------------------------
+
+Once you're done practicing (or need to reinstall cleanly), remove the stack properly rather than
+just deleting the namespace, since the Helm chart also creates cluster-scoped resources (CRDs,
+ClusterRoles) that `kubectl delete namespace` alone won't clean up:
+
+helm uninstall kube-prom-stack -n monitoring
+kubectl delete namespace monitoring
+
+# the chart also installs cluster-wide Custom Resource Definitions (CRDs) — remove if you
+# want a fully clean slate before reinstalling a different version:
+kubectl get crd | grep monitoring.coreos.com
+kubectl delete crd <crd-name>
+
+
+14. AWARENESS: HIGH AVAILABILITY AND FEDERATION
+-----------------------------------------------
+
+Not something to build this week, but worth knowing exists so a production setup doesn't surprise
+you later:
+
+- HA Prometheus — running two (or more) identical Prometheus replicas that scrape the same targets
+independently, so if one goes down you don't lose visibility. They store data separately; Grafana
+(or Thanos) can be pointed at both.
+- Federation — a higher-level Prometheus server scraping aggregated/summary metrics FROM other
+Prometheus servers (instead of raw targets), used to combine multiple clusters/regions into one
+global view without one server having to scrape every single target directly.
+- Thanos / Cortex / Mimir — purpose-built systems that turn multiple Prometheus instances into a
+horizontally-scalable, long-term-storage, globally-queryable setup — the typical answer to 'how do
+large companies run Prometheus across hundreds of clusters.'
+
+
+15. FINAL RECAP — FRESHER TO INTERMEDIATE CHECKLIST
+---------------------------------------------------
+
+- ☐ I can explain monitoring vs observability, and the 3 pillars (metrics/logs/traces), in my own
+words.
+- ☐ I can explain why Prometheus uses a pull model, and when the Pushgateway exception applies.
+- ☐ I know the 4 metric types and can give a real example of each.
+- ☐ I can read and write a basic `prometheus.yml` scrape_config.
+- ☐ I can write basic PromQL: label filters, `rate()`, `sum() by ()`, and a histogram_quantile()
+example.
+- ☐ I can explain what an alerting rule's `for:` field does and why it matters.
+- ☐ I know Alertmanager's 4 jobs: grouping, deduplication, silencing, inhibition/routing.
+- ☐ I can explain the difference between Grafana data sources, dashboards, and panels.
+- ☐ I have personally installed kube-prometheus-stack and built at least one custom Grafana panel.
+- ☐ I can troubleshoot a target showing 'DOWN' or a panel showing 'No data'.
+- ☐ I can explain SLI vs SLO vs SLA, and name the 4 Golden Signals (latency, traffic, errors,
+saturation).
+- ☐ I know at least 2 limitations of Prometheus and when a team would reach for Thanos/Cortex/Mimir
+instead.
+- ☐ I can explain why `on()`/`ignoring()`/`group_left()` exist in PromQL vector matching.
+- ☐ I know the difference between Grafana's Explore mode and a saved dashboard panel.
+- ☐ I can uninstall the monitoring stack cleanly, including CRDs.

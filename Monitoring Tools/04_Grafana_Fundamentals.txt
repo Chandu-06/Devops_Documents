@@ -1,0 +1,225 @@
+====================
+Grafana Fundamentals
+====================
+
+How Grafana works, how it connects to Prometheus, and how to build dashboards that are actually
+useful.
+
+
+1. WHAT IS GRAFANA?
+-------------------
+
+Grafana is an open-source visualization and dashboarding platform. Unlike Prometheus, Grafana does
+not collect or store metrics itself — it is purely the 'front-end' that connects to one or more data
+sources and renders their data as graphs, tables, gauges, and alerts, in a single unified interface.
+
+This separation is intentional and powerful: the same Grafana instance can show a dashboard that
+combines a Prometheus metric panel, a Loki log panel, and a MySQL query panel — all on one screen —
+because Grafana just talks to each data source's API and draws the result.
+
+
+2. DATA SOURCES
+---------------
+
+A data source is a configured connection Grafana uses to fetch data. Common ones you'll encounter:
+
+Data Source                | What it's for                            
+---------------------------+------------------------------------------
+Prometheus                 | Metrics (the one you'll use this week)   
+Loki                       | Logs (Grafana's own log aggregation      
+                           | system, uses a PromQL-like language      
+                           | called LogQL)                            
+Tempo / Jaeger             | Distributed traces                       
+Elasticsearch              | Logs / search-based data                 
+MySQL / PostgreSQL         | Relational database data, queried with   
+                           | plain SQL                                
+CloudWatch / Azure Monitor | Cloud provider native metrics            
+
+To add one: Grafana UI → Connections → Data sources → Add data source → choose Prometheus → enter
+the Prometheus server URL (e.g. `http://prometheus:9090`) → Save & Test.
+
+
+3. DASHBOARDS AND PANELS
+------------------------
+
+A Dashboard is a page made up of one or more Panels. Each panel is one visualization backed by one
+or more queries against a data source.
+
+Panel Type            | Best used for                            
+----------------------+------------------------------------------
+Time series (graph)   | Trends over time — CPU%, request rate,   
+                      | memory usage                             
+Gauge                 | A single current value against a min/max 
+                      | range — e.g. disk usage %                
+Stat                  | One big number, optionally with a small  
+                      | sparkline — e.g. total requests today    
+Bar chart / Bar gauge | Comparing values across categories —     
+                      | e.g. requests per endpoint               
+Table                 | Raw tabular data — e.g. list of pods     
+                      | with their restart counts                
+Heatmap               | Distribution over time — great for       
+                      | visualizing Histogram latency buckets    
+Logs panel            | Raw log lines (when using Loki as a data 
+                      | source)                                  
+Alert list            | Shows currently firing/pending alerts    
+
+
+4. BUILDING A PANEL — STEP BY STEP
+----------------------------------
+
+- 1. Open a dashboard (or create a new one: Dashboards → New → New Dashboard).
+- 2. Click Add → Visualization.
+- 3. Choose the Prometheus data source.
+- 4. In the query editor, either write raw PromQL (e.g. `rate(http_requests_total[5m])`) or use the
+visual 'builder' mode if you're not yet comfortable with PromQL syntax.
+- 5. Pick a visualization type on the right panel (Time series, Gauge, Stat, etc.).
+- 6. Set the panel title, units (e.g. percent, bytes, seconds), and thresholds (e.g. turn red above
+90%).
+- 7. Click Apply, then Save dashboard.
+
+NOTE: Always set the correct Unit field (e.g. 'bytes', 'percent (0-100)', 'seconds') — this is what
+makes Grafana automatically format `1073741824` as `1 GiB` instead of a meaningless raw number. It's
+a small step freshers often skip.
+
+
+5. VARIABLES / TEMPLATING
+-------------------------
+
+Instead of building a separate dashboard for every pod, namespace, or environment, Grafana lets you
+define variables — dropdown filters at the top of the dashboard that dynamically change what the
+queries fetch.
+
+Variable name: namespace
+Type: Query
+Data source: Prometheus
+Query: label_values(kube_pod_info, namespace)
+
+# Then in your panel query, reference it as:
+container_memory_usage_bytes{namespace="$namespace"}
+
+Now the same dashboard works for `dev`, `staging`, or `prod` namespace — the user just picks from a
+dropdown instead of you building three dashboards.
+
+
+6. GRAFANA ALERTING (UNIFIED ALERTING)
+--------------------------------------
+
+Modern Grafana has its own built-in alerting system (separate from Prometheus/Alertmanager, though
+it can also route through the same Alertmanager). You define an alert rule directly on a panel's
+query: a condition (e.g. 'query result > 90'), an evaluation interval, and a contact point (Slack
+webhook, email, Teams, PagerDuty, etc.).
+
+                       | Prometheus + Alertmanager                | Grafana (Unified Alerting)               
+-----------------------+------------------------------------------+------------------------------------------
+Where the rule lives   | In Prometheus rule files (YAML)          | In Grafana's own database, managed via   
+                       |                                          | UI or provisioning                       
+Data sources supported | Only Prometheus-compatible metrics       | Any Grafana data source (Prometheus,     
+                       |                                          | MySQL, Loki, CloudWatch, etc.)           
+Typical use            | Infrastructure-focused, config-as-code   | Teams that want a UI-driven,             
+                       | heavy teams                              | multi-datasource alerting experience     
+
+Both approaches are valid and commonly co-exist — know that they exist separately so you're not
+confused when you see alert rules defined in two different places.
+
+
+7. USERS, ORGANIZATIONS, AND PERMISSIONS
+----------------------------------------
+
+Grafana supports Organizations (isolated environments within one Grafana instance — e.g. one org per
+team/business unit) and role-based access: Viewer (read-only), Editor (can build/edit dashboards),
+Admin (can manage data sources, users, and settings). In an enterprise setup like HSBC's, Grafana is
+usually integrated with SSO/LDAP/Active Directory so access follows existing corporate identity
+rather than separate local logins.
+
+
+8. DASHBOARDS AS CODE (PROVISIONING)
+------------------------------------
+
+Rather than clicking through the UI every time (which isn't repeatable or version-controlled),
+Grafana supports provisioning: defining data sources and dashboards as YAML/JSON files that are
+loaded automatically on startup. This fits DevOps practice well — dashboards live in Git, just like
+your Jenkins pipelines and Ansible playbooks.
+
+# provisioning/datasources/prometheus.yml
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+
+Dashboards themselves are typically stored as JSON model files and can also be imported from the
+public Grafana Dashboard library (grafana.com/grafana/dashboards) — many popular ones already exist
+for Kubernetes, Node Exporter, Jenkins, etc., so you rarely build every panel from scratch.
+
+
+9. EXPLORE, ANNOTATIONS, AND SHARING DASHBOARDS
+-----------------------------------------------
+
+
+9.1 Explore Mode
+~~~~~~~~~~~~~~~~
+
+Explore (left sidebar, compass icon) is Grafana's ad-hoc query workspace — a place to run one-off
+PromQL/LogQL queries and inspect results without building a permanent dashboard panel. This is what
+you'd use while debugging an incident, before deciding a query is worth turning into a saved panel.
+
+
+9.2 Annotations
+~~~~~~~~~~~~~~~
+
+Annotations are vertical markers drawn on top of time series graphs at a specific point in time —
+e.g. marking exactly when a deployment happened, so you can visually correlate 'the memory graph
+started climbing right after this deploy marker.' They can be added manually (Ctrl+Click on a graph)
+or automatically via a query (e.g. pull deployment events from an API).
+
+
+9.3 Sharing and Exporting
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Share → Link — generates a direct URL to the current dashboard/panel view (optionally with the
+current time range locked in), useful for pasting into a Slack message or incident ticket.
+- Share → Export → Save JSON — exports the dashboard's underlying JSON model, which is what you'd
+commit to Git for the 'dashboards as code' provisioning approach covered earlier.
+- Panel → Share → Snapshot — creates a shareable, point-in-time snapshot of the data itself (not a
+live link) — handy for sharing a graph with someone who doesn't have Grafana access, without
+exposing your live data source.
+
+
+10. PLUGINS AND THE GRAFANA ECOSYSTEM
+-------------------------------------
+
+Grafana's functionality can be extended with plugins, installed via the UI (Administration →
+Plugins) or the `grafana-cli` command line tool. Three plugin categories exist:
+
+Plugin type         | What it adds                             
+--------------------+------------------------------------------
+Data source plugins | Support for additional systems beyond    
+                    | the built-in ones, e.g. Splunk,          
+                    | ServiceNow, MongoDB                      
+Panel plugins       | New visualization types beyond the       
+                    | built-in ones, e.g. Sankey diagrams,     
+                    | flowcharts, custom gauges                
+App plugins         | Bundle multiple data sources + panels +  
+                    | pages into a full mini-application       
+                    | inside Grafana, e.g. a vendor-provided   
+                    | Kubernetes monitoring app                
+
+NOTE: The kube-prometheus-stack Helm chart you'll use in the hands-on project already ships with
+several curated dashboards and doesn't require you to install extra plugins to get started.
+
+
+11. QUICK RECAP CHECKLIST
+-------------------------
+
+- Grafana visualizes data — it does not store metrics itself; it connects to data sources like
+Prometheus.
+- A Dashboard = collection of Panels; each panel runs one or more queries against a data source.
+- Common panel types: Time series, Gauge, Stat, Table, Heatmap, Logs.
+- Variables/templating make one dashboard reusable across namespaces/pods/environments via
+dropdowns.
+- Grafana has its own Unified Alerting system, separate from (but able to coexist with) Prometheus
+Alertmanager.
+- Access control uses Organizations + roles (Viewer/Editor/Admin), often tied into corporate SSO.
+- Dashboards and data sources can be version-controlled as code via provisioning YAML/JSON.

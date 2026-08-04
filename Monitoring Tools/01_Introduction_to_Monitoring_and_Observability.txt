@@ -1,0 +1,185 @@
+============================================
+Introduction to Monitoring and Observability
+============================================
+
+Prepared as part of week-by-week DevOps learning documentation — HSBC PDPOnPrem team context.
+
+
+1. WHY THIS TOPIC MATTERS
+-------------------------
+
+Before you touch Prometheus or Grafana, you need to understand why they exist. Every system you
+build — a Jenkins pipeline, a Kubernetes cluster, the log-generator app you deployed — is a living
+system. It has CPU, memory, network, and application behaviour that changes every second. If
+something breaks at 2 AM (a payment job hangs, a pod crashes, disk fills up), somebody needs to know
+immediately, and needs enough information to fix it fast. That 'knowing and understanding' function
+is what monitoring and observability provide.
+
+NOTE: In a bank like HSBC, downtime or a missed alert on a payment system is not just inconvenient —
+it can mean regulatory issues and real financial impact. This is why monitoring is treated as a
+first-class engineering discipline, not an afterthought.
+
+
+2. MONITORING VS OBSERVABILITY — WHAT'S THE DIFFERENCE?
+-------------------------------------------------------
+
+These two words are used together so often that freshers assume they mean the same thing. They
+don't.
+
+Aspect     | Monitoring                               | Observability                            
+-----------+------------------------------------------+------------------------------------------
+Definition | Watching known metrics/thresholds and    | The ability to ask new questions about   
+           | alerting when they cross a limit         | your system's internal state without     
+           |                                          | shipping new code, using the data it     
+           |                                          | already emits                            
+Mindset    | "Is the system healthy?" (known          | "Why is the system behaving this way?"   
+           | problems)                                | (unknown/unexpected problems)            
+Data used  | Pre-defined dashboards and alerts        | Metrics + Logs + Traces combined,        
+           |                                          | explored freely                          
+Analogy    | A car's fuel gauge and warning lights    | A mechanic plugging a diagnostic scanner 
+           |                                          | into your car to investigate a strange   
+           |                                          | noise                                    
+
+In short: monitoring tells you THAT something is wrong. Observability helps you find out WHY.
+Prometheus and Grafana are tools that serve both — Prometheus collects and stores the data, Grafana
+visualizes it and helps you explore it.
+
+
+3. THE THREE PILLARS OF OBSERVABILITY
+-------------------------------------
+
+Almost every observability tool in the industry (Prometheus, Grafana, Datadog, Splunk, ELK, New
+Relic) is built around three types of telemetry data:
+
+- Metrics — numeric measurements over time (e.g. CPU usage % every 15 seconds, number of HTTP
+requests per minute, number of pods running). Lightweight, cheap to store, great for trends and
+alerting. This is what Prometheus specializes in.
+- Logs — timestamped text records of discrete events (e.g. 'ERROR: Nexus3 push failed - 404', 'Pod
+log-generator-7f9 started'). Great for deep root-cause analysis of a specific event. (Typically
+handled by tools like Loki, ELK/Elasticsearch, or Splunk — not Prometheus.)
+- Traces — the end-to-end journey of a single request as it passes through multiple services (e.g. a
+payment request moving from API Gateway → validation service → database → response). Useful in
+microservices to find which hop was slow. (Handled by tools like Jaeger, Zipkin, Tempo.)
+
+NOTE: For your current learning week, focus on METRICS (Prometheus) and their VISUALIZATION
+(Grafana). Logs and traces are separate tools you may meet later (e.g. Grafana Loki for logs,
+Grafana Tempo for traces) — Grafana can display all three, which is why it has become the
+industry-standard visualization layer.
+
+
+4. WHERE PROMETHEUS AND GRAFANA FIT
+-----------------------------------
+
+Think of it as a simple pipeline:
+
+  Your Application / Server / Kubernetes Pod
+        |  (exposes numbers e.g. cpu_usage, http_requests_total)
+        v
+   Prometheus  ---- pulls & stores this data as a time series
+        |
+        v
+    Grafana   ---- reads data FROM Prometheus and draws graphs/dashboards
+        |
+        v
+  You (the engineer) look at a dashboard, or get an alert on Slack/Email
+
+Prometheus = the collector + database. It scrapes (pulls) metrics at regular intervals and stores
+them efficiently as time-series data. It also has its own basic alerting capability.
+
+Grafana = the visualization + dashboard layer. It does not collect data itself — it connects to data
+sources (Prometheus being the most common one, but also MySQL, Loki, Elasticsearch, CloudWatch,
+etc.) and turns raw numbers into graphs, tables, and alert-worthy dashboards that humans can
+actually read.
+
+
+5. REAL-TIME SIMPLE EXAMPLE
+---------------------------
+
+Imagine your log-generator application (the one you already built and deployed to the `dev`
+namespace on Kubernetes). Right now, if it starts consuming too much memory and eventually crashes,
+you only find out when someone complains or you happen to run `kubectl get pods` and see
+`CrashLoopBackOff`.
+
+With Prometheus + Grafana in place:
+
+- Kubernetes already exposes CPU/memory metrics per pod (via `kubelet`/`cAdvisor`).
+- Prometheus scrapes those metrics every 15–30 seconds and stores them.
+- Grafana shows a live graph: Memory usage of log-generator pod over the last 6 hours.
+- You set an alert rule: 'if memory usage > 90% for 5 minutes, send a Slack/email alert.'
+- Now you get notified before the crash happens, with a graph showing exactly when the climb started
+— so you can correlate it with a deployment or a traffic spike.
+
+
+6. KEY TERMS YOU WILL SEE REPEATEDLY
+------------------------------------
+
+Term             | Simple Meaning                           
+-----------------+------------------------------------------
+Time-series data | A sequence of data points, each with a   
+                 | timestamp and a value, e.g. (10:00:00,   
+                 | 45%), (10:00:15, 47%)                    
+Scraping         | Prometheus actively 'pulling' metrics    
+                 | from a target at regular intervals (as   
+                 | opposed to the target 'pushing' data to  
+                 | it)                                      
+Exporter         | A small helper program that exposes a    
+                 | system's metrics (e.g. Linux CPU/memory) 
+                 | in a format Prometheus understands       
+Target           | Any endpoint Prometheus is configured to 
+                 | scrape metrics from                      
+Dashboard        | A Grafana screen made of multiple panels 
+                 | (graphs/tables) showing related metrics  
+                 | together                                 
+Alerting         | Automatically notifying a human (Slack,  
+                 | email, PagerDuty) when a metric crosses  
+                 | a defined threshold                      
+
+
+7. SLI, SLO, SLA AND THE FOUR GOLDEN SIGNALS
+--------------------------------------------
+
+These terms come up constantly once you move from 'just watching graphs' to 'formally deciding what
+counts as healthy.' They are core SRE (Site Reliability Engineering) vocabulary, and
+Prometheus/Grafana are the tools most commonly used to measure them.
+
+Term                          | Meaning                                  | Example                                  
+------------------------------+------------------------------------------+------------------------------------------
+SLI (Service Level Indicator) | A specific metric that measures some     | '99.95% of requests in the last 5        
+                              | aspect of the service's behaviour        | minutes returned within 300ms'           
+SLO (Service Level Objective) | An internal target/goal for an SLI over  | 'p95 latency should stay under 300ms,    
+                              | a period of time                         | 99.9% of the time, measured monthly'     
+SLA (Service Level Agreement) | A formal, often contractual, commitment  | 'We guarantee 99.9% uptime per month, or 
+                              | to a customer — usually has consequences | you receive service credits'             
+                              | (credits/penalties) if missed            |                                          
+
+NOTE: Simple way to remember it: SLI = the actual measurement, SLO = your internal target for that
+measurement, SLA = the external promise built on top of the SLO (usually a looser number than the
+SLO, to leave a safety margin).
+
+Google's SRE book defines the Four Golden Signals — the four things you should almost always monitor
+for any user-facing system, and a very common interview topic:
+
+- Latency — how long requests take (e.g. p50/p95/p99 response time). Remember to separate successful
+request latency from failed request latency — a fast error is not 'good latency.'
+- Traffic — how much demand is hitting the system (e.g. requests per second, transactions per
+minute).
+- Errors — the rate of failed requests (e.g. HTTP 5xx rate, failed payment count).
+- Saturation — how 'full' the system is relative to its capacity (e.g. CPU/memory %, queue depth,
+disk usage). This is the earliest warning sign before latency and errors start climbing.
+
+NOTE: When you build your Grafana dashboard in the hands-on project later in this folder, try to
+make sure it covers at least one panel per Golden Signal — that habit alone puts you ahead of most
+freshers.
+
+
+8. WHAT'S NEXT
+--------------
+
+The remaining documents in this folder go deep into each part of this pipeline:
+
+- 2. Prometheus Fundamentals — architecture, data model, metric types, exporters, configuration.
+- 3. PromQL and Alerting — the query language used to analyze metrics, plus how alerting rules and
+Alertmanager work.
+- 4. Grafana Fundamentals — data sources, dashboards, panels, variables, and Grafana's own alerting.
+- 5. Hands-on Project — installing Prometheus + Grafana on Kubernetes (Minikube) and building your
+first real dashboard, tied back to your log-generator pipeline.

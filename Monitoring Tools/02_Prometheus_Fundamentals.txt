@@ -1,0 +1,352 @@
+=======================
+Prometheus Fundamentals
+=======================
+
+Everything you need to understand what Prometheus is, how it works internally, and how it collects
+data.
+
+
+1. WHAT IS PROMETHEUS?
+----------------------
+
+Prometheus is an open-source monitoring and alerting toolkit, originally built at SoundCloud in
+2012, and now a graduated project of the CNCF (Cloud Native Computing Foundation) — the same
+foundation that governs Kubernetes. This is exactly why Prometheus is the de-facto standard for
+monitoring Kubernetes clusters: they were designed to work well together.
+
+At its core, Prometheus is a time-series database (TSDB) with a built-in data collection engine and
+a query language (PromQL). It is not a full observability suite by itself (no built-in log storage),
+but it is extremely good at one job: collecting and storing numeric metrics reliably, and letting
+you query them.
+
+
+2. PULL MODEL VS PUSH MODEL
+---------------------------
+
+This is one of the most important design decisions in Prometheus, and interview-relevant.
+
+              | Push Model                               | Pull Model (Prometheus default)          
+--------------+------------------------------------------+------------------------------------------
+How it works  | Application actively sends metrics to a  | Monitoring server actively reaches out   
+              | central server                           | ('scrapes') and asks each target for its 
+              |                                          | current metrics                          
+Example tools | StatsD, Graphite                         | Prometheus                               
+Advantage     | Good for very short-lived/batch jobs     | Server always knows if a target is       
+              |                                          | unreachable (scrape fails = you          
+              |                                          | instantly know something is down).       
+              |                                          | Easier to control from one place — you   
+              |                                          | decide scrape interval centrally. Safer  
+              |                                          | for security (targets don't need to know 
+              |                                          | where the monitoring server is; only the 
+              |                                          | reverse).                                
+Disadvantage  | Hard to know if an app silently stopped  | Not ideal for very short-lived jobs that 
+              | sending data                             | finish before the next scrape — solved   
+              |                                          | using the Pushgateway (see below)        
+
+NOTE: Remember this one line for interviews: 'Prometheus PULLS metrics from targets over HTTP, at a
+configured scrape interval — it does not wait for applications to push data to it.'
+
+
+3. PROMETHEUS ARCHITECTURE — ALL THE MOVING PARTS
+-------------------------------------------------
+
+                     +--------------------+
+        alerts  <----|     Alertmanager    |
+                     +----------^-----------+
+                                | (fires alerts)
+  +----------+   scrape   +-----+------------+   PromQL   +---------+
+  |  Targets |<-----------|  Prometheus Server |<-----------| Grafana |
+  | (apps,   |            |  - Retrieval        |            +---------+
+  |  nodes,  |            |  - TSDB (storage)   |
+  |  pods)   |            |  - HTTP Server/API  |
+  +----------+            +--------------------+
+       ^                            ^
+       |                     reads targets from
+  +----+-----+             +--------+---------+
+  | Exporters |            | Service Discovery |
+  +-----------+             (Kubernetes, file, DNS, etc.)
+
+  +----------------+
+  |  Pushgateway   |  <-- for short-lived / batch jobs that
+  +----------------+      can't be scraped directly
+
+Let's break down each component:
+
+
+3.1 Prometheus Server
+~~~~~~~~~~~~~~~~~~~~~
+
+The core component. It has three jobs: (1) Retrieval — scraping metrics from targets on schedule,
+(2) Storage (TSDB) — writing the samples to its local time-series database on disk, (3) HTTP
+Server/API — exposing an API so PromQL queries (from Grafana, `curl`, or the Prometheus web UI) can
+read that data back.
+
+
+3.2 Exporters
+~~~~~~~~~~~~~
+
+Prometheus can only scrape metrics that are exposed in its specific text format at an HTTP endpoint
+(usually `/metrics`). Most existing software (Linux kernel, MySQL, Nginx) doesn't expose metrics in
+that format natively — so we run a small helper process called an exporter next to it, which
+translates that system's internal stats into Prometheus format.
+
+Exporter                      | What it exposes                          
+------------------------------+------------------------------------------
+node_exporter                 | Linux/Windows machine-level metrics:     
+                              | CPU, memory, disk, network of the host   
+                              | machine                                  
+cAdvisor                      | Per-container resource usage             
+                              | (CPU/memory/network of each Docker       
+                              | container) — built into kubelet on       
+                              | Kubernetes                               
+kube-state-metrics            | Kubernetes object state: number of pods, 
+                              | deployment replica counts, pod restarts, 
+                              | job status — NOT host resource usage,    
+                              | but the 'state' of K8s objects           
+                              | themselves                               
+blackbox_exporter             | Probes endpoints from outside —          
+                              | HTTP/TCP/DNS/ICMP checks (is this URL    
+                              | up? what's the response time?)           
+JMX exporter                  | Metrics from Java applications (via JMX) 
+Custom / application exporter | Metrics you code directly into your own  
+                              | app using a Prometheus client library    
+                              | (Python `prometheus_client`, Java        
+                              | `micrometer`, Go `client_golang`, etc.)  
+                              | so it exposes its own business metrics,  
+                              | e.g. `orders_processed_total`            
+
+NOTE: If you wanted to monitor your log-generator app's own custom behaviour (e.g. 'number of log
+lines generated'), you would add the Prometheus client library to the app's code so it exposes a
+`/metrics` endpoint itself — that's a custom exporter built right into the application.
+
+
+3.3 Service Discovery
+~~~~~~~~~~~~~~~~~~~~~
+
+In a static environment you could list every target's IP manually. But in Kubernetes, pods are
+created and destroyed constantly (scaling, restarts, deployments) — their IPs change all the time.
+Service Discovery (SD) lets Prometheus automatically find and track targets dynamically, e.g. by
+asking the Kubernetes API 'give me every pod with this label' rather than a hardcoded list.
+Prometheus supports Kubernetes SD, file-based SD, DNS SD, EC2 SD, and more.
+
+
+3.4 Pushgateway
+~~~~~~~~~~~~~~~
+
+For short-lived batch jobs (e.g. a Jenkins job that runs for 30 seconds and exits) — Prometheus
+might not get a chance to scrape them before they finish. The Pushgateway sits in between: the short
+job pushes its final metric values to the Pushgateway once, and Prometheus scrapes the Pushgateway
+itself (which holds that value until overwritten). Used sparingly — only for jobs that truly can't
+be scraped directly.
+
+
+3.5 Alertmanager
+~~~~~~~~~~~~~~~~
+
+A separate binary/service. Prometheus server evaluates alerting rules and fires alerts; the
+Alertmanager receives those alerts and handles: deduplication, grouping (e.g. group 20 pod-down
+alerts into 1 message), silencing (mute during planned maintenance), and routing to the right
+channel (Slack, email, PagerDuty, Teams). Covered in detail in the PromQL & Alerting document.
+
+
+4. PROMETHEUS DATA MODEL
+------------------------
+
+Everything in Prometheus is a time series: a stream of timestamped values belonging to the same
+metric name and the same set of labels (key-value pairs).
+
+http_requests_total{method="GET", handler="/login", status="200"}  1027
+http_requests_total{method="POST", handler="/login", status="500"}  3
+
+Here `http_requests_total` is the metric name, and `method`, `handler`, `status` are labels. Labels
+are what make Prometheus powerful — they let you slice the same metric in many dimensions (by
+method, by endpoint, by status code) without creating separate metric names for each combination.
+
+NOTE: Caution (interview point): avoid putting high-cardinality values (like user IDs, full request
+URLs with parameters, timestamps) into labels — each unique label combination creates a brand-new
+time series, and too many can overload Prometheus's memory/storage. This is called a 'cardinality
+explosion.'
+
+
+5. THE FOUR METRIC TYPES
+------------------------
+
+This is one of the most commonly asked fresher-to-intermediate topics. Prometheus has exactly four
+metric types on the client side:
+
+Type      | What it means                            | Can it go down?                    | Real example                             
+----------+------------------------------------------+------------------------------------+------------------------------------------
+Counter   | A value that only ever increases (or     | No (only up, or resets on restart) | `http_requests_total`,                   
+          | resets to 0 on restart). Used to count   |                                    | `log_generator_lines_written_total`,     
+          | totals of events.                        |                                    | number of Jenkins builds run             
+Gauge     | A value that can go up AND down.         | Yes                                | `node_memory_usage_bytes`,               
+          | Represents a current, point-in-time      |                                    | `current_temperature`, number of pods    
+          | measurement.                             |                                    | currently running                        
+Histogram | Samples observations (e.g. request       | N/A (cumulative buckets)           | `http_request_duration_seconds` — lets   
+          | durations) and counts them into          |                                    | you calculate percentiles like 'p95      
+          | configurable buckets (e.g. <=0.1s,       |                                    | latency' later using PromQL              
+          | <=0.5s, <=1s), plus a running total      |                                    |                                          
+          | count and sum.                           |                                    |                                          
+Summary   | Similar to Histogram, but calculates     | N/A                                | Same use case as Histogram, but          
+          | configurable quantiles (e.g. p50, p90,   |                                    | quantiles are pre-computed by the app    
+          | p99) directly on the client side,        |                                    | and can't be aggregated across multiple  
+          | instead of buckets.                      |                                    | instances as flexibly                    
+
+NOTE: Rule of thumb for interviews: use Counter for 'how many times has X happened', Gauge for 'what
+is the value of X right now', and Histogram (preferred over Summary in most modern setups) for 'how
+long did X take / what size was X', because histogram buckets CAN be aggregated across multiple pod
+replicas using PromQL, while summary quantiles cannot.
+
+
+6. PROMETHEUS CONFIGURATION — PROMETHEUS.YML
+--------------------------------------------
+
+Prometheus is configured through a single YAML file, typically `prometheus.yml`. Here's a
+simplified, realistic example:
+
+global:
+  scrape_interval: 15s        # how often to scrape targets, by default
+  evaluation_interval: 15s    # how often to evaluate alerting rules
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+rule_files:
+  - 'alert_rules.yml'         # alerting/recording rules live in a separate file
+
+scrape_configs:
+  - job_name: 'node_exporter'
+    static_configs:
+      - targets: ['10.0.0.5:9100', '10.0.0.6:9100']
+
+  - job_name: 'kubernetes-pods'
+    kubernetes_sd_configs:
+      - role: pod                # auto-discover pods via K8s API
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        target_label: app
+
+Key ideas here:
+
+- global section sets the defaults (scrape frequency) unless a job overrides it.
+- scrape_configs is a list of jobs — each job groups similar targets (e.g. all node_exporters, or
+all Kubernetes pods).
+- static_configs = you list targets manually. kubernetes_sd_configs = Prometheus discovers them
+automatically from the Kubernetes API.
+- relabel_configs lets you rewrite/filter labels before they're stored — commonly used to keep only
+pods with a certain annotation, or to rename Kubernetes' internal metadata labels into clean custom
+labels.
+
+
+7. HOW PROMETHEUS STORES DATA
+-----------------------------
+
+Prometheus's TSDB stores data on local disk in 2-hour compressed blocks, and by default keeps data
+for 15 days (configurable via `--storage.tsdb.retention.time`). For long-term storage (months/years)
+beyond what local disk can efficiently hold, Prometheus data is typically forwarded via remote_write
+to a long-term store like Thanos, Cortex, or Mimir — a concept worth knowing exists, even if you
+won't set it up in week one.
+
+
+8. METRIC NAMING BEST PRACTICES
+-------------------------------
+
+Prometheus has a widely-followed naming convention. Following it makes your custom metrics
+predictable to anyone who already knows Prometheus (which matters a lot in a large org like HSBC
+where many teams share the same monitoring stack).
+
+- Use snake_case: `http_requests_total`, not `httpRequestsTotal`.
+- Prefix with the application/subsystem name: `logGenerator` → `log_generator_lines_written_total`.
+- Suffix Counters with `_total`: `orders_processed_total`.
+- Suffix values with their base unit: `_seconds`, `_bytes` — always use base units (seconds not ms,
+bytes not KB) so PromQL functions and unit conversions stay consistent across every metric in the
+system.
+- Histogram bucket/count/sum series are auto-suffixed by Prometheus itself: `_bucket`, `_count`,
+`_sum` — you don't add these manually, the client library does it for you.
+- Avoid encoding a label's value into the metric name (e.g. don't create
+`http_requests_status_500_total` — instead use one metric `http_requests_total` with a `status`
+label). This is what labels are for.
+
+
+9. PROMETHEUS VS OTHER MONITORING TOOLS (INTERVIEW COMPARISON)
+--------------------------------------------------------------
+
+Tool                         | How it's different from Prometheus       
+-----------------------------+------------------------------------------
+Nagios / Zabbix              | Older, more check-based ('is this host   
+                             | up? yes/no') rather than rich            
+                             | time-series metrics; less native fit for 
+                             | dynamic cloud/Kubernetes environments    
+Graphite / StatsD            | Push-based; Prometheus's pull model and  
+                             | label-based data model give more         
+                             | flexible querying (PromQL) than          
+                             | Graphite's dotted-path metric names      
+InfluxDB                     | Also a time-series database, but         
+                             | push-based and uses its own query        
+                             | language (InfluxQL/Flux); often chosen   
+                             | when very high write-throughput or long  
+                             | retention is the priority                
+Datadog / New Relic / Splunk | Commercial, fully-managed SaaS           
+                             | observability platforms — much less      
+                             | setup effort, but cost money and mean    
+                             | your data leaves your infrastructure;    
+                             | Prometheus is free, self-hosted, and     
+                             | open-source                              
+CloudWatch / Azure Monitor   | Cloud-provider-native monitoring for     
+                             | their own managed services; often used   
+                             | alongside Prometheus (CloudWatch for     
+                             | managed AWS services, Prometheus for     
+                             | anything running inside your own         
+                             | Kubernetes cluster)                      
+
+
+10. LIMITATIONS OF PROMETHEUS (KNOW THESE FOR INTERVIEWS)
+---------------------------------------------------------
+
+No tool is perfect for everything — understanding Prometheus's limitations is just as important as
+knowing its strengths.
+
+- Not built for long-term storage. Local retention is typically kept short (15 days by default); for
+months/years of history you forward data to Thanos, Cortex, or Mimir.
+- Not a logging or tracing system. It only stores numeric time series — no raw log text, no
+distributed trace spans (that's Loki's and Tempo's job).
+- Single-node storage by default. The open-source Prometheus server itself is not natively
+clustered/highly-available out of the box — you typically run two identical Prometheus replicas
+scraping the same targets for redundancy, or use Thanos/Cortex/Mimir for a truly HA,
+horizontally-scalable setup.
+- Not ideal for very high-cardinality data (e.g. a label containing a unique user ID or full request
+URL) — this can blow up memory usage; keep label values bounded.
+- Pull model needs network reachability — Prometheus must be able to reach every target directly,
+which needs some thought in tightly firewalled/segmented networks (common in banking environments).
+
+
+11. BASIC SECURITY AWARENESS
+----------------------------
+
+In an enterprise environment, `/metrics` endpoints and the Prometheus/Grafana UIs are never left
+wide open. Things you should know exist, even if a platform team manages them centrally:
+
+- Scrape configs can use basic_auth, bearer_token, or TLS client certificates (mTLS) to authenticate
+to protected `/metrics` endpoints.
+- The Prometheus and Grafana web UIs themselves are typically placed behind corporate SSO/reverse
+proxy authentication rather than exposed directly.
+- Metrics should never contain sensitive data (card numbers, account numbers, customer PII) in
+metric names, label values, or annotations — treat metric labels as if they could end up in a shared
+dashboard visible to a wider audience than just you.
+
+
+12. QUICK RECAP CHECKLIST
+-------------------------
+
+- Prometheus PULLS (scrapes) metrics over HTTP at a configured interval.
+- Metrics are exposed at a `/metrics` endpoint, either natively or via an exporter.
+- Every metric has a name + labels; the combination defines a unique time series.
+- Four metric types: Counter (only up), Gauge (up/down), Histogram (bucketed observations), Summary
+(client-side quantiles).
+- Service Discovery lets Prometheus auto-track dynamic targets like Kubernetes pods.
+- Pushgateway is the exception to the pull model, for short-lived jobs.
+- Alertmanager is a separate service that Prometheus sends fired alerts to, for
+routing/grouping/silencing.
+- prometheus.yml is the single configuration file — global settings + scrape_configs + rule_files.

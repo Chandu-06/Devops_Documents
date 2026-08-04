@@ -1,0 +1,289 @@
+====================
+PromQL and Alerting
+====================
+
+PromQL is Prometheus's own query language — the tool you use to actually ask questions of the data
+you've collected. This document also covers alerting rules and Alertmanager.
+
+
+1. WHAT IS PROMQL?
+------------------
+
+PromQL (Prometheus Query Language) is a functional query language built specifically for time-series
+data. You use it in three places: the Prometheus web UI ('Graph' tab), Grafana panels (when
+Prometheus is the data source), and alerting/recording rules.
+
+
+2. THE THREE DATA TYPES IN PROMQL
+---------------------------------
+
+Type           | Meaning                                  | Example                                  
+---------------+------------------------------------------+------------------------------------------
+Instant vector | A set of time series, each with a single | `node_memory_usage_bytes` — current      
+               | value, at one instant in time            | value for every series matching this     
+               |                                          | name                                     
+Range vector   | A set of time series, each with a range  | `node_memory_usage_bytes[5m]` — all data 
+               | of values over a time window             | points from the last 5 minutes           
+Scalar         | A single plain numeric value, no labels  | `42` or the result of a function like    
+               |                                          | `count(...)`                             
+
+NOTE: Range vectors (with the `[5m]` style time window) can't be graphed directly — they exist
+mainly so that functions like `rate()` or `avg_over_time()` can process them into an instant vector,
+which CAN be graphed.
+
+
+3. SELECTING METRICS — LABEL MATCHING
+-------------------------------------
+
+http_requests_total                                   # all series with this metric name
+http_requests_total{status="500"}                     # only series where status label = 500
+http_requests_total{status!="200"}                    # status NOT equal to 200
+http_requests_total{status=~"5.."}                    # regex match: any 5xx status
+http_requests_total{status!~"2.."}                    # regex NOT match: exclude 2xx
+
+`=` and `!=` are exact matches; `=~` and `!~` use regular expressions. This is exactly like
+filtering rows in a table by a column value.
+
+
+4. THE MOST IMPORTANT FUNCTIONS
+-------------------------------
+
+Function                     | Use case                                 | Example                                  
+-----------------------------+------------------------------------------+------------------------------------------
+rate()                       | Per-second average rate of increase of a | `rate(http_requests_total[5m])`          
+                             | Counter over a time window — the #1      |                                          
+                             | function you'll use for counters         |                                          
+irate()                      | Like rate(), but only uses the last two  | `irate(http_requests_total[5m])`         
+                             | data points — more reactive to sudden    |                                          
+                             | spikes, noisier on graphs                |                                          
+increase()                   | Total increase of a Counter over a time  | `increase(http_requests_total[1h])`      
+                             | window (not per-second, the raw total)   |                                          
+sum()                        | Aggregates (adds up) values across       | `sum(rate(http_requests_total[5m]))`     
+                             | multiple series                          |                                          
+avg(), min(), max(), count() | Other standard aggregations              | `avg(node_memory_usage_bytes)`           
+by (label)                   | Groups an aggregation by a specific      | `sum(rate(http_requests_total[5m])) by   
+                             | label instead of collapsing everything   | (status)`                                
+                             | into one number                          |                                          
+histogram_quantile()         | Calculates a percentile (e.g. p95, p99)  | `histogram_quantile(0.95,                
+                             | from Histogram bucket data               | rate(http_request_duration_seconds_bucke 
+
+
+5. WORKED EXAMPLES (REAL SCENARIOS)
+-----------------------------------
+
+
+5.1 "What is the current memory usage of my log-generator pod?"
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+container_memory_usage_bytes{pod=~"log-generator.*"}
+
+
+5.2 "What's the per-second request rate hitting my /login endpoint over the last 5 minutes?"
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+rate(http_requests_total{handler="/login"}[5m])
+
+
+5.3 "What percentage of all requests in the last 5 minutes were errors (5xx)?"
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+sum(rate(http_requests_total{status=~"5.."}[5m]))
+  /
+sum(rate(http_requests_total[5m]))
+  * 100
+
+
+5.4 "What is the 95th percentile response time (p95 latency) of my service?"
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))
+
+(`le` = 'less than or equal', the label Prometheus automatically attaches to each Histogram bucket
+boundary.)
+
+
+5.5 "Is any node running low on disk space (less than 10% free)?"
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+(node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 10
+
+
+6. ALERTING RULES — TURNING A PROMQL QUERY INTO AN ALERT
+--------------------------------------------------------
+
+An alerting rule is just a PromQL expression that Prometheus evaluates repeatedly (every
+`evaluation_interval`). If the expression returns any result, that becomes a firing alert. These
+rules live in a separate YAML file referenced from `prometheus.yml` via `rule_files:`.
+
+groups:
+  - name: pod-health
+    rules:
+      - alert: HighMemoryUsage
+        expr: (container_memory_usage_bytes / container_spec_memory_limit_bytes) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pod {{ $labels.pod }} memory usage is above 90%"
+          description: "Has been above 90% for more than 5 minutes."
+
+Key fields explained:
+
+- expr — the PromQL condition that must be true for the alert to fire.
+- for — how long the condition must stay true continuously before the alert actually fires (this
+prevents noisy false alarms from a brief 2-second spike). The alert state moves from `Inactive` →
+`Pending` → `Firing`.
+- labels — attached to the alert itself, commonly used for severity (`warning`, `critical`) so
+Alertmanager can route differently.
+- annotations — human-readable text shown in the notification; supports templating with `{{
+$labels.xxx }}` and `{{ $value }}` to insert dynamic details.
+
+
+7. RECORDING RULES (BONUS, OFTEN MISSED BY FRESHERS)
+----------------------------------------------------
+
+A recording rule pre-computes a frequently-used or expensive PromQL expression and saves the result
+as a new time series, on a schedule. This speeds up dashboards that would otherwise re-run a heavy
+calculation every single time someone opens them.
+
+groups:
+  - name: recording-rules
+    rules:
+      - record: job:http_requests:rate5m
+        expr: sum(rate(http_requests_total[5m])) by (job)
+
+Now `job:http_requests:rate5m` can be queried directly like any normal metric, instead of
+recalculating the `sum(rate(...))` every time.
+
+
+8. ALERTMANAGER — WHAT HAPPENS AFTER AN ALERT FIRES
+---------------------------------------------------
+
+Prometheus server itself does NOT send Slack messages or emails. Once a rule fires, Prometheus
+forwards it to Alertmanager, which is a separate process responsible for:
+
+- Grouping — bundling similar alerts into a single notification (e.g. 'HighMemoryUsage fired for 5
+pods' instead of 5 separate messages).
+- Deduplication — avoiding repeat spam if Prometheus re-sends the same firing alert on every
+evaluation cycle.
+- Silencing — temporarily muting alerts during planned maintenance windows.
+- Inhibition — suppressing lower-priority alerts if a related higher-priority alert is already
+firing (e.g. don't alert on 'slow response' if 'service down' is already firing for the same
+service).
+- Routing — sending different alerts to different destinations based on labels, e.g. `severity:
+critical` → PagerDuty call, `severity: warning` → Slack channel.
+
+route:
+  receiver: 'slack-default'
+  group_by: ['alertname', 'job']
+  routes:
+    - match:
+        severity: critical
+      receiver: 'pagerduty-oncall'
+
+receivers:
+  - name: 'slack-default'
+    slack_configs:
+      - channel: '#pdponprem-alerts'
+  - name: 'pagerduty-oncall'
+    pagerduty_configs:
+      - service_key: '<key>'
+
+
+9. MORE PROMQL YOU SHOULD KNOW
+------------------------------
+
+
+9.1 Arithmetic, Comparison, and Logical Operators
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+node_memory_total_bytes - node_memory_free_bytes        # arithmetic: + - * / % ^
+up == 0                                                  # comparison: == != > < >= <=
+up == 0 and node_load1 > 2                                # logical AND between two vectors
+http_requests_total{status="500"} or http_requests_total{status="502"}   # logical OR
+node_load1 unless on(instance) up == 0                   # 'unless' = exclude matching series
+
+
+9.2 Vector Matching — on(), ignoring(), group_left()
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When you write an expression combining two different metrics (e.g. dividing one by another), PromQL
+needs to know which labels to 'match' series on. By default it matches on ALL shared labels. `on()`
+and `ignoring()` let you control this explicitly — a common source of confusion for freshers when a
+query unexpectedly returns 'no data.'
+
+# only match series where the 'instance' label is equal, ignore all other labels
+node_memory_free_bytes / on(instance) node_memory_total_bytes
+
+# match on everything EXCEPT the 'cpu' label
+rate(node_cpu_seconds_total[5m]) / ignoring(cpu) node_cpu_count
+
+# group_left / group_right: needed when one side has MORE series than the other
+# (a many-to-one match), e.g. attaching a single 'version' info metric to many pod metrics
+kube_pod_info * on(pod) group_left(version) kube_pod_container_info
+
+
+9.3 Offset Modifier — Comparing Against the Past
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# current request rate compared to the same time yesterday
+rate(http_requests_total[5m]) - rate(http_requests_total[5m] offset 1d)
+
+
+9.4 Other Useful Functions
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Function           | Use case                                 
+-------------------+------------------------------------------
+absent()           | Returns 1 if a given metric has NO       
+                   | series at all — very useful for alerting 
+                   | on 'this exporter/job has stopped        
+                   | reporting entirely', which               
+                   | `rate()`/threshold alerts can't catch    
+delta()            | Difference between the first and last    
+                   | value of a Gauge over a time range (like 
+                   | `increase()` but for Gauges, and can be  
+                   | negative)                                
+predict_linear()   | Predicts what a Gauge's value will be N  
+                   | seconds from now, based on its recent    
+                   | linear trend — e.g. 'will this disk fill 
+                   | up within 4 hours?'                      
+topk() / bottomk() | Returns the top/bottom N series by value 
+                   | — e.g. 'top 5 pods by memory usage'      
+label_replace()    | Creates/renames a label on a series      
+                   | using a regex — useful for making labels 
+                   | from two different metrics line up so    
+                   | they can be matched together             
+
+absent(up{job="log-generator"})                          # fires 1 if the job vanished entirely
+predict_linear(node_filesystem_avail_bytes[6h], 4*3600) < 0   # disk predicted to fill in 4h
+topk(5, container_memory_usage_bytes{namespace="dev"})   # top 5 memory-hungry containers
+
+
+10. MANAGING ALERTS DAY-TO-DAY — AMTOOL AND SILENCES
+----------------------------------------------------
+
+`amtool` is Alertmanager's command-line companion tool, commonly used by on-call engineers
+day-to-day (in addition to the Alertmanager web UI).
+
+amtool alert query                          # list currently firing alerts
+amtool silence add alertname=HighMemoryUsage --duration=2h --comment='planned maintenance'
+amtool silence query                        # list active silences
+amtool silence expire <silence-id>           # end a silence early
+
+NOTE: Silencing is different from fixing the underlying issue — it only stops the notification noise
+for a set time. Always leave a clear `--comment` explaining why, so the next person (or you,
+tomorrow) understands why an alert went quiet.
+
+
+11. QUICK RECAP CHECKLIST
+-------------------------
+
+- PromQL has three data types: instant vector, range vector, scalar.
+- `rate()` and `increase()` work on Counters over a time window; use `sum()`/`avg()`/`by()` to
+aggregate across pods/instances.
+- `histogram_quantile()` turns Histogram bucket data into percentiles like p95/p99 latency.
+- Alerting rules = PromQL expression + `for` duration + labels + annotations, stored in rule files.
+- Recording rules pre-compute expensive queries and save them as new metrics for faster dashboards.
+- Alertmanager (separate from Prometheus server) handles grouping, deduplication, silencing,
+inhibition, and routing of fired alerts to Slack/email/PagerDuty.
