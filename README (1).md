@@ -218,3 +218,67 @@ cd devops_poc/log-generator
 git add README.md
 git commit -m "Add README for log-generator project"
 git push origin develop
+
+
+# Task: Enable SonarQube Analysis for Python and Node.js Applications
+
+## 1. Background
+
+Our existing CI/CD pipeline supports SonarQube analysis for Java applications. Python and Node.js applications currently bypass SonarQube analysis because the pipeline does not support their complete unit testing and code coverage workflow.
+
+A Proof of Concept (POC) was completed in the previous sprint to validate the approach. During the POC, sample test cases were created, unit tests were executed, code coverage reports were generated, and SonarQube analysis was performed successfully.
+
+Now, we need to extend this functionality to support Python and Node.js applications across our existing pipeline.
+
+## 2. Objective
+
+Implement the required pipeline and configuration changes to enable SonarQube analysis for Python and Node.js applications while preserving the existing Java functionality and bypass behavior.
+
+## 3. Requirements
+
+1. **Understand the existing implementation:** Analyze the current pipeline, shared scripts, test execution logic, SonarQube configuration, and the POC implementation before proposing changes.
+
+2. **Refer to documentation:** Review the relevant Confluence documentation for Python and Node.js unit testing, code coverage generation, and SonarQube integration. Identify the language-specific differences.
+
+3. **Implement test execution:** Configure the pipeline to execute unit tests for Python and Node.js applications using the appropriate testing frameworks and generate code coverage reports in formats supported by SonarQube.
+
+4. **Provide common test cases:** Implement reusable, minimal test cases for Python and Node.js applications where needed. These are intended to enable unit test execution and code coverage generation, not to test application-specific business logic. Avoid overwriting or duplicating existing application tests.
+
+5. **Integrate SonarQube analysis:** Ensure that the generated coverage reports are correctly configured and imported during SonarQube analysis.
+
+6. **Preserve existing behavior:** Java applications must continue to follow the existing workflow. The existing bypass functionality must remain available.
+
+7. **Implement conditional execution:** When suitable test cases are present, execute the new unit testing, coverage generation, and SonarQube analysis workflow. When test cases are absent, retain the existing pipeline behavior according to the current bypass and fallback logic.
+
+8. **Validate the changes:** Test the implementation with representative Python and Node.js applications, including cases with and without test files. Verify that Java builds and existing pipeline behavior remain unaffected.
+
+## 4. Constraints
+
+- Follow the existing pipeline architecture and coding conventions.
+- Reuse existing shared functions and configuration wherever possible.
+- Avoid hardcoding application-specific paths, test commands, or configuration values when reusable alternatives are available.
+- Do not remove or unintentionally change existing Java behavior or bypass conditions.
+- Do not assume that Python and Node.js use the same test frameworks, coverage formats, or configuration requirements.
+- Do not make changes until the current implementation and POC have been reviewed.
+
+## 5. Expected Deliverables
+
+- Updated pipeline and shared configuration.
+- Reusable test cases or test setup for Python and Node.js applications, as appropriate.
+- Working unit test and code coverage generation.
+- Successful SonarQube analysis with coverage imported.
+- Validation results covering Python, Node.js, Java, and the relevant fallback/bypass scenarios.
+
+## 6. How to Work
+
+First, inspect the existing code and explain the current execution flow. Then review the POC and relevant documentation. Identify the required changes and any unresolved assumptions before implementing them.
+
+Make incremental changes, explain each modification, and provide the files changed, the reason for each change, the tests executed, and any remaining issues.
+
+Do not invent repository details or claim successful validation without actual execution results.
+
+We go step by step, no need to complete all at once.
+
+Note: First get the complete information and tell me what you understood, then we begin implementation.
+
+Tell me the plan of action, how we go for this in a steped manner
